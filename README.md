@@ -45,7 +45,7 @@ are stated explicitly in the strip instead of showing invented ratings.
 
 The default strip occupies just 520 × 104 px, 24 px from the top-right corner.
 Its vosu settings control width (320–900 px), corner, horizontal/vertical inset,
-and system (Etterna, Quaver, Interlude, osu!mania or NPS). The overlay reads
+and system (Etterna local MSD, Etterna native strain, Quaver, Interlude, osu!mania or NPS). The overlay reads
 settings live through the standard command socket; no browser storage is used.
 
 It subscribes to `/websocket/v2/subscribe` for selected checksum, chart play
@@ -56,12 +56,22 @@ the unplayed portion. The overall chip follows the selected rating system;
 the top-pattern chip is always MinaCalc. Rates use 0.05 steps from 0.50–2.00×;
 outside this range the strip reports unsupported rate rather than stale values.
 
-The compact curve is **native contextual strain, not local MSD or star rating**:
-1 s chart-time windows, 0.5 s hop, maximum aggregation, no smoothing.
-MinaCalc's curve is its existing base-adjusted interval difficulty (max hand);
-Quaver/Interlude expose their own strains. NPS counts tap/hold heads per playback
-second. Independent models have different scales. Reform dan estimates are not
-displayed as ranks or clear guarantees.
+The default Etterna curve (`etterna`) is **actual local MSD**: independent
+MinaCalc calculations on centered **12 s chart-time windows / 1 s hop**.
+Each window resets context and rebases note timestamps to its start; windows
+are clipped at chart edges. This measures the local head pattern, not full-map
+stamina. No post-smoothing or strain-to-MSD conversion is applied.
+The dotted horizontal line is the map's whole-chart overall MSD. The scale starts
+at 0–40 MSD and expands in tens if necessary. Discrete warm 18-LAB colour bands
+are `<10`, `10–20`, `20–30`, `30–40`, `40+`, not a rainbow gradient.
+
+`etterna-native` retains the original native base-adjusted interval strain
+(max hand), using 1 s chart-time windows / 0.5 s hop / maximum aggregation.
+Quaver/Interlude expose their own native strains; these are not local MSD.
+NPS counts tap/hold heads per playback second. Independent systems have different
+scales. The service caches timelines by chart, rate, window, hop and mode; the
+overlay never recalculates them locally. Reform estimates are not displayed
+as ranks or clear guarantees.
 
 ## License and sources
 

@@ -2,7 +2,7 @@
 'use strict';
 const strip=document.getElementById('strip'),canvas=document.getElementById('chart');
 const settings={width:520,x:24,y:24,system:'etterna',anchor:'top-right'};
-const state={checksum:'',rate:1,position:0,playing:false,points:[],duration:1,request:0,key:''};
+const state={checksum:'',rate:1,position:0,playing:false,points:[],duration:1,request:0,key:'',local:false,overall:0,hop:1};
 const fields=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number'];
 const values=[];
 let stopped=false,stream,commands;
@@ -11,9 +11,17 @@ function draw(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;
  canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
  c.strokeStyle='#36383d';c.beginPath();c.moveTo(0,h-1);c.lineTo(w,h-1);c.stroke();
- const max=Math.max(1,...state.points.map(p=>p.value));c.fillStyle='#ff963f';
- for(const p of state.points){const x=p.time/state.duration*w;c.globalAlpha=state.playing&&p.time>state.position?.35:.8;c.fillRect(x,h-p.value/max*(h-3),Math.max(1,.5/state.duration*w),p.value/max*(h-3));}
+ const peak=Math.max(1,...state.points.map(p=>p.value)),max=state.local?Math.max(40,Math.ceil(Math.max(peak,state.overall)/10)*10):peak;
+ for(const p of state.points){
+  const x=p.time/state.duration*w;c.globalAlpha=state.playing&&p.time>state.position?.35:.85;
+  c.fillStyle=p.value<10?'#665447':p.value<20?'#9b6845':p.value<30?'#d87b3e':p.value<40?'#ff963f':'#ffd3a3';
+  c.fillRect(x,h-p.value/max*(h-3),Math.max(1,state.hop/state.duration*w),p.value/max*(h-3));
+ }
  c.globalAlpha=1;
+ if(state.local&&state.points.length){
+  const y=h-state.overall/max*(h-3);c.strokeStyle='#f2f1ec';c.lineWidth=1;c.setLineDash([2,3]);c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();c.setLineDash([]);
+  c.fillStyle='#c7c5c0';c.font='7px monospace';c.fillText(`${max} MSD`,2,7);
+ }
  if(state.playing&&state.points.length){const x=Math.max(0,Math.min(w,state.position/state.duration*w));c.strokeStyle='#f2f1ec';c.lineWidth=2;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();}
  document.getElementById('time').textContent=state.playing?`${Math.max(0,Math.floor(state.position/60))}:${Math.max(0,Math.floor(state.position%60)).toString().padStart(2,'0')}`:'';
 }
@@ -27,14 +35,16 @@ async function calculate(){
   // Current route resolves the selected file and seeds its checksum cache.
   const rating=await read(`v1/beatmap/current?rate=${state.rate}`);
   if(request!==state.request)return;if(rating.unsupported)throw Error(rating.unsupported);
-  const timeline=await read(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${settings.system}&window=1&hop=0.5`);
+  const local=settings.system==='etterna';
+  const timeline=await read(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${settings.system}&window=${local?12:1}&hop=${local?1:.5}`);
   if(request!==state.request)return;
   state.points=timeline.points;state.duration=Math.max(1,timeline.duration);
-  const number=settings.system==='etterna'?rating.msd?.overall:settings.system==='osu'?rating.stars:settings.system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[settings.system];
+  state.local=timeline.mode==='local_msd';state.overall=timeline.overall||0;state.hop=timeline.hop;
+  const number=['etterna','etterna-native'].includes(settings.system)?rating.msd?.overall:settings.system==='osu'?rating.stars:settings.system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[settings.system];
   document.getElementById('overall').textContent=number==null?'—':Number(number).toFixed(2);
   const top=Object.entries(rating.msd||{}).filter(([name])=>!['overall','stamina'].includes(name)).sort((a,b)=>b[1]-a[1])[0];
   document.getElementById('skill').textContent=top?`${top[0]} ${Number(top[1]).toFixed(1)}`:'';
-  document.getElementById('message').textContent=`${settings.system.toUpperCase()} / native strain · no smoothing`;
+  document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':`${settings.system.toUpperCase()} / native strain · no smoothing`;
   document.body.classList.remove('unavailable');draw();
  }catch(error){if(request!==state.request)return;document.body.classList.add('unavailable');document.getElementById('message').textContent=error.message;state.key='';}
 }
@@ -60,7 +70,7 @@ function connect(){
 }
 function applySettings(value){
  for(const key of ['width','x','y']){const n=Number(value[key]);if(Number.isFinite(n))settings[key]=n;}
- if(['etterna','quaver','interlude','osu','nps'].includes(value.system))settings.system=value.system;
+ if(['etterna','etterna-native','quaver','interlude','osu','nps'].includes(value.system))settings.system=value.system;
  if(['top-left','top-right','bottom-left','bottom-right'].includes(value.anchor))settings.anchor=value.anchor;
  strip.style.width=`${Math.max(320,Math.min(900,settings.width))}px`;
  for(const edge of ['top','bottom','left','right'])strip.style[edge]='auto';

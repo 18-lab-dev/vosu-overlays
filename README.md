@@ -73,6 +73,18 @@ scales. The service caches timelines by chart, rate, window, hop and mode; the
 overlay never recalculates them locally. Reform estimates are not displayed
 as ranks or clear guarantees.
 
+## Release packages
+
+Only self-contained folders under `overlays/` are vosu-installable. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the catalog; continue serving them with `./run.sh`.
+
+```sh
+python scripts/package.py --base-url https://github.com/shiruviaa/vosu-overlays/releases/download/v0.1.0
+python -m unittest discover -s scripts -p test_package.py
+```
+
+The packager writes deterministic `dist/vosu-overlay-<id>-<version>.zip` files and `dist/catalog.json`, with package SHA-256/size, source metadata, and optional preview assets. It checks vosu's regular-file/path, entry-count, expanded-size, and root `index.html` rules. Each folder's `metadata.txt` uses `key = value` lines. `requires_tools` is a JSON array of `{"id","version"}` requirements; `resolution` is a JSON `[width,height]`; `preview` may name an image within the folder (otherwise `preview.png`, `.jpg`, `.jpeg`, or `.webp` is detected). The release workflow uploads packages, catalog, and preview images on a `v*` tag.
+
+
 ## License and sources
 
 Project code is MIT licensed. External services, models, packages, and source acknowledgements are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Beatmap audio and lyrics remain subject to their respective owners' rights; this software does not redistribute cached source audio.

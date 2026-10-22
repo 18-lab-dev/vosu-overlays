@@ -65,6 +65,24 @@ class OverlayPackageTests(unittest.TestCase):
         self.assertEqual(preview, 'https://example.com/releases/v1/vosu-overlay-timeline-0.1.0-preview.png')
         self.assertEqual((self.root / 'dist/vosu-overlay-timeline-0.1.0-preview.png').read_bytes(), b'fixture preview')
 
+    def test_artwork_fallback_and_explicit_metadata(self):
+        (self.overlay / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"/>')
+        (self.overlay / 'wide.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"/>')
+        with (self.overlay / 'metadata.txt').open('a') as output:
+            output.write('banner = wide.svg\n')
+        entry = self.build()['overlays'][0]
+        self.assertEqual(entry['icon_url'], 'https://example.com/releases/v1/vosu-overlay-timeline-icon.svg')
+        self.assertEqual(entry['banner_url'], 'https://example.com/releases/v1/vosu-overlay-timeline-banner.svg')
+        self.assertEqual((self.root / 'dist/vosu-overlay-timeline-banner.svg').read_bytes(), (self.overlay / 'wide.svg').read_bytes())
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertIn('wide.svg', archive.namelist())
+
+    def test_invalid_declared_art_is_not_silently_omitted(self):
+        with (self.overlay / 'metadata.txt').open('a') as output:
+            output.write('banner = missing.svg\n')
+        with self.assertRaises(ValueError):
+            self.build()
+
     def test_rejects_missing_index_and_invalid_identity(self):
         (self.overlay / 'index.html').unlink()
         with self.assertRaises(ValueError):

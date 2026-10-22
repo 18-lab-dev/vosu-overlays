@@ -79,10 +79,12 @@ Only self-contained folders under `overlays/` are vosu-installable. The root `/l
 
 ```sh
 python scripts/package.py --base-url https://github.com/shiruviaa/vosu-overlays/releases/download/v0.1.0
-python -m unittest discover -s scripts -p test_package.py
+python -m unittest discover -s scripts -p 'test*.py'
 ```
 
 The packager writes deterministic `dist/vosu-overlay-<id>-<version>.zip` files and `dist/catalog.json`, with package SHA-256/size, source metadata, and optional preview assets. It checks vosu's regular-file/path, entry-count, expanded-size, and root `index.html` rules. Each folder's `metadata.txt` uses `key = value` lines. `requires_tools` is a JSON array of `{"id","version"}` requirements; `resolution` is a JSON `[width,height]`; `preview` may name an image within the folder (otherwise `preview.png`, `.jpg`, `.jpeg`, or `.webp` is detected). The release workflow uploads packages, catalog, and preview images on a `v*` tag.
+
+Optional `icon` and `banner` metadata name artwork paths inside the overlay folder; absent fields discover a single `icon.*` / `banner.*` file. Icons must be square SVG or PNG, at least 256×256. Banners accept SVG, PNG, JPEG or WebP with a 3:1 aspect ratio (±2%, recommended 1200×400). Each image is limited to 1 MiB. Invalid declarations, mismatched image types, unsafe paths and ambiguous fallback files fail packaging. Art stays in the ZIP and is also published as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`; the catalog's optional HTTPS `icon_url` / `banner_url` fields point to those assets for pre-install cards.
 
 
 ## License and sources

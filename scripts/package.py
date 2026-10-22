@@ -12,6 +12,7 @@ import sys
 import tempfile
 from urllib.parse import urlsplit
 import zipfile
+from package_art import artwork, art_urls, publish_art
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,6 +118,7 @@ def package(root, out, base_url, date, name='18-LAB official overlays'):
         if not valid_id(directory.name) or directory.name == 'tools':
             raise ValueError(f'invalid overlay id: {directory.name}')
         values = metadata(directory)
+        art = artwork(directory, values, fallback=True)
         files = files_for(root, directory)
         filename = f'vosu-overlay-{directory.name}-{values["version"]}.zip'
         integrity = write_zip(out / filename, files)
@@ -134,6 +136,8 @@ def package(root, out, base_url, date, name='18-LAB official overlays'):
         entry.update({'id': directory.name, 'homepage': values.get('homepage'), 'resolution': values.get('resolution'),
                       'preview': preview, 'requires_tools': values['requires_tools'],
                       'package': {'url': release_url(base_url, filename), **integrity}})
+        publish_art(art, directory.name, 'overlay', out)
+        entry.update(art_urls(art, directory.name, 'overlay', base_url))
         catalog['overlays'].append(entry)
         print(f'{directory.name}\t{integrity["size"]}\t{integrity["sha256"]}')
     with tempfile.NamedTemporaryFile(dir=out, mode='w', encoding='utf-8', newline='\n', delete=False) as output:

@@ -1,0 +1,4 @@
+name = Ratings timeline
+author = 18-LAB
+version = 0.1.0
+description = Compact native mania difficulty timeline for Ratings, with rate-aware values and a live position marker.

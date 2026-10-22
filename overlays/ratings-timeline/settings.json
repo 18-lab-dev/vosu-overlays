@@ -1,0 +1,7 @@
+[
+ {"uniqueID":"width","type":"number","title":"Strip width / px","description":"Compact width; clamped to 320–900 px.","value":520},
+ {"uniqueID":"x","type":"number","title":"Horizontal inset / px","value":24},
+ {"uniqueID":"y","type":"number","title":"Vertical inset / px","value":24},
+ {"uniqueID":"anchor","type":"options","title":"Position anchor","options":["top-left","top-right","bottom-left","bottom-right"],"value":"top-right"},
+ {"uniqueID":"system","type":"options","title":"Rating system","options":["etterna","quaver","interlude","osu","nps"],"description":"Curve is native strain, not local MSD. Top skill chip always uses Etterna.","value":"etterna"}
+]

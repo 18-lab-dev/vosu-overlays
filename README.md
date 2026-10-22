@@ -35,6 +35,34 @@ Use the same URLs in a vosulay browser/web overlay. Keep vosu and `./run.sh` run
 
 For each current beatmap, the sidecar queries the public [LRCLIB API](https://lrclib.net) by vosu artist/title metadata. If no synchronized result exists, it downloads the current map audio from vosu's `/files/beatmap/audio`, invokes `Qwen3ASRModel.from_pretrained("Qwen/Qwen3-ASR-0.6B", device_map="cuda:0")`, and requests timestamps from the official `Qwen/Qwen3-ForcedAligner-0.6B`. Failures are returned to the overlay explicitly; untimed or fabricated fallback text is not emitted.
 
+## Ratings timeline (vosu-installable)
+
+`overlays/ratings-timeline/` is a self-contained overlay folder, independent of
+the Python sidecar. Copy this folder to vosu's static root and use
+`http://127.0.0.1:24050/ratings-timeline/` as a 1920 × 1080 browser source.
+Install the **Ratings** vosu tool separately. Missing tools and unavailable maps
+are stated explicitly in the strip instead of showing invented ratings.
+
+The default strip occupies just 520 × 104 px, 24 px from the top-right corner.
+Its vosu settings control width (320–900 px), corner, horizontal/vertical inset,
+and system (Etterna, Quaver, Interlude, osu!mania or NPS). The overlay reads
+settings live through the standard command socket; no browser storage is used.
+
+It subscribes to `/websocket/v2/subscribe` for selected checksum, chart play
+position, mod rate and game state, and calls same-origin
+`/tools/ratings/api/v1/beatmap/current` and cached `/timeline` read routes.
+Song select shows the complete curve; gameplay adds a position marker and dims
+the unplayed portion. The overall chip follows the selected rating system;
+the top-pattern chip is always MinaCalc. Rates use 0.05 steps from 0.50–2.00×;
+outside this range the strip reports unsupported rate rather than stale values.
+
+The compact curve is **native contextual strain, not local MSD or star rating**:
+1 s chart-time windows, 0.5 s hop, maximum aggregation, no smoothing.
+MinaCalc's curve is its existing base-adjusted interval difficulty (max hand);
+Quaver/Interlude expose their own strains. NPS counts tap/hold heads per playback
+second. Independent models have different scales. Reform dan estimates are not
+displayed as ranks or clear guarantees.
+
 ## License and sources
 
 Project code is MIT licensed. External services, models, packages, and source acknowledgements are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Beatmap audio and lyrics remain subject to their respective owners' rights; this software does not redistribute cached source audio.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local static server and lyrics resolver for vosu-counters."""
+"""Local static server and lyrics resolver for vosu-overlays."""
 
 from __future__ import annotations
 
@@ -19,10 +19,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent
-CACHE_DIR = Path(os.environ.get("VOSU_COUNTERS_CACHE", Path.home() / ".cache" / "vosu-counters"))
-MODEL_ID = os.environ.get("VOSU_COUNTERS_ASR_MODEL", "Qwen/Qwen3-ASR-0.6B")
-ALIGNER_ID = os.environ.get("VOSU_COUNTERS_ALIGNER_MODEL", "Qwen/Qwen3-ForcedAligner-0.6B")
-USER_AGENT = "vosu-counters/1.0 (+https://github.com/shiruviaa/vosu-counters)"
+_LEGACY_CACHE_DIR = Path.home() / ".cache" / "vosu-counters"
+CACHE_DIR = Path(os.environ.get("VOSU_OVERLAYS_CACHE", Path.home() / ".cache" / "vosu-overlays"))
+MODEL_ID = os.environ.get("VOSU_OVERLAYS_ASR_MODEL", "Qwen/Qwen3-ASR-0.6B")
+ALIGNER_ID = os.environ.get("VOSU_OVERLAYS_ALIGNER_MODEL", "Qwen/Qwen3-ForcedAligner-0.6B")
+USER_AGENT = "vosu-overlays/1.0 (+https://github.com/shiruviaa/vosu-overlays)"
 LRC_RE = re.compile(r"\[(\d{1,3}):(\d{2}(?:\.\d{1,3})?)\](.*)")
 _model: Any = None
 _model_lock = threading.Lock()
@@ -200,13 +201,22 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 
+def migrate_legacy_cache() -> None:
+    """Move the pre-rename vosu-counters cache once, so lyrics and transcripts survive the rename."""
+    if "VOSU_OVERLAYS_CACHE" in os.environ or CACHE_DIR.exists() or not _LEGACY_CACHE_DIR.is_dir():
+        return
+    CACHE_DIR.parent.mkdir(parents=True, exist_ok=True)
+    _LEGACY_CACHE_DIR.rename(CACHE_DIR)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve vosu browser overlays and local lyrics sidecar")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8765, type=int)
     args = parser.parse_args()
+    migrate_legacy_cache()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"vosu-counters listening on http://{args.host}:{args.port}", flush=True)
+    print(f"vosu-overlays listening on http://{args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

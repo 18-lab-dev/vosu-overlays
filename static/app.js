@@ -24,7 +24,7 @@ function identity(beatmap) {
 }
 
 function renderIndex() {
-  routeName.textContent = 'vosu counters';
+  routeName.textContent = 'vosu overlays';
   content.innerHTML = '<div class="message">Choose an overlay route: <strong>/lyrics</strong>, <strong>/map</strong>, or <strong>/keys</strong>.</div>';
 }
 

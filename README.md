@@ -1,4 +1,4 @@
-# vosu counters
+# vosu overlays
 
 Three transparent browser overlays for OBS and vosulay, backed by the vosu v2 HTTP/WebSocket API:
 
@@ -17,7 +17,7 @@ Python 3.12, [uv](https://docs.astral.sh/uv/), an NVIDIA CUDA driver, and a runn
 ./run.sh
 ```
 
-`setup.sh` creates `.venv`, installs the official `qwen-asr` package, and caches the ungated `Qwen/Qwen3-ASR-0.6B` and `Qwen/Qwen3-ForcedAligner-0.6B` models. Models are loaded lazily on CUDA only when LRCLIB has no synchronized lyrics. The first fallback can therefore take longer. Results are cached under `~/.cache/vosu-counters`; set `VOSU_COUNTERS_CACHE` to change this location.
+`setup.sh` creates `.venv`, installs the official `qwen-asr` package, and caches the ungated `Qwen/Qwen3-ASR-0.6B` and `Qwen/Qwen3-ForcedAligner-0.6B` models. Models are loaded lazily on CUDA only when LRCLIB has no synchronized lyrics. The first fallback can therefore take longer. Results are cached under `~/.cache/vosu-overlays`; set `VOSU_OVERLAYS_CACHE` to change this location. An existing `~/.cache/vosu-counters` cache from before the rename is moved there once on startup.
 
 The launcher listens only on `127.0.0.1:8765` by default. Options such as `./run.sh --port 9000` are passed to the sidecar.
 

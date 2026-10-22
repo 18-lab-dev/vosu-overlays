@@ -23,7 +23,7 @@ class OverlayPackageTests(unittest.TestCase):
         (self.overlay / 'index.html').write_text('<h1>timeline</h1>')
         (self.overlay / 'overlay.js').write_text('console.log("timeline")')
         (self.overlay / 'settings.json').write_text('[]')
-        (self.overlay / 'metadata.txt').write_text('name = Timeline\nauthor = 18-LAB\nversion = 0.1.0\ndescription = Test overlay\nrequires_tools = [{"id":"ratings","version":">=0.1.0"}]\nresolution = [1920,1080]\n')
+        (self.overlay / 'metadata.txt').write_text('name = Timeline\nauthor = 18-LAB\nversion = 0.1.0\ndescription = Test overlay\nrequires_tools = [{"id":"mania-ratings","version":">=0.1.0"}]\nresolution = [1920,1080]\n')
         (self.root / 'LICENSE').write_text('MIT test license text')
         for sidecar in ['lyrics', 'map', 'keys']:
             directory = self.root / sidecar
@@ -37,7 +37,7 @@ class OverlayPackageTests(unittest.TestCase):
     def test_only_self_contained_overlays_are_cataloged(self):
         catalog = self.build()
         self.assertEqual([entry['id'] for entry in catalog['overlays']], ['timeline'])
-        self.assertEqual(catalog['overlays'][0]['requires_tools'], [{'id': 'ratings', 'version': '>=0.1.0'}])
+        self.assertEqual(catalog['overlays'][0]['requires_tools'], [{'id': 'mania-ratings', 'version': '>=0.1.0'}])
         self.assertEqual(catalog['overlays'][0]['resolution'], [1920, 1080])
         self.assertEqual(json.loads((self.root / 'dist/catalog.json').read_text()), catalog)
 
@@ -105,7 +105,7 @@ class OverlayPackageTests(unittest.TestCase):
             package.release_url('http://example.com', 'catalog.json')
         path = self.overlay / 'metadata.txt'
         original = path.read_text()
-        for replacement in ['requires_tools = [{"id":"../bad","version":">=0.1.0"}]', 'requires_tools = [{"id":"ratings","version":"bad"}]', 'requires_tools = "ratings"']:
+        for replacement in ['requires_tools = [{"id":"../bad","version":">=0.1.0"}]', 'requires_tools = [{"id":"mania-ratings","version":"bad"}]', 'requires_tools = "mania-ratings"']:
             path.write_text('\n'.join(line for line in original.splitlines() if not line.startswith('requires_tools')) + '\n' + replacement + '\n')
             with self.subTest(replacement=replacement), self.assertRaises(ValueError):
                 self.build()

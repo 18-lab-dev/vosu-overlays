@@ -6,7 +6,7 @@ const state={checksum:'',rate:1,position:0,playing:false,points:[],duration:1,re
 const fields=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number'];
 const values=[];
 let stopped=false,stream,commands;
-async function read(path){const r=await fetch('/tools/ratings/api/'+path);if(!r.ok){if([404,502,503].includes(r.status))throw Error('Ratings tool unavailable · install Ratings in vosu');throw Error(`Ratings error (${r.status})`);}const j=await r.json();if(j.error)throw Error(j.error);return j;}
+async function read(path){const r=await fetch('/tools/mania-ratings/api/'+path);if(!r.ok){if([404,502,503].includes(r.status))throw Error('Mania ratings tool unavailable · install Mania ratings in vosu');throw Error(`Mania ratings error (${r.status})`);}const j=await r.json();if(j.error)throw Error(j.error);return j;}
 function draw(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;
  canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
@@ -62,7 +62,7 @@ function connect(){
    state.checksum=typeof values[0]==='string'?values[0]:'';state.position=Number(values[1]||0)/1000;
    const rate=Number(values[2]??1);state.rate=Number.isFinite(rate)?Math.round(rate*20)/20:1;state.playing=Number(values[3])===2;
    document.getElementById('mode').textContent=state.playing?'IN PLAY':'SONG SELECT';document.getElementById('rate').textContent=`${state.rate.toFixed(2)}×`;
-   if(state.rate<.5||state.rate>2){state.points=[];state.key='';++state.request;document.getElementById('message').textContent='Ratings supports 0.50–2.00×';document.getElementById('overall').textContent='—';draw();return;}
+   if(state.rate<.5||state.rate>2){state.points=[];state.key='';++state.request;document.getElementById('message').textContent='Mania ratings supports 0.50–2.00×';document.getElementById('overall').textContent='—';draw();return;}
    void calculate();draw();
   }catch(e){document.getElementById('message').textContent=`Telemetry: ${e.message}`;}
  };

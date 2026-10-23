@@ -10,19 +10,20 @@ async function read(path){const r=await fetch('/tools/mania-ratings/api/'+path);
 function draw(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;
  canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
- c.strokeStyle='#36383d';c.beginPath();c.moveTo(0,h-1);c.lineTo(w,h-1);c.stroke();
+ c.strokeStyle='#3b3f45';c.beginPath();c.moveTo(0,h-1);c.lineTo(w,h-1);c.stroke();
  const peak=Math.max(1,...state.points.map(p=>p.value)),max=state.local?Math.max(40,Math.ceil(Math.max(peak,state.overall)/10)*10):peak;
  for(const p of state.points){
-  const x=p.time/state.duration*w;c.globalAlpha=state.playing&&p.time>state.position?.35:.85;
-  c.fillStyle=p.value<10?'#665447':p.value<20?'#9b6845':p.value<30?'#d87b3e':p.value<40?'#ff963f':'#ffd3a3';
+  // Same bands as the Mania ratings tool: one accent at rising strength, 40+ in the text colour (18-LAB dark tokens).
+  const x=p.time/state.duration*w,band=Math.min(4,Math.floor(p.value/10));c.globalAlpha=[.32,.5,.7,.9,1][band]*(state.playing&&p.time>state.position?.35:1);
+  c.fillStyle=band===4?'#ebe8e1':'#ff963f';
   c.fillRect(x,h-p.value/max*(h-3),Math.max(1,state.hop/state.duration*w),p.value/max*(h-3));
  }
  c.globalAlpha=1;
  if(state.local&&state.points.length){
-  const y=h-state.overall/max*(h-3);c.strokeStyle='#f2f1ec';c.lineWidth=1;c.setLineDash([2,3]);c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();c.setLineDash([]);
-  c.fillStyle='#c7c5c0';c.font='7px monospace';c.fillText(`${max} MSD`,2,7);
+  const y=h-state.overall/max*(h-3);c.strokeStyle='#ebe8e1';c.lineWidth=1;c.setLineDash([2,3]);c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();c.setLineDash([]);
+  c.fillStyle='#b8b5ad';c.font='7px monospace';c.fillText(`${max} MSD`,2,7);
  }
- if(state.playing&&state.points.length){const x=Math.max(0,Math.min(w,state.position/state.duration*w));c.strokeStyle='#f2f1ec';c.lineWidth=2;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();}
+ if(state.playing&&state.points.length){const x=Math.max(0,Math.min(w,state.position/state.duration*w));c.strokeStyle='#ebe8e1';c.lineWidth=2;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();}
  document.getElementById('time').textContent=state.playing?`${Math.max(0,Math.floor(state.position/60))}:${Math.max(0,Math.floor(state.position%60)).toString().padStart(2,'0')}`:'';
 }
 async function calculate(){

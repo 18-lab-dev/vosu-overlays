@@ -87,10 +87,10 @@ function renderMap() {
 function renderKeys() {
   routeName.textContent = 'keypress visualizer';
   if (!precise) return message('Waiting for vosu precise key telemetry.');
-  const keypresses = object(precise.keypresses);
-  const keys = Array.isArray(keypresses.keys) ? keypresses.keys : [];
-  if (!keys.length) return message(`Key telemetry is unavailable for ${modeName(keypresses.mode)}. Start or focus gameplay; fabricated lanes are never shown.`);
-  content.innerHTML = `<div class="keys-wrap"><div class="keys-meta"><span>${escapeHtml(modeName(keypresses.mode))}</span><span>${keys.length} live ${keys.length === 1 ? 'input' : 'inputs'}</span></div><div class="keys" style="--lanes:${keys.length}">${keys.map(key => `<div class="key${key.isPressed === true ? ' pressed' : ''}"><span class="key-name">${escapeHtml(text(key.name, '?'))}</span><span class="key-count">${Number.isSafeInteger(key.count) ? key.count : '—'}</span></div>`).join('')}</div></div>`;
+  const keys = Array.isArray(object(precise.keys).all) ? precise.keys.all : [];
+  const mode = modeName(object(snapshot?.beatmap).mode);
+  if (!keys.length) return message(`Key telemetry is unavailable for ${mode}. Start or focus gameplay; fabricated lanes are never shown.`);
+  content.innerHTML = `<div class="keys-wrap"><div class="keys-meta"><span>${escapeHtml(mode)}</span><span>${keys.length} live ${keys.length === 1 ? 'input' : 'inputs'}</span></div><div class="keys" style="--lanes:${keys.length}">${keys.map(key => `<div class="key${key.isPressed === true ? ' pressed' : ''}"><span class="key-name">${escapeHtml(text(key.name, '?'))}</span><span class="key-count">${Number.isSafeInteger(key.count) ? key.count : '—'}</span></div>`).join('')}</div></div>`;
 }
 
 function render() {

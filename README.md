@@ -1,5 +1,7 @@
 # vosu overlays
 
+This repository is private. No overlay releases or catalog are published, and it is not a default vosu catalog source. The Available page continues to use the existing tosu community overlay catalog.
+
 Three transparent browser overlays for OBS and vosulay, backed by the vosu v2 HTTP/WebSocket API:
 
 - `/lyrics` — synchronized LRCLIB lyrics, falling back to local CUDA Qwen3-ASR transcription with official forced alignment;
@@ -35,7 +37,7 @@ Use the same URLs in a vosulay browser/web overlay. Keep vosu and `./run.sh` run
 
 For each current beatmap, the sidecar queries the public [LRCLIB API](https://lrclib.net) by vosu artist/title metadata. If no synchronized result exists, it downloads the current map audio from vosu's `/files/beatmap/audio`, invokes `Qwen3ASRModel.from_pretrained("Qwen/Qwen3-ASR-0.6B", device_map="cuda:0")`, and requests timestamps from the official `Qwen/Qwen3-ForcedAligner-0.6B`. Failures are returned to the overlay explicitly; untimed or fabricated fallback text is not emitted.
 
-## Mania ratings timeline (vosu-installable)
+## Mania ratings timeline (local prototype)
 
 `overlays/ratings-timeline/` is a self-contained overlay folder, independent of
 the Python sidecar. Copy this folder to vosu's static root and use
@@ -73,24 +75,22 @@ scales. The service caches timelines by chart, rate, window, hop and mode; the
 overlay never recalculates them locally. Reform estimates are not displayed
 as ranks or clear guarantees.
 
-## Release packages
+## Internal packaging / future releases
 
-Only self-contained folders under `overlays/` are vosu-installable. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the catalog; continue serving them with `./run.sh`.
+Packaging is retained for local development and possible future publication, not as a currently available install source. Only self-contained folders under `overlays/` are packaged. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the generated catalog; continue serving them with `./run.sh`.
 
 ```sh
-python scripts/package.py --base-url https://github.com/18-lab-dev/vosu-overlays/releases/download/v0.1.0
+python scripts/package.py --base-url https://example.invalid/releases/test
 python -m unittest discover -s scripts -p 'test*.py'
 ```
 
-The packager writes deterministic `dist/vosu-overlay-<id>-<version>.zip` files and `dist/catalog.json`, with package SHA-256/size, source metadata, and optional preview assets. It checks vosu's regular-file/path, entry-count, expanded-size, and root `index.html` rules. Each folder's `metadata.txt` uses `key = value` lines. `requires_tools` is a JSON array of `{"id","version"}` requirements; `resolution` is a JSON `[width,height]`; `preview` may name an image within the folder (otherwise `preview.png`, `.jpg`, `.jpeg`, or `.webp` is detected). The release workflow uploads packages, catalog, and preview images on a `v*` tag.
+The packager writes deterministic `dist/vosu-overlay-<id>-<version>.zip` files and `dist/catalog.json`, with package SHA-256/size, source metadata, and optional preview assets. It checks vosu's regular-file/path, entry-count, expanded-size, and root `index.html` rules. Each folder's `metadata.txt` uses `key = value` lines. `requires_tools` is a JSON array of `{"id","version"}` requirements; `resolution` is a JSON `[width,height]`; `preview` may name an image within the folder (otherwise `preview.png`, `.jpg`, `.jpeg`, or `.webp` is detected). The retained release workflow would upload packages, catalog, and preview images on a `v*` tag; do not create release tags while the repository remains private.
 
-The official vosu catalog source is `18-lab-dev/vosu-overlays`, resolved at <https://github.com/18-lab-dev/vosu-overlays/releases/latest/download/catalog.json>. Catalog package and artwork URLs are pinned to the tag that produced them under `https://github.com/18-lab-dev/vosu-overlays/releases/download/<tag>/`.
+If publication is enabled later, package and artwork URLs will be pinned to the producing tag under `https://github.com/18-lab-dev/vosu-overlays/releases/download/<tag>/`. There is no live catalog endpoint to add to vosu.
 
-Optional `icon` and `banner` metadata name artwork paths inside the overlay folder; absent fields discover a single `icon.*` / `banner.*` file. Icons must be square SVG or PNG, at least 256×256. Banners accept SVG, PNG, JPEG or WebP with a 3:1 aspect ratio (±2%, recommended 1200×400). Each image is limited to 1 MiB. Invalid declarations, mismatched image types, unsafe paths and ambiguous fallback files fail packaging. Art stays in the ZIP and is also published as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`; the catalog's optional HTTPS `icon_url` / `banner_url` fields point to those assets for pre-install cards.
+Optional `icon` and `banner` metadata name artwork paths inside the overlay folder; absent fields discover a single `icon.*` / `banner.*` file. Icons must be square SVG or PNG, at least 256×256. Banners accept SVG, PNG, JPEG or WebP with a 3:1 aspect ratio (±2%, recommended 1200×400). Each image is limited to 1 MiB. Invalid declarations, mismatched image types, unsafe paths and ambiguous fallback files fail packaging. Art stays in the ZIP and is also generated as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`; the generated catalog's optional HTTPS `icon_url` / `banner_url` fields point to those assets for pre-install cards.
 
 
 ## License and sources
 
-Project code is MIT licensed. External services, models, packages, and source acknowledgements are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Beatmap audio and lyrics remain subject to their respective owners' rights; this software does not redistribute cached source audio.
-
-The `shiruviaa` copyright attribution in [LICENSE](LICENSE) is retained as the original legal attribution, not a current repository handle.
+Project code is copyright © 2026 18-LAB and MIT licensed; branding and artwork are copyright © sxlvia. External services, models, packages, and source acknowledgements are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Beatmap audio and lyrics remain subject to their respective owners' rights; this software does not redistribute cached source audio.

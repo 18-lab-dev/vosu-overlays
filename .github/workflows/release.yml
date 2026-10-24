@@ -16,7 +16,7 @@ jobs:
           python-version: '3.12'
       - run: python -m unittest discover -s scripts -p 'test*.py'
       - name: Build overlay packages and catalog
-        run: python scripts/package.py --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+        run: python scripts/package.py --base-url "https://github.com/18-lab-dev/vosu-overlays/releases/download/${{ github.ref_name }}"
       - uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e
         with:
           fail_on_unmatched_files: true

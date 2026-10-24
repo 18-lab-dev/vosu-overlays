@@ -1,4 +1,5 @@
 import { VosuClient } from './vosu-client.js';
+import { activeMode } from './mode.js';
 
 const content = document.querySelector('#content');
 const connection = document.querySelector('#connection');
@@ -79,16 +80,16 @@ function renderMap() {
   const items = [
     ['Stars', object(stats.stars).live], ['BPM', object(stats.bpm).realtime],
     ['AR', object(stats.ar).converted], ['OD', object(stats.od).converted],
-    [modeName(map.mode) === 'mania' ? 'Keys' : 'CS', object(stats.cs).converted], ['HP', object(stats.hp).converted]
+    [modeName(activeMode(snapshot)) === 'mania' ? 'Keys' : 'CS', object(stats.cs).converted], ['HP', object(stats.hp).converted]
   ];
-  content.innerHTML = `<article class="map"><img class="map-bg" src="${escapeHtml(client.base)}/files/beatmap/background" alt=""><div class="map-shade"></div><div class="map-data"><div class="map-kicker">${escapeHtml(modeName(map.mode))} · ${escapeHtml(text(map.status?.name, 'unknown status'))}</div><h1>${escapeHtml(text(map.title))}</h1><h2>${escapeHtml(text(map.artist))} · [${escapeHtml(text(map.version))}] · mapped by ${escapeHtml(text(map.mapper))}</h2><dl class="stats">${items.map(([label, value]) => `<div class="stat"><dt>${escapeHtml(label)}</dt><dd>${display(value)}</dd></div>`).join('')}</dl><div class="progress"><div style="width:${percent}%"></div></div></div></article>`;
+  content.innerHTML = `<article class="map"><img class="map-bg" src="${escapeHtml(client.base)}/files/beatmap/background" alt=""><div class="map-shade"></div><div class="map-data"><div class="map-kicker">${escapeHtml(modeName(activeMode(snapshot)))} · ${escapeHtml(text(map.status?.name, 'unknown status'))}</div><h1>${escapeHtml(text(map.title))}</h1><h2>${escapeHtml(text(map.artist))} · [${escapeHtml(text(map.version))}] · mapped by ${escapeHtml(text(map.mapper))}</h2><dl class="stats">${items.map(([label, value]) => `<div class="stat"><dt>${escapeHtml(label)}</dt><dd>${display(value)}</dd></div>`).join('')}</dl><div class="progress"><div style="width:${percent}%"></div></div></div></article>`;
 }
 
 function renderKeys() {
   routeName.textContent = 'keypress visualizer';
   if (!precise) return message('Waiting for vosu precise key telemetry.');
   const keys = Array.isArray(object(precise.keys).all) ? precise.keys.all : [];
-  const mode = modeName(object(snapshot?.beatmap).mode);
+  const mode = modeName(activeMode(snapshot));
   if (!keys.length) return message(`Key telemetry is unavailable for ${mode}. Start or focus gameplay; fabricated lanes are never shown.`);
   content.innerHTML = `<div class="keys-wrap"><div class="keys-meta"><span>${escapeHtml(mode)}</span><span>${keys.length} live ${keys.length === 1 ? 'input' : 'inputs'}</span></div><div class="keys" style="--lanes:${keys.length}">${keys.map(key => `<div class="key${key.isPressed === true ? ' pressed' : ''}"><span class="key-name">${escapeHtml(text(key.name, '?'))}</span><span class="key-count">${Number.isSafeInteger(key.count) ? key.count : '—'}</span></div>`).join('')}</div></div>`;
 }

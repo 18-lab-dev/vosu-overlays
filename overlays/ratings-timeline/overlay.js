@@ -43,8 +43,11 @@ async function calculate(){
   state.local=timeline.mode==='local_msd';state.overall=timeline.overall||0;state.hop=timeline.hop;
   const number=['etterna','etterna-native'].includes(settings.system)?rating.msd?.overall:settings.system==='osu'?rating.stars:settings.system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[settings.system];
   document.getElementById('overall').textContent=number==null?'—':Number(number).toFixed(2);
-  const top=Object.entries(rating.msd||{}).filter(([name])=>!['overall','stamina'].includes(name)).sort((a,b)=>b[1]-a[1])[0];
-  document.getElementById('skill').textContent=top?`${top[0]} ${Number(top[1]).toFixed(1)}`:'';
+  // Outside 4K MinaCalc's Jumpstream/Handstream slots are its generic chordstream
+  // and bracketing models; Technical is null where it has no model.
+  const generic=rating.keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
+  const top=Object.entries(rating.msd||{}).filter(([name,value])=>value!=null&&!['overall','stamina'].includes(name)).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('skill').textContent=top?`${generic[top[0]]??top[0]} ${Number(top[1]).toFixed(1)}`:'';
   document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':`${settings.system.toUpperCase()} / native strain · no smoothing`;
   document.body.classList.remove('unavailable');draw();
  }catch(error){if(request!==state.request)return;document.body.classList.add('unavailable');document.getElementById('message').textContent=error.message;state.key='';}

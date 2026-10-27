@@ -47,7 +47,9 @@ are stated explicitly in the strip instead of showing invented ratings.
 
 The default strip occupies just 520 × 104 px, 24 px from the top-right corner.
 Its vosu settings control width (320–900 px), corner, horizontal/vertical inset,
-and system (Etterna local MSD, Etterna native strain, Quaver, Interlude, osu!mania or NPS). The overlay reads
+and system (Etterna local MSD, Etterna native strain, Prism (mania-tracker), Quaver,
+Interlude, osu!mania or NPS; a system that cannot rate the chart's key count
+falls back to the first one that can). The overlay reads
 settings live through the standard command socket; no browser storage is used.
 
 It subscribes to `/websocket/v2/subscribe` for selected checksum, chart play

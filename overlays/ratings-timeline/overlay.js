@@ -49,15 +49,18 @@ async function calculate(){
   // Current route resolves the selected file and seeds its checksum cache.
   const rating=await read(`v1/beatmap/current?rate=${state.rate}`);
   if(request!==state.request)return;if(rating.unsupported)throw Error(rating.unsupported);
-  const local=settings.system==='etterna';
-  const timeline=await read(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${settings.system}&window=${local?12:1}&hop=${local?1:.5}`);
+  document.getElementById('skill').textContent=topSkill(rating);
+  // A system that cannot rate this key count falls back to the first one that can.
+  const rates=s=>rating.unrated?.[s==='etterna-native'?'etterna':s]?.scope!=='keys';
+  const system=rates(settings.system)?settings.system:['etterna','prism','quaver','interlude','osu','nps'].find(rates);
+  const local=system==='etterna'||system==='prism';
+  const timeline=await read(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${system}&window=${local?12:1}&hop=${local?1:.5}`);
   if(request!==state.request)return;
   state.points=timeline.points;state.duration=Math.max(1,timeline.duration);
   state.local=timeline.mode==='local_msd';state.overall=timeline.overall||0;state.hop=timeline.hop;
-  const number=['etterna','etterna-native'].includes(settings.system)?rating.msd?.overall:settings.system==='osu'?rating.stars:settings.system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[settings.system];
+  const number=['etterna','etterna-native'].includes(system)?rating.msd?.overall:system==='prism'?rating.prism?.overall:system==='osu'?rating.stars:system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[system];
   document.getElementById('overall').textContent=number==null?'—':Number(number).toFixed(2);
-  document.getElementById('skill').textContent=topSkill(rating);
-  document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':`${settings.system.toUpperCase()} / native strain · no smoothing`;
+  document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':system==='prism'?'PRISM (MANIA-TRACKER) / 12s · no smoothing':`${system.toUpperCase()} / native strain · no smoothing`;
   document.body.classList.remove('unavailable');draw();
  }catch(error){if(request!==state.request)return;document.body.classList.add('unavailable');document.getElementById('message').textContent=error.message;state.key='';}
 }

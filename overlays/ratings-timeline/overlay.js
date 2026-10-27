@@ -6,7 +6,7 @@ const state={checksum:'',rate:1,position:0,playing:false,points:[],duration:1,re
 const fields=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number'];
 const values=[];
 let stopped=false,stream,commands;
-// Top skill chip, labelled as the Mania ratings dashboard does: MinaCalc's
+// Top skill chip, labelled as the Map analysis dashboard does: MinaCalc's
 // skillsets (its generic chordstream/bracketing slots outside 4K), else Prism
 // (mania-tracker, 6K–8K) named as such.
 function topSkill(rating){
@@ -19,14 +19,20 @@ function topSkill(rating){
   const top=rating.prism&&best(rating.prism.skillsets);
   return top?`Prism ${top[0].replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase()} ${Number(top[1]).toFixed(1)}`:'';
 }
-async function read(path){const r=await fetch('/tools/mania-ratings/api/'+path);if(!r.ok){if([404,502,503].includes(r.status))throw Error('Mania ratings tool unavailable · install Mania ratings in vosu');throw Error(`Mania ratings error (${r.status})`);}const j=await r.json();if(j.error)throw Error(j.error);return j;}
+async function read(path){
+ let r=await fetch('/tools/map-analysis/api/'+path);
+ // Compatibility for installations that have not migrated the old tool yet.
+ if(r.status===404)r=await fetch('/tools/mania-ratings/api/'+path);
+ if(!r.ok){if([404,502,503].includes(r.status))throw Error('Map analysis unavailable · install Map analysis in vosu');throw Error(`Map analysis error (${r.status})`);}
+ const j=await r.json();if(j.error)throw Error(j.error);return j;
+}
 function draw(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;
  canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
  c.strokeStyle='#3b3f45';c.beginPath();c.moveTo(0,h-1);c.lineTo(w,h-1);c.stroke();
  const peak=Math.max(1,...state.points.map(p=>p.value)),max=state.local?Math.max(40,Math.ceil(Math.max(peak,state.overall)/10)*10):peak;
  for(const p of state.points){
-  // Same bands as the Mania ratings tool: one accent at rising strength, 40+ in the text colour (18-LAB dark tokens).
+  // Same bands as the Map analysis tool: one accent at rising strength, 40+ in the text colour (18-LAB dark tokens).
   const x=p.time/state.duration*w,band=Math.min(4,Math.floor(p.value/10));c.globalAlpha=[.32,.5,.7,.9,1][band]*(state.playing&&p.time>state.position?.35:1);
   c.fillStyle=band===4?'#ebe8e1':'#ff963f';
   c.fillRect(x,h-p.value/max*(h-3),Math.max(1,state.hop/state.duration*w),p.value/max*(h-3));
@@ -78,7 +84,7 @@ function connect(){
    state.checksum=typeof values[0]==='string'?values[0]:'';state.position=Number(values[1]||0)/1000;
    const rate=Number(values[2]??1);state.rate=Number.isFinite(rate)?Math.round(rate*20)/20:1;state.playing=Number(values[3])===2;
    document.getElementById('mode').textContent=state.playing?'IN PLAY':'SONG SELECT';document.getElementById('rate').textContent=`${state.rate.toFixed(2)}×`;
-   if(state.rate<.5||state.rate>2){state.points=[];state.key='';++state.request;document.getElementById('message').textContent='Mania ratings supports 0.50–2.00×';document.getElementById('overall').textContent='—';draw();return;}
+   if(state.rate<.5||state.rate>2){state.points=[];state.key='';++state.request;document.getElementById('message').textContent='Map analysis supports 0.50–2.00×';document.getElementById('overall').textContent='—';draw();return;}
    void calculate();draw();
   }catch(e){document.getElementById('message').textContent=`Telemetry: ${e.message}`;}
  };

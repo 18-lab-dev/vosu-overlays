@@ -55,7 +55,9 @@ position, mod rate and game state, and calls same-origin
 `/tools/mania-ratings/api/v1/beatmap/current` and cached `/timeline` read routes.
 Song select shows the complete curve; gameplay adds a position marker and dims
 the unplayed portion. The overall chip follows the selected rating system;
-the top-pattern chip is always MinaCalc. Rates use 0.05 steps from 0.50–2.00×;
+the top-pattern chip uses the Mania ratings dashboard's labels: MinaCalc's top
+skillset (chordstream/bracketing outside 4K), or for 8K, where MinaCalc does not
+rate, Prism's (mania-tracker) prefixed "Prism". Rates use 0.05 steps from 0.50–2.00×;
 outside this range the strip reports unsupported rate rather than stale values.
 
 The default Etterna curve (`etterna`) is **actual local MSD**: independent

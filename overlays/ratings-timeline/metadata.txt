@@ -1,6 +1,6 @@
-name = Mania ratings timeline
+name = Map analysis timeline
 author = 18-LAB
 version = 0.1.0
-description = Compact native mania difficulty timeline for Mania ratings, with rate-aware values and a live position marker.
+description = Compact native mania difficulty timeline for Map analysis, with rate-aware values and a live position marker.
 resolution = [1920,1080]
-requires_tools = [{"id":"mania-ratings","version":">=0.1.0"}]
+requires_tools = [{"id":"map-analysis","version":">=0.1.0"}]

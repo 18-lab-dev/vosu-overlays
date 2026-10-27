@@ -37,12 +37,12 @@ Use the same URLs in a vosulay browser/web overlay. Keep vosu and `./run.sh` run
 
 For each current beatmap, the sidecar queries the public [LRCLIB API](https://lrclib.net) by vosu artist/title metadata. If no synchronized result exists, it downloads the current map audio from vosu's `/files/beatmap/audio`, invokes `Qwen3ASRModel.from_pretrained("Qwen/Qwen3-ASR-0.6B", device_map="cuda:0")`, and requests timestamps from the official `Qwen/Qwen3-ForcedAligner-0.6B`. Failures are returned to the overlay explicitly; untimed or fabricated fallback text is not emitted.
 
-## Mania ratings timeline (local prototype)
+## Map analysis timeline (local prototype)
 
 `overlays/ratings-timeline/` is a self-contained overlay folder, independent of
 the Python sidecar. Copy this folder to vosu's static root and use
 `http://127.0.0.1:24050/ratings-timeline/` as a 1920 × 1080 browser source.
-Install the **Mania ratings** vosu tool separately. Missing tools and unavailable maps
+Install the **Map analysis** vosu tool separately. Missing tools and unavailable maps
 are stated explicitly in the strip instead of showing invented ratings.
 
 The default strip occupies just 520 × 104 px, 24 px from the top-right corner.
@@ -54,10 +54,12 @@ settings live through the standard command socket; no browser storage is used.
 
 It subscribes to `/websocket/v2/subscribe` for selected checksum, chart play
 position, mod rate and game state, and calls same-origin
-`/tools/mania-ratings/api/v1/beatmap/current` and cached `/timeline` read routes.
+`/tools/map-analysis/api/v1/beatmap/current` and cached `/timeline` read routes.
+A 404 from Map analysis falls back to `/tools/mania-ratings/api/` for users
+who have not migrated yet. It never requests the removed rate-curve route.
 Song select shows the complete curve; gameplay adds a position marker and dims
 the unplayed portion. The overall chip follows the selected rating system;
-the top-pattern chip uses the Mania ratings dashboard's labels: MinaCalc's top
+the top-pattern chip uses the Map analysis dashboard's labels: MinaCalc's top
 skillset (chordstream/bracketing outside 4K), or for 8K, where MinaCalc does not
 rate, Prism's (mania-tracker) prefixed "Prism". Rates use 0.05 steps from 0.50–2.00×;
 outside this range the strip reports unsupported rate rather than stale values.

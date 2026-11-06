@@ -3,5 +3,5 @@
  {"uniqueID":"x","type":"number","title":"Horizontal inset / px","value":24},
  {"uniqueID":"y","type":"number","title":"Vertical inset / px","value":24},
  {"uniqueID":"anchor","type":"options","title":"Position anchor","options":["top-left","top-right","bottom-left","bottom-right"],"value":"top-right"},
- {"uniqueID":"system","type":"options","title":"Rating system","options":["etterna","etterna-native","prism","quaver","interlude","osu","nps"],"description":"etterna = local MSD, independent centered 12s windows / 1s hop. etterna-native = original interval strain. prism = Prism (mania-tracker), 6K–8K, centred 12s windows. Dotted line = map overall MSD. A system that cannot rate the chart's key count falls back to the first that can. The top skill chip uses MinaCalc, or Prism where MinaCalc does not rate.","value":"etterna"}
+ {"uniqueID":"system","type":"options","title":"Rating system","options":["etterna","etterna-native","quaver","interlude","osu"],"description":"etterna = local MSD, independent centered 12s windows / 1s hop. etterna-native = original interval strain. Dotted line = map overall MSD. A system that cannot rate the chart's key count falls back to the first that can. The top skill chip uses MinaCalc (4K–7K).","value":"etterna"}
 ]

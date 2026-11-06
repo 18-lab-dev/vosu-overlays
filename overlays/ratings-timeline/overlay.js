@@ -7,17 +7,13 @@ const fields=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state
 const values=[];
 let stopped=false,stream,commands;
 // Top skill chip, labelled as the Map analysis dashboard does: MinaCalc's
-// skillsets (its generic chordstream/bracketing slots outside 4K), else Prism
-// (mania-tracker, 6K–8K) named as such.
+// skillsets (its generic chordstream/bracketing slots outside 4K).
 function topSkill(rating){
   const best=entries=>entries.filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1])[0];
-  if(rating.msd){
-    const generic=rating.keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
-    const top=best(Object.entries(rating.msd).filter(([name])=>!['overall','stamina'].includes(name)));
-    return top?`${(generic[top[0]]??top[0]).replace('speed',' speed')} ${Number(top[1]).toFixed(1)}`:'';
-  }
-  const top=rating.prism&&best(rating.prism.skillsets);
-  return top?`Prism ${top[0].replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase()} ${Number(top[1]).toFixed(1)}`:'';
+  if(!rating.msd)return '';
+  const generic=rating.keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
+  const top=best(Object.entries(rating.msd).filter(([name])=>!['overall','stamina'].includes(name)));
+  return top?`${(generic[top[0]]??top[0]).replace('speed',' speed')} ${Number(top[1]).toFixed(1)}`:'';
 }
 async function read(path){
  let r=await fetch('/tools/map-analysis/api/'+path);
@@ -58,15 +54,15 @@ async function calculate(){
   document.getElementById('skill').textContent=topSkill(rating);
   // A system that cannot rate this key count falls back to the first one that can.
   const rates=s=>rating.unrated?.[s==='etterna-native'?'etterna':s]?.scope!=='keys';
-  const system=rates(settings.system)?settings.system:['etterna','prism','quaver','interlude','osu','nps'].find(rates);
-  const local=system==='etterna'||system==='prism';
+  const system=rates(settings.system)?settings.system:['etterna','quaver','interlude','osu'].find(rates);
+  const local=system==='etterna';
   const timeline=await read(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${system}&window=${local?12:1}&hop=${local?1:.5}`);
   if(request!==state.request)return;
   state.points=timeline.points;state.duration=Math.max(1,timeline.duration);
   state.local=timeline.mode==='local_msd';state.overall=timeline.overall||0;state.hop=timeline.hop;
-  const number=['etterna','etterna-native'].includes(system)?rating.msd?.overall:system==='prism'?rating.prism?.overall:system==='osu'?rating.stars:system==='nps'?Math.max(0,...state.points.map(p=>p.nps)):rating[system];
+  const number=['etterna','etterna-native'].includes(system)?rating.msd?.overall:system==='osu'?rating.stars:rating[system];
   document.getElementById('overall').textContent=number==null?'—':Number(number).toFixed(2);
-  document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':system==='prism'?'PRISM (MANIA-TRACKER) / 12s · no smoothing':`${system.toUpperCase()} / native strain · no smoothing`;
+  document.getElementById('message').textContent=state.local?'LOCAL MSD / 12s · dotted = map · no smoothing':`${system.toUpperCase()} / native strain · no smoothing`;
   document.body.classList.remove('unavailable');draw();
  }catch(error){if(request!==state.request)return;document.body.classList.add('unavailable');document.getElementById('message').textContent=error.message;state.key='';}
 }
@@ -92,7 +88,7 @@ function connect(){
 }
 function applySettings(value){
  for(const key of ['width','x','y']){const n=Number(value[key]);if(Number.isFinite(n))settings[key]=n;}
- if(['etterna','etterna-native','quaver','interlude','osu','nps'].includes(value.system))settings.system=value.system;
+ if(['etterna','etterna-native','quaver','interlude','osu'].includes(value.system))settings.system=value.system;
  if(['top-left','top-right','bottom-left','bottom-right'].includes(value.anchor))settings.anchor=value.anchor;
  strip.style.width=`${Math.max(320,Math.min(900,settings.width))}px`;
  for(const edge of ['top','bottom','left','right'])strip.style[edge]='auto';

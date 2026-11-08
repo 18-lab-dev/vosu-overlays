@@ -38,6 +38,8 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 const context = await browser.newContext({ deviceScaleFactor: dpr, viewport: { width: 1984, height: 1144 } });
 const page = await context.newPage();
+// Keep runs offline and deterministic: avatars come from a.ppy.sh; overlays must show their fallback.
+await context.route('https://a.ppy.sh/**', route => route.abort());
 const errors = [];
 page.on('pageerror', error => errors.push(String(error)));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });

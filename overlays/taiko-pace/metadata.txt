@@ -1,0 +1,5 @@
+name = Taiko pace
+author = 18-LAB
+version = 0.1.0
+description = osu!taiko accuracy pace: GREAT/OK/MISS, live and max achievable accuracy, the OKs and misses a target accuracy can still absorb, UR and pp.
+resolution = [400,280]

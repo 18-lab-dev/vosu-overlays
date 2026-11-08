@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Taiko pace · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage" data-view="connecting">
+  <p class="chip" id="chip" role="status"><i></i><span id="chipText">Connecting</span></p>
+  <section class="panel" id="panel" data-phase="idle" aria-label="osu!taiko accuracy pace">
+    <header class="head">
+      <b class="brand" id="brand">18—LAB</b>
+      <span class="lbl">Taiko pace</span>
+      <span class="target"><span class="lbl">Target</span><b id="target">99.00%</b></span>
+    </header>
+    <p class="note" id="note">Waiting for osu!</p>
+    <div class="hero">
+      <div class="readout">
+        <span class="lbl" id="leftLabel">Accuracy</span>
+        <span class="big"><span id="left">—</span><small id="leftUnit">%</small></span>
+        <span class="sub"><span class="lbl" id="leftSubLabel">Max</span><b id="leftSub">—</b></span>
+      </div>
+      <div class="readout end" id="budget">
+        <span class="lbl" id="rightLabel">OK budget</span>
+        <span class="big"><span id="right">—</span><small id="rightUnit"></small></span>
+        <span class="sub"><span class="lbl" id="rightSubLabel">Miss budget</span><b id="rightSub">—</b></span>
+      </div>
+    </div>
+    <div class="track"><canvas id="tape" aria-hidden="true"></canvas></div>
+    <div class="counts">
+      <div class="cell great"><span class="lbl"><i></i>Great</span><b id="great">—</b></div>
+      <div class="cell ok"><span class="lbl"><i></i>OK</span><b id="ok">—</b></div>
+      <div class="cell miss"><span class="lbl"><i></i>Miss</span><b id="miss">—</b></div>
+      <div class="cell left"><span class="lbl"><i></i><span id="leftCountLabel">Left</span></span><b id="remaining">—</b></div>
+    </div>
+    <footer class="foot" id="foot">
+      <span class="stat" id="urStat"><span class="lbl">UR</span><b id="ur">—</b></span>
+      <span class="stat pp" id="ppStat"><span class="lbl" id="ppLabel">PP</span><b id="pp">—</b><span class="lbl" id="fcLabel">FC</span><b id="fc">—</b></span>
+    </footer>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

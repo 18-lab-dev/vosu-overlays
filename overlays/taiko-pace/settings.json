@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"target","type":"number","title":"Target accuracy / %","description":"Accuracy the budgets protect, 50–100. OK budget = OKs still allowed if every other remaining note is a GREAT; a miss costs two OKs.","value":99},
+ {"uniqueID":"showPp","type":"checkbox","title":"Show pp","description":"Current and full-combo pp during play and on results; pp at the target and for SS in song select.","value":true},
+ {"uniqueID":"showUr","type":"checkbox","title":"Show unstable rate","description":"Unstable rate of the attempt; the results screen keeps the last value.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

@@ -66,9 +66,24 @@ let layoutDirty = true;
 let layout = 'line';
 let paletteKey = null;
 let wantPlaying = false;
-let wantProgress = 0;   // 0..1, quantized to device pixels of the rule
+let wantStep = 0;      // progress is wantStep / wantSteps, quantized to device pixels of the rule
+let wantSteps = 120;
 let shownPlaying = false;
-let shownProgress = -1;
+let shownStep = -1;
+let ruleSteps = 120;   // device pixels along the rule (at least 120), measured on resize and layout
+// The rule's steps as whole-millisecond map-time ranges, built when the map's span or the step
+// count changes: a clock message then only compares the time against them (no arithmetic, so
+// nothing is boxed even before V8 optimises). Entry k holds [lo[k], hi[k]], the times certainly
+// inside step k; a time within SLACK-and-rounding of an edge takes the exact formula instead.
+const FAR = 1e9; // ms past either end of any map, still a small integer
+const SLACK = 1e-3; // ms kept off each edge against rounding
+const stepTable = { lo: new Int32Array(0), hi: new Int32Array(0), n: -1, at: -1, first: null, last: null };
+// `scaleX(k / steps)` (`scaleY` in the column) for every step of the rule, built when the axis or
+// step count changes, so a step change writes a kept string: the same text, and so the same
+// pixels, as formatting it there and then.
+let ruleTransforms = [];
+let ruleAxis = '';
+let shownSteps = 0;
 let panelWidth = 0;
 let panelHeight = 0;
 let raf = 0;
@@ -125,21 +140,65 @@ function refresh() {
 function updateProgress() {
   const v = values;
   const playing = link === 'live' && v[P.state] === PLAYING;
-  let progress = 0;
+  let step = 0;
   if (playing) {
     const live = v[P.live], first = v[P.first], last = v[P.last];
     if (typeof live === 'number' && typeof first === 'number' && typeof last === 'number' && last > first) {
-      const length = layout === 'column' ? panelHeight : panelWidth;
-      const steps = Math.max(120, Math.round(length * devicePixelRatio));
-      progress = Math.round(Math.min(1, Math.max(0, (live - first) / (last - first))) * steps) / steps;
+      if (first !== stepTable.first || last !== stepTable.last || ruleSteps !== stepTable.n) {
+        stepTable.first = first;
+        stepTable.last = last;
+        // Step k spans first + (k ± 0.5) · (last - first) / steps.
+        fillTable(stepTable, ruleSteps, first, (last - first) / ruleSteps, 0.5);
+      }
+      step = locate(stepTable, live);
+      if (step < 0) step = stepTable.at = Math.round(Math.min(1, Math.max(0, (live - first) / (last - first))) * ruleSteps);
     }
   }
-  if (playing === wantPlaying && progress === wantProgress) return;
+  if (playing === wantPlaying && step === wantStep && ruleSteps === wantSteps) return;
   wantPlaying = playing;
-  wantProgress = progress;
+  wantStep = step;
+  wantSteps = ruleSteps;
   progressDirty = true;
   schedule();
 }
+
+/** Entry of `table` whose certain range holds `t`, walking from the last one; -1 when unsure. */
+function locate(table, t) {
+  let k = table.at;
+  if (k < 0) return -1;
+  const { lo, hi, n } = table;
+  while (k < n && t > hi[k]) k++;
+  while (k > 0 && t < lo[k]) k--;
+  if (t < lo[k] || t > hi[k]) return -1;
+  table.at = k;
+  return k;
+}
+
+/** Entries 0..n with edges at origin + (k - offset) · unit; the outer two reach FAR. */
+function fillTable(table, n, origin, unit, offset) {
+  if (table.lo.length <= n) {
+    const size = Math.max(n + 1, table.lo.length * 2);
+    table.lo = new Int32Array(size);
+    table.hi = new Int32Array(size);
+  }
+  const { lo, hi } = table;
+  for (let k = 0; k <= n; k++) {
+    lo[k] = k === 0 ? -FAR : Math.ceil(origin + (k - offset) * unit + SLACK);
+    hi[k] = k === n ? FAR : Math.floor(origin + (k + 1 - offset) * unit - SLACK);
+  }
+  table.n = n;
+  table.at = -1;
+}
+
+/** The rule's length in device pixels sets its steps (read on resize and layout, not per message). */
+function measureSteps() {
+  ruleSteps = Math.max(120, Math.round((layout === 'column' ? panelHeight : panelWidth) * devicePixelRatio));
+}
+// A device-pixel-ratio change (zoom, another monitor) re-measures as well.
+function watchPixelRatio() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { measureSteps(); watchPixelRatio(); }, { once: true });
+}
+watchPixelRatio();
 
 // ------------------------------------------------------------------ layout from the box
 /**
@@ -159,7 +218,8 @@ function relayout() {
   attr(root, 'data-align', opts.align === 'auto' ? AUTO_ALIGN[mode] : opts.align);
   // The rule changes axis with the layout: redraw it from scratch.
   fill.style.transform = '';
-  shownProgress = -1;
+  shownStep = -1;
+  measureSteps();
   progressDirty = true;
   if (values) updateProgress();
   marqueeReset();
@@ -186,11 +246,22 @@ function frame() {
   if (progressDirty) {
     progressDirty = false;
     if (wantPlaying !== shownPlaying) { shownPlaying = wantPlaying; panel.classList.toggle('playing', wantPlaying); }
-    if (wantPlaying && wantProgress !== shownProgress) {
-      shownProgress = wantProgress;
-      fill.style.transform = `${layout === 'column' ? 'scaleY' : 'scaleX'}(${wantProgress})`;
+    if (wantPlaying && (wantStep !== shownStep || wantSteps !== shownSteps)) {
+      shownStep = wantStep;
+      shownSteps = wantSteps;
+      fill.style.transform = ruleTransform(wantStep, wantSteps);
     }
   }
+}
+
+function ruleTransform(step, steps) {
+  const axis = layout === 'column' ? 'scaleY' : 'scaleX';
+  if (axis !== ruleAxis || ruleTransforms.length !== steps + 1) {
+    ruleAxis = axis;
+    ruleTransforms = new Array(steps + 1);
+    for (let k = 0; k <= steps; k++) ruleTransforms[k] = `${axis}(${k / steps})`;
+  }
+  return ruleTransforms[step];
 }
 
 function apply(content) {
@@ -315,6 +386,7 @@ const sizes = new ResizeObserver(entries => {
     if (entry.target === panel) {
       panelHeight = box?.blockSize ?? entry.contentRect.height;
       flip(width);
+      measureSteps(); // the rule's length sets its step count
     } else {
       if (entry.target === vp) vpWidth = width;
       else trackWidth = width;
@@ -347,11 +419,17 @@ settings(defaults, next => {
   schedule();
 });
 
+/** Whether this frame touched any of `pointers` (a loop, not `some`: no closure per message). */
+function touches(pointers, changed) {
+  for (let i = 0; i < pointers.length; i++) if (changed.has(pointers[i])) return true;
+  return false;
+}
+
 const subscription = subscribe(Object.values(P), (next, changed) => {
   values = next;
-  if (opts.align === 'auto' && MODE.some(pointer => changed.has(pointer))) { layoutDirty = true; schedule(); }
-  if (META.some(pointer => changed.has(pointer))) refresh();
-  if (TIME.some(pointer => changed.has(pointer))) updateProgress();
+  if (opts.align === 'auto' && touches(MODE, changed)) { layoutDirty = true; schedule(); }
+  if (touches(META, changed)) refresh();
+  if (touches(TIME, changed)) updateProgress();
 }, {
   // The shared client reports 'live' on every frame; act on transitions only.
   onStatus(state) {

@@ -45,7 +45,8 @@ const shown = {};
 function text(key, value) {
   if (shown[key] === value) return;
   shown[key] = value;
-  for (const el of fields[key]) write(el, value);
+  const list = fields[key];
+  for (let i = 0; i < list.length; i++) write(list[i], value);
 }
 /** Updates an element's single text node in place (no node churn); textContent otherwise. */
 function write(el, value) {
@@ -73,20 +74,37 @@ let opts = {
   layout: 'full', orientation: 'auto', align: 'auto', unicode: false, showStats: true, backing: 'none', accent: 'map',
 };
 let values = {};
-let live;
+// The map clock in an object field: a module-level `let` holding a fractional number is boxed
+// afresh on every read, an object field hands the parsed number through as is.
+const clock = { live: null };
 let liveSub = null;
 let conn = 'connecting';
 let dirty = true;
 let liveDirty = false;
 let progressDirty = false;
 let frame = 0;
-const HOT = new Set([P.starsLive, P.bpmLive]);
 const ctx = { show: false, parsed: false, rate: 1, start: 0, length: 0 };
+// Last numbers behind the live readouts, so text is formatted only when they change. Fields start
+// as null (tagged): double-typed fields would box a fresh number on every read outside optimised code.
+const last = { stars: null, bpm: null };
+// The hairline's steps and the clock's seconds as whole-millisecond map-time ranges, built when
+// the map, rate or box changes: a clock message then only compares the time against them (no
+// arithmetic, so nothing is boxed even before V8 optimises). Entry k holds [lo[k], hi[k]], the
+// times certainly inside step/second k; a time within SLACK-and-rounding of an edge, or before
+// the tables exist, takes the exact formula instead.
+const FAR = 1e9; // ms past either end of any map, still a small integer
+const SLACK = 1e-3; // ms kept off each edge against rounding
+const stepTable = { lo: new Int32Array(0), hi: new Int32Array(0), n: -1, at: -1 }; // n -1: not built
+const secondTable = { lo: new Int32Array(0), hi: new Int32Array(0), n: -1, at: -1 };
+const built = { start: -1, length: -1, rate: -1, steps: -1 };
 let shownChecksum;
 let shownMode;
 let paletteFor = '';
 let barSteps = 1200;
-let barScale = -1;
+// `scaleX(k / barSteps)` for every step, built with the step count (on resize) so a step change
+// writes a kept string: the same text, and so the same pixels, as formatting it there and then.
+let barTransforms = [];
+let barStep = -1; // integer step of the hairline on screen; -1 forces the next write
 let shownSecond = -1;
 
 const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -104,16 +122,15 @@ subscribe(Object.values(P), (snapshot, changed) => {
   // fast reader for the song-select preview, which this overlay never shows.
   const state = snapshot[P.state];
   if (state === PLAYING && !liveSub) {
-    liveSub = subscribe([LIVE], v => { live = v[LIVE]; progressDirty = true; schedule(); });
+    liveSub = subscribe([LIVE], v => { clock.live = v[LIVE]; progressDirty = true; schedule(); });
   } else if (state !== PLAYING && liveSub) {
     liveSub.close();
     liveSub = null;
-    live = undefined;
+    clock.live = null;
   }
   // Live stars and realtime BPM tick throughout play; they only need their own two readouts.
-  let full = false;
-  for (const pointer of changed) if (!HOT.has(pointer)) { full = true; break; }
-  if (full) dirty = true;
+  const hot = (changed.has(P.starsLive) ? 1 : 0) + (changed.has(P.bpmLive) ? 1 : 0);
+  if (changed.size > hot) dirty = true;
   else if (changed.size) liveDirty = true;
   if (changed.size) schedule();
 }, {
@@ -138,7 +155,12 @@ function layoutBox() {
   attr(np, 'data-orient', orient);
   root.style.setProperty('--u', String(Math.round(clamp(Math.min(w / bw, h / bh), 0.5, 4) * 1000) / 1000));
   barSteps = Math.max(200, Math.round(w * 2));
-  barScale = -1;
+  if (barTransforms.length !== barSteps + 1) {
+    barTransforms = new Array(barSteps + 1);
+    for (let k = 0; k <= barSteps; k++) barTransforms[k] = `scaleX(${k / barSteps})`;
+  }
+  barStep = -1;
+  buildTables();
   progressDirty = true;
   schedule();
 }
@@ -217,6 +239,7 @@ function renderAll() {
   renderMods();
   renderStats(mode, mode !== 'osu' && values[P.isConvert] === true);
   renderLive();
+  buildTables(); // start, length or rate may have moved
   progressDirty = true;
 }
 
@@ -281,30 +304,94 @@ function renderStats(mode, convert) {
 /** Live star rating and realtime BPM (vosu reports 0 for an unparsed map: "no value"). */
 function renderLive() {
   if (!ctx.show) return;
-  const stars = ctx.parsed ? num(values[P.starsLive]) || num(values[P.starsTotal]) : null;
-  text('stars', stars ? stars.toFixed(2) : '—');
+  const stars = ctx.parsed ? num(values[P.starsLive]) || num(values[P.starsTotal]) || 0 : 0;
+  if (stars !== last.stars) { last.stars = stars; text('stars', stars ? stars.toFixed(2) : '—'); }
   const bpm = ctx.parsed ? num(values[P.bpmLive]) || num(values[P.bpmCommon]) : null;
-  text('bpm', bpm ? String(Math.round(bpm)) : '—');
+  const rounded = bpm ? Math.round(bpm) : null;
+  // toFixed(0): same text as String() for an integer, without rebuilding V8's number-string cache.
+  if (rounded !== last.bpm) { last.bpm = rounded; text('bpm', rounded === null ? '—' : rounded.toFixed(0)); }
 }
 
 function renderProgress() {
   if (!ctx.show) return;
+  const t = num(clock.live);
+  const step = t === null ? -1 : locate(stepTable, t);
+  const second = step < 0 ? -1 : locate(secondTable, t);
+  if (second < 0) { exact(t); return; }
+  showSecond(second);
+  showStep(step);
+}
+
+/** The exact formula: times next to an edge, no clock, no timing, or the first after a rebuild. */
+function exact(t) {
   const { start, length, rate: r } = ctx;
   let scale = 0;
   if (length) {
-    const t = num(live);
     const elapsed = t === null ? 0 : Math.min(length, Math.max(0, t - start)) / r;
     scale = elapsed * r / length;
     const second = Math.floor(elapsed / 1000);
-    if (second !== shownSecond) { shownSecond = second; text('elapsed', formatDuration(elapsed)); }
+    if (secondTable.n >= 0) secondTable.at = second;
+    showSecond(second);
   } else if (shownSecond !== -1) {
     shownSecond = -1;
     text('elapsed', '0:00');
   }
   // Quantised to half a CSS pixel of the box so a steady clock does not restyle every frame.
-  const q = Math.round(scale * barSteps) / barSteps;
-  if (q !== barScale) {
-    barScale = q;
-    bar.style.transform = `scaleX(${q})`;
+  const step = Math.round(scale * barSteps);
+  if (stepTable.n >= 0) stepTable.at = step;
+  showStep(step);
+}
+
+function showSecond(second) {
+  if (second === shownSecond) return;
+  shownSecond = second;
+  // formatDuration floors to whole seconds: the second's start gives the same text.
+  text('elapsed', formatDuration(second * 1000));
+}
+
+function showStep(step) {
+  if (step === barStep) return;
+  barStep = step;
+  bar.style.transform = barTransforms[step];
+}
+
+/** Entry of `table` whose certain range holds `t`, walking from the last one; -1 when unsure. */
+function locate(table, t) {
+  let k = table.at;
+  if (k < 0) return -1;
+  const { lo, hi, n } = table;
+  while (k < n && t > hi[k]) k++;
+  while (k > 0 && t < lo[k]) k--;
+  if (t < lo[k] || t > hi[k]) return -1;
+  table.at = k;
+  return k;
+}
+
+/** Rebuilds the edge tables when the map's timing, the rate or the step count changed. */
+function buildTables() {
+  const { start, length, rate: r } = ctx;
+  if (start === built.start && length === built.length && r === built.rate && barSteps === built.steps) return;
+  built.start = start;
+  built.length = length;
+  built.rate = r;
+  built.steps = barSteps;
+  // Step k spans start + (k ± 0.5) · length / steps; second k spans start + [k, k + 1) · 1000 · rate.
+  fillTable(stepTable, length ? barSteps : -1, start, length / barSteps, 0.5);
+  fillTable(secondTable, length ? Math.floor(length / r / 1000) : -1, start, 1000 * r, 0);
+}
+
+/** Entries 0..n with edges at origin + (k - offset) · unit; the outer two reach FAR. */
+function fillTable(table, n, origin, unit, offset) {
+  if (table.lo.length <= n) {
+    const size = Math.max(n + 1, table.lo.length * 2);
+    table.lo = new Int32Array(size);
+    table.hi = new Int32Array(size);
   }
+  const { lo, hi } = table;
+  for (let k = 0; k <= n; k++) {
+    lo[k] = k === 0 ? -FAR : Math.ceil(origin + (k - offset) * unit + SLACK);
+    hi[k] = k === n ? FAR : Math.floor(origin + (k + 1 - offset) * unit - SLACK);
+  }
+  table.n = n;
+  table.at = -1;
 }

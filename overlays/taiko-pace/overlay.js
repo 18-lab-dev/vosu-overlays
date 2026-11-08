@@ -27,58 +27,96 @@ const P = {
  * Accuracy pace for osu!taiko, where a note scores GREAT 1, OK ½, MISS 0.
  * `target` is a fraction (0.99). Budgets assume every other remaining note is a GREAT; a miss
  * costs twice what an OK does. Budgets are null once the target is out of reach.
+ * The result is written into `out` (reused by the render path) and returned.
  */
-export function pace(great, ok, miss, notes, target) {
+export function pace(great, ok, miss, notes, target, out = {}) {
   const judged = great + ok + miss;
   const total = Math.max(notes, judged);
   const remaining = total - judged;
   const points = great + ok / 2;
   const slack = points + remaining - target * total; // GREAT-equivalents above the target
   const lost = slack < -EPS;
-  return {
-    judged,
-    remaining,
-    accuracy: judged ? points / judged : 1,
-    max: total ? (points + remaining) / total : 1,
-    lost,
-    okBudget: lost ? null : Math.min(remaining, Math.floor(2 * slack + EPS)),
-    missBudget: lost ? null : Math.min(remaining, Math.floor(slack + EPS)),
-  };
+  out.judged = judged;
+  out.remaining = remaining;
+  out.accuracy = judged ? points / judged : 1;
+  out.max = total ? (points + remaining) / total : 1;
+  out.lost = lost;
+  // `| 0` is exact here (|budget| <= notes) and keeps the integers Smis, so storing them allocates nothing.
+  out.okBudget = lost ? null : Math.min(remaining, Math.floor(2 * slack + EPS) | 0);
+  out.missBudget = lost ? null : Math.min(remaining, Math.floor(slack + EPS) | 0);
+  return out;
 }
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
 const budget = $('budget');
+const okBudgetBox = $('okBudget').parentElement;
+const urCell = $('urCell');
 const canvas = $('tape');
 const ctx = canvas.getContext('2d', { alpha: true });
-const el = Object.fromEntries(['chipText', 'acc', 'max', 'target', 'budgetLabel', 'okBudget', 'budgetUnit', 'missLabel',
-  'missBudget', 'great', 'ok', 'miss', 'remaining', 'urCell', 'ur', 'pp', 'fc'].map(id => [id, $(id)]));
 const ppCells = [...document.querySelectorAll('[data-pp]')];
 
-const put = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+// Text slots. Each remembers the string it last wrote and the number it last formatted (`key`), so a
+// data message formats only numbers that changed and touches the DOM only for strings that differ.
+const T = Object.fromEntries(['chipText', 'acc', 'max', 'target', 'budgetLabel', 'okBudget', 'budgetUnit', 'missLabel',
+  'missBudget', 'great', 'ok', 'miss', 'remaining', 'ur', 'pp', 'fc'].map(id => [id, { node: $(id), text: $(id).textContent, key: null }]));
+
+function text(slot, value) {
+  if (slot.text === value) return;
+  slot.text = value;
+  slot.node.textContent = value;
+}
+
+// True when `key` differs from the number the slot last formatted, which it then records.
+function fresh(slot, key) {
+  if (slot.key === key) return false;
+  slot.key = key;
+  return true;
+}
+
 const attr = (node, name, value) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
 const hide = (node, hidden) => { if (node.hidden !== hidden) node.hidden = hidden; };
 
 const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const int = value => { const n = num(value); return n === null ? null : Math.max(0, Math.round(n)); };
 const DASH = '—';
+const DASH_KEY = -Infinity; // slot key while a slot shows the dash
 const MINUS = '\u2212';
 // Accuracies round down to 2 decimals (as osu!lazer shows them), so a readout never shows the
-// target as reached, or reachable, when it is not.
-const pct = fraction => (Math.floor(fraction * 1e4 + 1e-6) / 100).toFixed(2);
-const whole = value => (value === null ? DASH : String(Math.round(value)));
+// target as reached, or reachable, when it is not. The render path keys each readout by the shown
+// value in hundredths of a percent, Math.floor(fraction * 1e4 + 1e-6) | 0 (0..10000, so `| 0` is
+// exact and keeps a Smi), inlined so no fractional number is passed to a call.
+const pct = key => (key / 100).toFixed(2);
+
+// n.toFixed(0) is String(n) for an integer, without V8's number-string cache (a full GC flushes
+// it, and the next miss rebuilds it as one 64 KB block).
+function showInt(slot, n) {
+  if (fresh(slot, n === null ? DASH_KEY : n)) text(slot, n === null ? DASH : n.toFixed(0));
+}
 
 const DEFAULTS = {
   target: 99, orientation: 'auto', align: 'left', backing: 'none', accent: 'map', showPp: true, showUr: true,
 };
 let config = { ...DEFAULTS };
 let status = 'connecting';
-let values = null;
 let dataDirty = true;
 let lastJudged = 0;
 let lastView = '';
 let checksum = '';
 let palette = null;
+// Stage attributes written per data message, cached so a message never reads them back.
+let stageView = stage.getAttribute('data-view');
+let stageStatus = stage.getAttribute('data-status');
+let tone = budget.getAttribute('data-tone');
+const result = pace(0, 0, 0, 0, 1);
+// Inputs of the last pace render (renderPace), so messages without a new judgement skip it.
+const seen = { great: -1, ok: -1, miss: -1, notes: -1, target: -1 };
+
+// Latest value of every subscribed pointer, copied out of the client's reused frame object.
+const KEYS = Object.keys(P);
+const POINTERS = Object.values(P);
+const data = {};
+for (const key of KEYS) data[key] = undefined;
 
 // ------------------------------------------------------------------ layout from the page's box
 // Design sizes per layout (CSS px at --u = 1): strip 1100×150, row 1100×56, column 320×460.
@@ -107,16 +145,42 @@ function layout() {
 // ------------------------------------------------------------------ tape (canvas)
 const SPANS = [1, 2, 5, 10, 20, 50];
 const MAJOR = { 1: 0.25, 2: 0.5, 5: 1, 10: 2, 20: 5, 50: 10 };
-const goal = { lo: 98, max: 100, acc: null, target: 99, span: 2 };
-const shown = { lo: 98, max: 100, acc: 100 };
+// Tape values (percent) by index: the scale's low end, the max achievable, the live accuracy.
+// `goalAt` holds where they are heading, `shownAt` where the tape draws them while they ease there.
+const LO = 0;
+const MAX = 1;
+const ACC = 2;
+const goalAt = new Float64Array([98, 100, 100]);
+const shownAt = new Float64Array([98, 100, 100]);
+const goal = { target: 99, span: 2, hasAcc: false };
+// Frame clock: [0] the previous frame's timestamp (0 once the tape settles), [1] this frame's step.
+const clock = new Float64Array(2);
 let colours = null;
-let size = { w: 0, h: 0, dpr: 1 };
 let tapeDirty = true;
 let snap = true;
 
-function spanFor(floorPct) {
-  for (const span of SPANS) if (span * 0.88 >= 100 - floorPct) return span;
-  return 100;
+// Canvas geometry, set on resize. The tape is drawn in 1/Q CSS px (Q a power of two, so the scale
+// is exact) and every coordinate reaches the context as an integer: V8 boxes each fractional
+// number passed to a canvas binding below its top tier, never an integer (Smi).
+const Q = 65536;
+const size = { w: 0, h: 0, dpr: 1 };
+let pixelsW = 0; // canvas backing store, device px
+let pixelsH = 0;
+let wQ = 0; // tape width, 1/Q px
+// Passed to the context as they are (tagged once here, not boxed per call).
+let dprScale = 1; // CSS px -> device px, for text
+let qScale = 1 / Q; // 1/Q px -> device px
+let labelY = 0; // tick label baseline, CSS px
+
+// Tick labels by major-tick index (value / major), measured once per scale and font.
+const LABEL_SLOTS = 401; // 100 / smallest major step (0.25) + 1
+const labels = { major: NaN, font: '', text: new Array(LABEL_SLOTS).fill(null), width: new Float64Array(LABEL_SLOTS) };
+let fontPx = 0;
+let fontMono = '';
+let font = '';
+
+function forgetLabels() {
+  labels.font = '';
 }
 
 function readColours() {
@@ -128,111 +192,138 @@ function readColours() {
   tapeDirty = true;
 }
 
+// Allocation-free. Geometry is inlined: x(v) = ((v - lo) / (100 - lo)) * w, and px(v) =
+// Math.round(v * dpr) / dpr snaps to device pixels; Math.round(… * Q) turns CSS px into 1/Q px.
 function drawTape() {
-  const { w, h, dpr } = size;
+  const w = size.w;
+  const h = size.h;
+  const dpr = size.dpr;
   if (!w || !h || !colours) return;
   const c = colours;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  const lo = shown.lo;
-  const x = v => ((v - lo) / (100 - lo)) * w;
-  const px = v => Math.round(v * dpr) / dpr; // snap to device pixels
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, pixelsW, pixelsH);
+  ctx.setTransform(qScale, 0, 0, qScale, 0, 0);
+  const lo = shownAt[LO];
   // Tall tapes carry tick labels under the axis; short ones (one-line layout) only ticks.
-  const labels = h >= 32;
-  const font = Math.round(Math.min(13, Math.max(10, h * 0.27)));
-  const Y0 = Math.max(5, Math.round(h * (labels ? 0.18 : 0.24)));
-  const Y1 = Math.round(labels ? h - font - 8 : h - 6);
+  const labelled = h >= 32;
+  const fontSize = Math.round(Math.min(13, Math.max(10, h * 0.27)));
+  const Y0 = Math.max(5, Math.round(h * (labelled ? 0.18 : 0.24)));
+  const Y1 = Math.round(labelled ? h - fontSize - 8 : h - 6);
   const flag = Math.max(3, Y0 - 3);
-  const shadow = on => {
-    ctx.shadowColor = on ? 'rgb(0 0 0 / .65)' : 'transparent';
-    ctx.shadowBlur = on ? 2 : 0;
-    ctx.shadowOffsetY = on ? 1 : 0;
-  };
+  const y0 = Y0 * Q;
+  const y1 = Y1 * Q;
 
   // Track: a dark shade so the marks read over any map background.
-  shadow(false);
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
   ctx.fillStyle = 'rgb(9 10 11 / .5)';
-  ctx.fillRect(0, Y0, w, Y1 - Y0);
+  ctx.fillRect(0, y0, wQ, y1 - y0);
 
-  const xMax = Math.max(0, Math.min(w, x(shown.max)));
-  const xTarget = Math.max(0, Math.min(w, x(goal.target)));
+  const xMax = Math.max(0, Math.min(w, ((shownAt[MAX] - lo) / (100 - lo)) * w));
+  const xTarget = Math.max(0, Math.min(w, ((goal.target - lo) / (100 - lo)) * w));
+  const xMaxQ = Math.round(xMax * Q);
+  const xTargetQ = Math.round(xTarget * Q);
 
   // Spent: accuracy already lost to OKs and misses (max .. 100).
   if (xMax < w - 0.5) {
+    const rise = y1 - y0;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(xMax, Y0, w - xMax, Y1 - Y0);
+    ctx.rect(xMaxQ, y0, wQ - xMaxQ, rise);
     ctx.clip();
     ctx.beginPath();
-    for (let i = xMax - (Y1 - Y0); i < w; i += 5) { ctx.moveTo(i, Y1); ctx.lineTo(i + (Y1 - Y0), Y0); }
+    for (let i = xMaxQ - rise; i < wQ; i += 5 * Q) { ctx.moveTo(i, y1); ctx.lineTo(i + rise, y0); }
     ctx.strokeStyle = c.dim;
     ctx.globalAlpha = 0.4;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = Q;
     ctx.stroke();
     ctx.restore();
   }
 
   // Headroom above the target, or the shortfall below it.
-  const lost = shown.max < goal.target - EPS;
+  const lost = shownAt[MAX] < goal.target - EPS;
   ctx.fillStyle = lost ? c.miss : c.hl;
-  const bandX = Math.min(xMax, xTarget);
-  const bandW = Math.abs(xMax - xTarget);
+  const bandX = Math.min(xMaxQ, xTargetQ);
+  const bandW = Math.abs(xMaxQ - xTargetQ);
   ctx.globalAlpha = 0.28;
-  ctx.fillRect(bandX, Y0, bandW, Y1 - Y0);
+  ctx.fillRect(bandX, y0, bandW, y1 - y0);
   ctx.globalAlpha = 1;
-  ctx.fillRect(bandX, Y0, bandW, 2);
-  ctx.fillRect(px(Math.min(w - 2, Math.max(0, xMax - 1))), Y0, 2, Y1 - Y0);
+  ctx.fillRect(bandX, y0, bandW, 2 * Q);
+  ctx.fillRect(Math.round((Math.round(Math.min(w - 2, Math.max(0, xMax - 1)) * dpr) / dpr) * Q), y0, 2 * Q, y1 - y0);
 
   // Target: a hairline with a flag.
-  shadow(true);
-  const tx = px(Math.min(w - 1, xTarget));
+  ctx.shadowColor = 'rgb(0 0 0 / .65)';
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetY = 1;
+  const tx = Math.round(Math.min(w - 1, xTarget) * dpr) / dpr;
   ctx.fillStyle = c.fg;
-  ctx.fillRect(tx, Y0 - 2, 1, Y1 - Y0 + 2);
+  ctx.fillRect(Math.round(tx * Q), y0 - 2 * Q, Q, y1 - y0 + 2 * Q);
   ctx.beginPath();
-  ctx.moveTo(tx + 0.5 - flag * 0.85, 0);
-  ctx.lineTo(tx + 0.5 + flag * 0.85, 0);
-  ctx.lineTo(tx + 0.5, flag);
+  ctx.moveTo(Math.round((tx + 0.5 - flag * 0.85) * Q), 0);
+  ctx.lineTo(Math.round((tx + 0.5 + flag * 0.85) * Q), 0);
+  ctx.lineTo(Math.round((tx + 0.5) * Q), flag * Q);
   ctx.closePath();
   ctx.fill();
 
   // Live accuracy.
-  if (goal.acc !== null) {
-    const raw = x(shown.acc);
+  if (goal.hasAcc) {
+    const raw = ((shownAt[ACC] - lo) / (100 - lo)) * w;
     const mid = (Y0 + Y1) / 2;
     const half = (Y1 - Y0) / 2 - 2;
     if (raw < 0) {
       ctx.beginPath(); // pinned left: the attempt sits below the scale
-      ctx.moveTo(0, mid);
-      ctx.lineTo(half * 1.4, mid - half);
-      ctx.lineTo(half * 1.4, mid + half);
+      ctx.moveTo(0, mid * Q);
+      ctx.lineTo(Math.round(half * 1.4 * Q), Math.round((mid - half) * Q));
+      ctx.lineTo(Math.round(half * 1.4 * Q), Math.round((mid + half) * Q));
       ctx.closePath();
       ctx.fill();
     } else {
-      ctx.fillRect(px(Math.min(w - 3, raw - 1.5)), Y0 - 3, 3, Y1 - Y0 + 6);
+      ctx.fillRect(Math.round((Math.round(Math.min(w - 3, raw - 1.5) * dpr) / dpr) * Q), y0 - 3 * Q, 3 * Q, y1 - y0 + 6 * Q);
     }
   }
 
-  // Axis ticks, labelled when there is room.
+  // Axis ticks, labelled when there is room. Labels are text, drawn at the CSS px scale.
   const major = MAJOR[goal.span] ?? goal.span / 4;
   const minor = major / 5;
-  ctx.font = `500 ${font}px ${c.mono}`;
+  if (fontSize !== fontPx || c.mono !== fontMono) {
+    fontPx = fontSize;
+    fontMono = c.mono;
+    font = `500 ${fontSize}px ${c.mono}`;
+  }
+  ctx.font = font;
+  if (labels.major !== major || labels.font !== font) {
+    labels.major = major;
+    labels.font = font;
+    labels.text.fill(null);
+  }
   ctx.textBaseline = 'alphabetic';
   for (let k = Math.ceil(lo / minor - EPS); k * minor <= 100 + EPS; k++) {
     const isMajor = k % 5 === 0;
     const v = k * minor;
-    const tickX = px(Math.min(w - 1, x(v)));
+    const tickX = Math.round(Math.min(w - 1, ((v - lo) / (100 - lo)) * w) * dpr) / dpr;
     ctx.fillStyle = isMajor ? c.fg : c.dim;
     ctx.globalAlpha = isMajor ? 0.8 : 0.5;
-    ctx.fillRect(tickX, Y1 + 2, 1, isMajor ? 4 : 2);
-    if (!isMajor || !labels) continue;
+    ctx.fillRect(Math.round(tickX * Q), y1 + 2 * Q, Q, (isMajor ? 4 : 2) * Q);
+    if (!isMajor || !labelled) continue;
     ctx.globalAlpha = 1;
     ctx.fillStyle = c.dim;
-    const label = String(Number(v.toFixed(2)));
-    const width = ctx.measureText(label).width;
-    ctx.fillText(label, Math.round(Math.max(0, Math.min(w - width, tickX - width / 2))), h - 2);
+    const m = k / 5;
+    let label = labels.text[m];
+    if (label === null) {
+      label = String(Number(v.toFixed(2)));
+      labels.text[m] = label;
+      labels.width[m] = ctx.measureText(label).width;
+    }
+    const width = labels.width[m];
+    ctx.setTransform(dprScale, 0, 0, dprScale, 0, 0);
+    ctx.fillText(label, Math.round(Math.max(0, Math.min(w - width, tickX - width / 2))), labelY);
+    ctx.setTransform(qScale, 0, 0, qScale, 0, 0);
   }
   ctx.globalAlpha = 1;
-  shadow(false);
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
 }
 
 function sizeCanvas(entry) {
@@ -241,7 +332,15 @@ function sizeCanvas(entry) {
   const h = entry.contentRect.height;
   canvas.width = box ? box.inlineSize : Math.round(w * (devicePixelRatio || 1));
   canvas.height = box ? box.blockSize : Math.round(h * (devicePixelRatio || 1));
-  size = { w, h, dpr: canvas.width / Math.max(1, w) };
+  size.w = w;
+  size.h = h;
+  size.dpr = canvas.width / Math.max(1, w);
+  pixelsW = canvas.width;
+  pixelsH = canvas.height;
+  wQ = Math.round(w * Q);
+  dprScale = size.dpr;
+  qScale = size.dpr / Q;
+  labelY = h - 2;
   tapeDirty = true;
   invalidate();
 }
@@ -270,87 +369,121 @@ function follow(next) {
 // ------------------------------------------------------------------ model -> view
 // Gameplay only: osu! song select and results already show what this would add there, and the
 // page's box is placed for gameplay (it would land on the local ranking or the ranking panel).
-function viewOf(v) {
+function viewOf() {
   if (status !== 'live') return status;
-  const state = num(v[P.state]);
+  const state = num(data.state);
   if (state === null) return 'idle'; // osu! is not running
   if (state !== 2) return 'hidden';
-  return activeMode(state, v[P.playMode], v[P.settingsMode]) === 'taiko' ? 'pace' : 'hidden';
+  return activeMode(state, data.playMode, data.settingsMode) === 'taiko' ? 'pace' : 'hidden';
 }
 
-function setTape(max, acc) {
+// Points the tape at the pace result; marks it for a redraw only when where it is heading changes.
+function setTape(p, reachable) {
+  const max = reachable ? p.max * 100 : 100;
+  const acc = p.accuracy * 100;
+  const floorPct = Math.min(config.target, max);
+  let span = 100;
+  for (let i = 0; i < SPANS.length; i++) if (SPANS[i] * 0.88 >= 100 - floorPct) { span = SPANS[i]; break; }
+  if (goal.hasAcc && goal.target === config.target && goal.span === span && goalAt[MAX] === max && goalAt[ACC] === acc) return;
   goal.target = config.target;
-  goal.max = max;
-  goal.acc = acc;
-  goal.span = spanFor(Math.min(config.target, max));
-  goal.lo = 100 - goal.span;
+  goal.span = span;
+  goal.hasAcc = true;
+  goalAt[LO] = 100 - span;
+  goalAt[MAX] = max;
+  goalAt[ACC] = acc;
   tapeDirty = true;
 }
 
-function setBudget(tone, label, value, unit, subLabel, sub) {
-  attr(budget, 'data-tone', tone);
-  put(el.budgetLabel, label);
-  put(el.okBudget, value);
-  el.okBudget.parentElement.classList.toggle('empty', value === DASH);
-  put(el.budgetUnit, unit);
-  put(el.missLabel, subLabel);
-  put(el.missBudget, sub);
+// Switches the budget readout's tone and its fixed labels; values follow per message.
+function setTone(next, label, unit, subLabel) {
+  if (next === tone) return;
+  tone = next;
+  budget.setAttribute('data-tone', next);
+  text(T.budgetLabel, label);
+  text(T.budgetUnit, unit);
+  text(T.missLabel, subLabel);
+  okBudgetBox.classList.toggle('empty', next === 'idle');
+  T.okBudget.key = null;
+  T.missBudget.key = null;
+}
+
+// Pace readouts and the tape for one set of counts; renderData calls it only when they change.
+function renderPace(great, ok, miss, notes) {
+  const target = config.target / 100;
+  const p = pace(great, ok, miss, notes ?? great + ok + miss, target, result);
+  const accKey = Math.floor(p.accuracy * 1e4 + 1e-6) | 0;
+  if (fresh(T.acc, accKey)) text(T.acc, pct(accKey));
+  showInt(T.great, great);
+  showInt(T.ok, ok);
+  showInt(T.miss, miss);
+  if (notes) {
+    const maxKey = Math.floor(p.max * 1e4 + 1e-6) | 0;
+    if (fresh(T.max, maxKey)) text(T.max, `${pct(maxKey)}%`);
+    showInt(T.remaining, p.remaining);
+    if (p.lost) {
+      setTone('lost', 'Below target', '%', 'Target');
+      // Shortfall in hundredths of a percent, at least 0.01 (1..10000: `| 0` is exact).
+      const short = Math.max(1, Math.ceil((target - p.max) * 1e4 - 1e-6)) | 0;
+      if (fresh(T.okBudget, short)) text(T.okBudget, `${MINUS}${pct(short)}`);
+      text(T.missBudget, 'Out of reach');
+    } else {
+      setTone('budget', 'OK budget', '', 'Miss budget');
+      showInt(T.okBudget, p.okBudget);
+      showInt(T.missBudget, p.missBudget);
+    }
+    setTape(p, true);
+  } else {
+    showInt(T.max, null);
+    showInt(T.remaining, null);
+    setTone('idle', 'OK budget', '', 'Miss budget');
+    showInt(T.okBudget, null);
+    showInt(T.missBudget, null);
+    setTape(p, false);
+  }
 }
 
 function renderData() {
-  const v = values ?? {};
-  const view = viewOf(v);
-  follow(typeof v[P.checksum] === 'string' ? v[P.checksum] : '');
+  const view = viewOf();
+  follow(typeof data.checksum === 'string' ? data.checksum : '');
 
   const chip = view === 'connecting' || view === 'offline' || view === 'idle';
-  attr(stage, 'data-view', chip ? 'chip' : view);
-  attr(stage, 'data-status', view);
-  put(el.chipText, view === 'offline' ? 'vosu offline' : view === 'idle' ? 'Waiting for osu!' : 'Connecting');
+  const shape = chip ? 'chip' : view;
+  if (shape !== stageView) { stageView = shape; stage.setAttribute('data-view', shape); }
+  if (view !== stageStatus) { stageStatus = view; stage.setAttribute('data-status', view); }
+  text(T.chipText, view === 'offline' ? 'vosu offline' : view === 'idle' ? 'Waiting for osu!' : 'Connecting');
   if (view !== lastView) snap = true;
   lastView = view;
   if (view !== 'pace') return;
 
-  const target = config.target / 100;
-  put(el.target, `${config.target.toFixed(2)}%`);
-  const great = int(v[P.great]) ?? 0;
-  const ok = int(v[P.ok]) ?? 0;
-  const miss = int(v[P.miss]) ?? 0;
-  const notes = int(v[P.notes]) || int(v[P.circles]) || null;
+  if (fresh(T.target, config.target)) text(T.target, `${config.target.toFixed(2)}%`);
+  const great = int(data.great) ?? 0;
+  const ok = int(data.ok) ?? 0;
+  const miss = int(data.miss) ?? 0;
+  const notes = int(data.notes) || int(data.circles) || null;
   const judged = great + ok + miss;
   if (judged < lastJudged) snap = true; // retry
   lastJudged = judged;
-  const p = pace(great, ok, miss, notes ?? judged, target);
-
-  put(el.acc, pct(p.accuracy));
-  put(el.great, String(great));
-  put(el.ok, String(ok));
-  put(el.miss, String(miss));
-  if (notes) {
-    put(el.max, `${pct(p.max)}%`);
-    put(el.remaining, String(p.remaining));
-    if (p.lost) {
-      const short = Math.max(0.01, Math.ceil((target - p.max) * 1e4 - 1e-6) / 100);
-      setBudget('lost', 'Below target', `${MINUS}${short.toFixed(2)}`, '%', 'Target', 'Out of reach');
-    } else {
-      setBudget('budget', 'OK budget', String(p.okBudget), '', 'Miss budget', String(p.missBudget));
-    }
-    setTape(p.max * 100, p.accuracy * 100);
-  } else {
-    put(el.max, DASH);
-    put(el.remaining, DASH);
-    setBudget('idle', 'OK budget', DASH, '', 'Miss budget', DASH);
-    setTape(100, p.accuracy * 100);
+  // Most messages carry no new judgement: the pace readouts and tape then stay as they are.
+  if (great !== seen.great || ok !== seen.ok || miss !== seen.miss || notes !== seen.notes || config.target !== seen.target) {
+    seen.great = great;
+    seen.ok = ok;
+    seen.miss = miss;
+    seen.notes = notes;
+    seen.target = config.target;
+    renderPace(great, ok, miss, notes);
   }
 
-  const ur = num(v[P.ur]);
-  put(el.ur, judged > 1 && ur !== null ? ur.toFixed(1) : DASH);
-  put(el.pp, whole(num(v[P.pp])));
-  put(el.fc, whole(num(v[P.fc])));
+  const ur = num(data.ur);
+  const urShown = judged > 1 && ur !== null;
+  if (fresh(T.ur, urShown ? ur : DASH_KEY)) text(T.ur, urShown ? ur.toFixed(1) : DASH);
+  const pp = num(data.pp);
+  showInt(T.pp, pp === null ? null : Math.round(pp));
+  const fc = num(data.fc);
+  showInt(T.fc, fc === null ? null : Math.round(fc));
 }
 
 // ------------------------------------------------------------------ frame loop
 let raf = 0;
-let lastTime = 0;
 
 function invalidate() {
   if (!raf) raf = requestAnimationFrame(frame);
@@ -358,41 +491,53 @@ function invalidate() {
 
 function frame(now) {
   raf = 0;
-  const dt = lastTime ? Math.min(64, now - lastTime) : 16;
-  lastTime = now;
+  // 16 ms on the first frame after a pause. Set through the array: a conditional choosing between
+  // a computed double and an integer literal makes V8 box the double on every frame.
+  clock[1] = 16;
+  if (clock[0]) clock[1] = Math.min(64, now - clock[0]);
+  clock[0] = now;
+  const dt = clock[1];
   if (dataDirty) { dataDirty = false; renderData(); }
 
   let moving = false;
   if (snap) {
-    shown.lo = goal.lo; shown.max = goal.max; shown.acc = goal.acc ?? shown.acc;
+    shownAt[LO] = goalAt[LO];
+    shownAt[MAX] = goalAt[MAX];
+    if (goal.hasAcc) shownAt[ACC] = goalAt[ACC];
     snap = false;
     tapeDirty = true;
   } else {
     const k = 1 - Math.exp(-dt / 70);
     const settle = goal.span * 2e-4;
-    for (const key of ['lo', 'max', 'acc']) {
-      const target = goal[key];
-      if (target === null) continue;
-      const delta = target - shown[key];
+    const count = goal.hasAcc ? 3 : 2; // the accuracy mark waits for its first value
+    for (let i = 0; i < count; i++) {
+      const delta = goalAt[i] - shownAt[i];
       if (Math.abs(delta) <= settle) {
-        if (delta !== 0) { shown[key] = target; tapeDirty = true; }
+        if (delta !== 0) { shownAt[i] = goalAt[i]; tapeDirty = true; }
         continue;
       }
-      shown[key] += delta * k;
+      shownAt[i] += delta * k;
       moving = true;
       tapeDirty = true;
     }
   }
   if (tapeDirty && lastView === 'pace') { tapeDirty = false; drawTape(); }
   if (moving) invalidate();
-  else lastTime = 0;
+  else clock[0] = 0;
 }
 
 // ------------------------------------------------------------------ wiring
+function refont() {
+  forgetLabels();
+  tapeDirty = true;
+  invalidate();
+}
+
 readColours();
 layout();
 addEventListener('resize', layout);
-document.fonts?.ready.then(() => { tapeDirty = true; invalidate(); });
+document.fonts?.ready.then(refont);
+document.fonts?.addEventListener('loadingdone', refont); // label widths depend on the loaded faces
 new ResizeObserver(entries => sizeCanvas(entries[entries.length - 1])).observe(canvas, { box: 'device-pixel-content-box' });
 
 settings(DEFAULTS, s => {
@@ -406,7 +551,7 @@ settings(DEFAULTS, s => {
   };
   attr(stage, 'data-align', config.align);
   attr(stage, 'data-backing', config.backing);
-  hide(el.urCell, !config.showUr);
+  hide(urCell, !config.showUr);
   for (const node of ppCells) hide(node, !config.showPp);
   layout();
   tint();
@@ -415,8 +560,9 @@ settings(DEFAULTS, s => {
   invalidate();
 });
 
-subscribe(Object.values(P), current => {
-  values = current;
+// The client reuses its values object for every frame: copy the pointers out instead of keeping it.
+subscribe(POINTERS, current => {
+  for (let i = 0; i < KEYS.length; i++) data[KEYS[i]] = current[POINTERS[i]];
   dataDirty = true;
   invalidate();
 }, {

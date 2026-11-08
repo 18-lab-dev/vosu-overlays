@@ -1,0 +1,98 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* tokens.css sets color-scheme: dark; a differing embedder would paint an opaque backdrop. */
+html[data-theme] { color-scheme: normal; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; }
+#stage { position: relative; }
+dl, dd, p { margin: 0; }
+
+.panel {
+  position: absolute; left: 0; top: 0; width: 360px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong); border-top: 2px solid var(--accent); border-radius: var(--radius);
+  contain: layout paint;
+  opacity: 1;
+  transition: opacity 200ms var(--ease-draft), visibility 0s;
+}
+.panel[data-hidden] { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s 200ms; }
+
+/* Connecting / offline: only the header survives, shrunk to a chip. */
+.panel[data-view="chip"] { width: max-content; }
+.panel[data-view="chip"] > :not(.head) { display: none; }
+.panel[data-view="chip"] .head { border-bottom: 0; }
+
+#meter [data-empty] { color: var(--rule-strong); }
+#meter [data-empty] + .unit { visibility: hidden; }
+.sub { min-height: 12px; }
+.label, .head, dt, .sub, .unit, .axis, .notice {
+  font-family: var(--font-mono); font-size: 10px; line-height: 12px;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+b, dd { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── header ─────────────────────────────────────────── */
+.head { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.brand { color: var(--fg); font-weight: 500; letter-spacing: .04em; }
+.brand[hidden] { display: none; }
+.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 12px; color: var(--fg-dim); }
+.dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); }
+.status[data-state="live"] .dot { background: var(--accent); border-color: var(--accent); }
+.status[data-state="held"] .dot { background: var(--fg-dim); border-color: var(--fg-dim); }
+.status[data-state="offline"] .dot { background: var(--danger); border-color: var(--danger); }
+.status[data-state="offline"], .status[data-state="connecting"], .status[data-state="idle"] { color: var(--muted); }
+
+/* ── readouts ───────────────────────────────────────── */
+.readouts { display: grid; grid-template-columns: 1fr auto; column-gap: 16px; padding: 10px 12px 10px; }
+.live, .peak { display: grid; row-gap: 2px; align-content: start; }
+.peak { justify-items: end; text-align: right; }
+.live .label { display: flex; align-items: center; gap: 6px; }
+.live .label::before { content: ""; width: 10px; height: 2px; background: var(--accent); }
+.figure { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-display); }
+.figure b { display: inline-block; min-width: 3ch; transition: opacity 200ms var(--ease-draft); }
+#bpm { font-size: 60px; line-height: 52px; letter-spacing: -.005em; color: var(--fg); }
+#peak { font-size: 34px; line-height: 32px; color: var(--fg-dim); text-align: right; }
+.figure .unit { color: var(--muted); }
+.live[data-stale] #bpm { opacity: .42; }
+.live[data-stale] .label::before { background: var(--muted); }
+.sub { color: var(--fg-dim); letter-spacing: .04em; text-transform: none; }
+.peak .figure { margin-top: 8px; }
+
+/* ── comb trace ─────────────────────────────────────── */
+.trace { position: relative; display: grid; grid-template-columns: 20px 1fr; grid-template-rows: 1fr 1fr; height: 76px; margin: 0 12px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+#comb { grid-column: 2; grid-row: 1 / span 2; width: 100%; height: 100%; display: block; }
+.axis { grid-column: 1; font-size: 9px; line-height: 10px; letter-spacing: .04em; }
+.axis.k1 { grid-row: 1; align-self: start; margin-top: 6px; }
+.axis.k2 { grid-row: 2; align-self: end; margin-bottom: 6px; }
+.sym { text-transform: none; font-size: 11px; }
+.notice { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 12px; color: var(--fg-dim); letter-spacing: .04em; text-transform: none; text-align: center; }
+.notice[hidden] { display: none; }
+
+/* ── stats ──────────────────────────────────────────── */
+.stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 9px 12px 10px; }
+.stats > div { position: relative; display: grid; row-gap: 3px; align-content: start; }
+.stats > div + div { padding-left: 12px; border-left: 1px solid var(--rule); }
+.stats > div:not(:last-child) { padding-right: 12px; }
+.stats dd { display: flex; align-items: baseline; gap: 4px; font-family: var(--font-display); font-size: 24px; line-height: 22px; color: var(--fg); }
+.stats dd .unit { font-weight: 400; }
+#balance-cell[hidden] { display: none; }
+.split { position: relative; display: block; height: 2px; margin-top: 3px; background: var(--rule-strong); }
+.split > i { position: absolute; inset: 0; display: block; background: var(--fg-dim); transform-origin: 0 50%; transform: scaleX(.5); transition: transform 200ms var(--ease-draft); }
+.split::after { content: ""; position: absolute; left: 50%; top: -2px; width: 1px; height: 6px; background: var(--muted); }
+
+/* ── judgements ─────────────────────────────────────── */
+.judgements { display: grid; grid-template-columns: repeat(4, 1fr); padding: 7px 12px 8px; border-top: 1px solid var(--rule); }
+.judgements[hidden] { display: none; }
+.judgements > div { display: flex; align-items: baseline; gap: 6px; }
+.judgements dt { display: inline-flex; align-items: center; gap: 5px; }
+.judgements dt::before { content: ""; width: 6px; height: 6px; background: var(--c); align-self: center; }
+.judgements dd { font-family: var(--font-display); font-size: 19px; line-height: 20px; color: var(--fg); }
+.j100 { --c: var(--j-good); }
+.j50 { --c: var(--j-meh); }
+.jmiss { --c: var(--j-miss); }
+.jsb { --c: transparent; }
+.jsb dt::before { box-shadow: inset 0 0 0 1px var(--j-miss); }
+.judgements dt { color: var(--c); }
+.jsb dt { color: var(--j-miss); }

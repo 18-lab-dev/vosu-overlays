@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tap meter · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section id="meter" class="panel" aria-label="Tap meter" data-view="chip">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="title">Tap meter</span>
+      <span class="status" id="status" data-state="connecting"><i class="dot"></i><span id="status-text">Connecting</span></span>
+    </header>
+
+    <div class="readouts">
+      <div class="live" id="live">
+        <span class="label">Stream</span>
+        <div class="figure"><b id="bpm">—</b><span class="unit">bpm</span></div>
+        <span class="sub" id="interval">—</span>
+      </div>
+      <div class="peak">
+        <span class="label">Peak</span>
+        <div class="figure"><b id="peak">—</b></div>
+        <span class="sub" id="peak-sub">—</span>
+      </div>
+    </div>
+
+    <div class="trace">
+      <canvas id="comb" aria-label="Recent tap intervals: K1 above the axis, K2 below; bar height is stream speed"></canvas>
+      <span class="axis k1">K1</span>
+      <span class="axis k2">K2</span>
+      <p class="notice" id="notice" hidden></p>
+    </div>
+
+    <dl class="stats" id="stats">
+      <div><dt>Interval <span class="sym">σ</span></dt><dd><b id="sigma">—</b><span class="unit">ms</span></dd></div>
+      <div><dt>Alternate</dt><dd><b id="alt">—</b><span class="unit">%</span></dd></div>
+      <div id="balance-cell"><dt>K1 : K2</dt><dd><b id="balance">—</b></dd><i class="split"><i id="split"></i></i></div>
+    </dl>
+
+    <dl class="judgements" id="judgements">
+      <div class="j100"><dt>100</dt><dd id="h100">—</dd></div>
+      <div class="j50"><dt>50</dt><dd id="h50">—</dd></div>
+      <div class="jmiss"><dt>Miss</dt><dd id="h0">—</dd></div>
+      <div class="jsb"><dt>SB</dt><dd id="hsb">—</dd></div>
+    </dl>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

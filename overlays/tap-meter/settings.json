@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"windowTaps","type":"number","title":"Window / taps","description":"How many recent taps the stream speed, interval σ and alternation are measured over (4–64). Speed uses the 1/4 convention: BPM = 15000 ÷ mean interval. The peak only counts runs at least this long; changing the window restarts it.","value":16},
+ {"uniqueID":"showBalance","type":"checkbox","title":"Show finger balance","description":"Share of K1 and K2 presses this play.","value":true},
+ {"uniqueID":"showJudgements","type":"checkbox","title":"Show judgements","description":"100, 50, miss and slider-break counts.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

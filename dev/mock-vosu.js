@@ -7,7 +7,7 @@
 //   bun dev/mock-vosu.js [--port 24100] [--mode osu|taiko|fruits|mania] [--state play|menu|results|offline]
 //                        [--client stable|lazer] [--keys 4|7] [--ext 1|0] [--freeze <ms>] [--speed 1]
 //
-// Overlays: http://127.0.0.1:<port>/<overlay-id>/   Control page: http://127.0.0.1:<port>/__dev/
+// Overlays: http://127.0.0.1:<port>/<overlay-id>/   Control page: /__dev/   All overlays live: /__dev/gallery
 // Live control: GET /__dev/scenario?mode=mania&state=play&keys=7&freeze=60000 (any subset; resets).
 //               GET /__dev/settings?id=<overlay>&<uniqueID>=<value>  pushes updateSettings live.
 // /assets/* (18-LAB tokens and fonts) is read from $VOSU_ASSETS (a vosu checkout's
@@ -46,6 +46,7 @@ const STATE = { menu: { number: 5, name: 'selectPlay' }, play: { number: 2, name
 let config = {
   mode: arg('mode', 'osu'), state: arg('state', 'play'), client: arg('client', 'stable'),
   keys: Number(arg('keys', 4)), ext: arg('ext', '1') !== '0', freeze: arg('freeze', null), speed: Number(arg('speed', 1)),
+  start: Number(arg('start', 0)),
 };
 let scenario;
 
@@ -165,7 +166,8 @@ function judge(mode, object, windows) {
 
 function clock() {
   if (config.freeze !== null && config.freeze !== '') return Number(config.freeze);
-  const elapsed = (performance.now() - scenario.startedAt) * config.speed;
+  // `start` begins a live attempt that far into the map, so long histories keep growing (late-attempt perf).
+  const elapsed = (performance.now() - scenario.startedAt) * config.speed + (config.start && config.state !== 'menu' ? config.start + 800 : 0);
   if (config.state === 'menu') return (elapsed % 30000) + 40000;
   const cycle = scenario.end + 2500 + 8000;
   const attempt = Math.floor(elapsed / cycle);
@@ -397,19 +399,38 @@ function publish(client) {
   if (present.length || absent.length) client.ws.send(`[1,${revision},[${present.join(',')}],[${absent.join(',')}]]`);
 }
 
+function overlayMeta(id) {
+  const meta = { id, name: id, description: '', resolution: [1920, 1080] };
+  const file = join(OVERLAYS, id, 'metadata.txt');
+  if (!existsSync(file)) return meta;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const [key, ...rest] = line.split('=');
+    const value = rest.join('=').trim();
+    if (!value) continue;
+    if (key.trim() === 'resolution') meta.resolution = JSON.parse(value);
+    else if (['name', 'description'].includes(key.trim())) meta[key.trim()] = value;
+  }
+  return meta;
+}
+
 /** Overlay framed at its declared resolution over a dimmed mock gameplay background. */
 function stagePage(id, params) {
-  const metadata = join(OVERLAYS, id, 'metadata.txt');
-  let [width, height] = [1920, 1080];
-  if (existsSync(metadata)) {
-    const line = readFileSync(metadata, 'utf8').split('\n').find(l => /^\s*resolution\s*=/.test(l));
-    if (line) [width, height] = JSON.parse(line.split('=')[1]);
-  }
+  let [width, height] = overlayMeta(id).resolution;
   width = Number(params.get('w')) || width;
   height = Number(params.get('h')) || height;
   const dim = Number(params.get('dim') ?? 0.55);
   const pad = Number(params.get('pad') ?? 32);
   return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000}body{width:${width + pad * 2}px;height:${height + pad * 2}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${pad}px;top:${pad}px;width:${width}px;height:${height}px;border:0;outline:1px dashed rgb(255 255 255 / .18);background:transparent}</style><iframe src="/${id}/" allowtransparency="true"></iframe>`;
+}
+
+/** Every overlay live at once, each scaled into a card over the mock background, for review. */
+function galleryPage() {
+  const cards = overlayIds().map(overlayMeta).map(({ id, name, description, resolution: [w, h] }) => {
+    const scale = Math.min(1, 440 / w, 300 / h);
+    return `<figure><div class="frame" style="height:${Math.ceil(h * scale)}px"><iframe src="/${id}/" style="width:${w}px;height:${h}px;transform:scale(${scale})" loading="lazy"></iframe></div><figcaption><a href="/__dev/stage?id=${id}" target="_blank">${name}</a> <code>${id} · ${w}×${h}</code><p>${description}</p></figcaption></figure>`;
+  }).join('');
+  const modes = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['menu', 'play', 'results'].map(state => `<button data-q="mode=${mode}&state=${state}&freeze=">${mode} ${state}</button>`)).join('');
+  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}<button data-q="state=offline">offline</button><button data-q="ext=0">ext off</button><button data-q="ext=1">ext on</button><button data-q="keys=7">7K</button><button data-q="keys=4">4K</button><button data-q="client=lazer">lazer</button><button data-q="client=stable">stable</button></header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
 }
 
 function overlaySettings(id) {
@@ -447,7 +468,7 @@ function overlayIds() {
 function controlPage() {
   const links = overlayIds().map(id => `<li><a href="/${id}/" target="_blank">${id}</a> · <a href="/__dev/stage?id=${id}" target="_blank">stage</a></li>`).join('');
   const presets = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['play', 'menu', 'results'].map(state => `<a href="/__dev/scenario?mode=${mode}&state=${state}">${mode}/${state}</a>`)).join(' · ');
-  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">offline</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a></p><ul>${links}</ul></body>`;
+  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p><a href="/__dev/gallery">Gallery of every overlay</a></p><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">offline</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a></p><ul>${links}</ul></body>`;
 }
 
 function file(id, rest) {
@@ -468,6 +489,7 @@ function reset(params) {
   if (params.has('ext')) config.ext = params.get('ext') !== '0';
   if (params.has('freeze')) config.freeze = params.get('freeze') || null;
   if (params.has('speed')) config.speed = Number(params.get('speed')) || 1;
+  if (params.has('start')) config.start = Number(params.get('start')) || 0;
   scenario = build();
   // A new selection drops subscriber baselines, like a fresh vosu snapshot.
   for (const client of subscribers) client.sent = null;
@@ -493,6 +515,7 @@ Bun.serve({
     if (path.startsWith('/assets/')) return assets(path);
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });
     if (path === '/__dev/stage') return new Response(stagePage(url.searchParams.get('id') || '', url.searchParams), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
+    if (path === '/__dev/gallery') return new Response(galleryPage(), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
     if (path === '/__dev/scenario') {
       if ([...url.searchParams.keys()].length) reset(url.searchParams);
       return request.headers.get('accept')?.includes('text/html') ? Response.redirect('/__dev/', 302) : Response.json(config);

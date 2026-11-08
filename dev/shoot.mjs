@@ -8,7 +8,8 @@
 // Requires a running `bun dev/mock-vosu.js --port <port>`. Playwright is resolved from
 // $PLAYWRIGHT (path to playwright's index.mjs) or the `playwright` package.
 // Default cases: every ruleset in menu, mid-play (frozen at 60 s) and results; offline; and
-// osu!/mania with vosu extensions disabled. --perf runs a live (unfrozen) attempt for 5 s.
+// osu!/mania with vosu extensions disabled. --perf runs a live attempt for 5 s starting 110 s
+// into the map, so hit-error/key histories are already long (~2000 events) and keep growing.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -29,7 +30,7 @@ for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
 }
 defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=osu&state=offline');
 const cases = (arg('cases') ? arg('cases').split(';') : defaults).filter(Boolean);
-const perf = arg('perf', 'mode=mania&state=play&keys=7');
+const perf = arg('perf', 'mode=mania&state=play&keys=7&start=110000');
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright').catch(() =>
   import(`${process.env.HOME}/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs`));
@@ -43,7 +44,7 @@ page.on('console', message => { if (message.type() === 'error') errors.push(mess
 
 const reset = async query => {
   // Baseline every unspecified dimension so cases do not inherit each other's toggles.
-  const full = new URLSearchParams({ mode: 'osu', state: 'play', client: 'stable', keys: '4', ext: '1', freeze: '', speed: '1' });
+  const full = new URLSearchParams({ mode: 'osu', state: 'play', client: 'stable', keys: '4', ext: '1', freeze: '', speed: '1', start: '0' });
   for (const [k, v] of new URLSearchParams(query)) full.set(k, v);
   await fetch(`${base}/__dev/scenario?${full}`);
 };

@@ -81,6 +81,24 @@ scales. The service caches timelines by chart, rate, window, hop and mode; the
 overlay never recalculates them locally. Reform estimates are not displayed
 as ranks or clear guarantees.
 
+## Developing official overlays
+
+Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.png`. They link vosu's own `/assets/tokens.css` (18-LAB tokens and fonts) rather than copying it, and follow the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js` (packages must be self-contained). Edit the shared file, then run:
+
+```sh
+python scripts/sync_shared.py          # refresh every overlay's copy
+python scripts/sync_shared.py --check  # CI: fail on drift
+```
+
+`dev/mock-vosu.js` is a development-only stand-in for the vosu routes overlays use (`/websocket/v2/subscribe`, `/websocket/commands`, `/json/v2`, `/files/beatmap/background`, `/assets/`), driven by a deterministic synthetic attempt in any ruleset, so overlays can be designed without osu! running. Its values are plausible, not real. `/assets/` is proxied from a running vosu, or read from `VOSU_ASSETS=<vosu>/assets/server`.
+
+```sh
+bun dev/mock-vosu.js --port 24100
+# http://127.0.0.1:24100/__dev/gallery   every overlay live, with ruleset/state switches
+# http://127.0.0.1:24100/__dev/stage?id=<id>   one overlay over a dimmed gameplay backdrop
+node dev/shoot.mjs --port 24100 --id <id>     # screenshots of every state plus live perf numbers
+```
+
 ## Internal packaging / future releases
 
 Packaging is retained for local development and possible future publication, not as a currently available install source. Only self-contained folders under `overlays/` are packaged. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the generated catalog; continue serving them with `./run.sh`.

@@ -52,26 +52,31 @@ const seqCtx = seqCanvas.getContext('2d', { alpha: true });
 // ------------------------------------------------------------------ state
 const live = new Int32Array(4);        // vosu counts as last received
 let hasLive = false;
+// Hot paths stay in small integers (whole ms, counts, table indices) so even unoptimised code never
+// boxes a fresh number; fractional values the draw code needs are boxed once into tables below.
 const pressed = new Uint8Array(4);
-const litAt = new Float64Array(4).fill(-1e9);
-const level = new Float32Array(4);
-const pressedAt = new Float64Array(4);
+const litAt = new Int32Array(4).fill(-DECAY_MS - 1); // whole ms of the latest press/release
+const drawnIdx = new Int32Array(4).fill(DECAY_MS);   // decay table index the drum was drawn at
+const pressedAt = [null, null, null, null];          // this frame's press edges, by reference (no copy)
 const delta = new Int32Array(4);
 const order = new Uint8Array(4);
 
 let alternations = 0;
 let repeats = 0;
 let prevHand = NONE;
-let prevT = NaN;
+let prevT = null;
 let peak = 0;
 let kps = 0;
-const kpsTimes = new Float64Array(KPS_RING);
+const kpsTimes = new Int32Array(KPS_RING);
 let kpsHead = 0;
 let kpsLen = 0;
 let kpsTimer = 0;
+let kpsTimerAt = -1;   // expiry the pending timer is set for
 const seq = new Uint8Array(SEQ_MAX);   // zone bitmask per hit, ring
 let seqHead = 0;
 let seqLen = 0;
+let frameNow = 0;      // whole-ms clock, read at most once per data frame
+let frameNowRead = false;
 
 let show = 'none';     // none | play | chip | note
 let online = false;
@@ -99,10 +104,11 @@ function readTokens() {
 function resetRun() {
   alternations = repeats = 0;
   prevHand = NONE;
-  prevT = NaN;
+  prevT = null;
   peak = kps = 0;
   kpsHead = kpsLen = 0;
   clearTimeout(kpsTimer);
+  kpsTimerAt = -1;
   seqHead = seqLen = 0;
   seqDirty = textDirty = true;
 }
@@ -139,16 +145,35 @@ function expireKps(now) {
   }
   if (kpsLen !== kps) { kps = kpsLen; textDirty = true; }
   if (kps > peak) peak = kps;
+  if (!kpsLen) {
+    clearTimeout(kpsTimer);
+    kpsTimerAt = -1;
+    return;
+  }
+  // New hits leave the oldest one in place: the pending timer is still the right one.
+  const at = kpsTimes[kpsHead] + KPS_WINDOW;
+  if (at === kpsTimerAt) return;
   clearTimeout(kpsTimer);
-  if (kpsLen) kpsTimer = setTimeout(onKpsTimer, kpsTimes[kpsHead] + KPS_WINDOW - now + 1);
+  kpsTimerAt = at;
+  kpsTimer = setTimeout(onKpsTimer, at - now + 1);
 }
 function onKpsTimer() {
-  expireKps(performance.now());
-  requestRender();
+  kpsTimerAt = -1;
+  expireKps(performance.now() | 0);
+  if (textDirty) requestRender();
 }
 
-/** Reads one `/keys/all` frame. Counts only become hits while a taiko attempt is live. */
-function ingestKeys(all, playing, now) {
+/** Whole-ms page clock, read lazily: only frames that press or release a key need it. */
+function clock() {
+  if (!frameNowRead) { frameNowRead = true; frameNow = performance.now() | 0; }
+  return frameNow;
+}
+
+/**
+ * Reads one `/keys/all` frame in place (the array is fresh per message; nothing is copied).
+ * Counts only become hits while a taiko attempt is live.
+ */
+function ingestKeys(all, playing) {
   let total = 0;
   let dropped = false;
   for (let i = 0; i < 4; i++) {
@@ -157,7 +182,7 @@ function ingestKeys(all, playing, now) {
     const down = key && key.isPressed ? 1 : 0;
     if (down !== pressed[i]) {
       pressed[i] = down;
-      if (!down) litAt[i] = now;
+      if (!down) litAt[i] = clock();
       drumDirty = true;
     }
     pressedAt[i] = key && Number.isFinite(key.pressedAt) ? key.pressedAt : -Infinity;
@@ -180,6 +205,7 @@ function ingestKeys(all, playing, now) {
     while (j > 0 && pressedAt[order[j - 1]] > pressedAt[i]) { order[j] = order[j - 1]; j--; }
     order[j] = i;
   }
+  const now = clock();
   for (let k = 0; k < 4; k++) {
     const zone = order[k];
     for (let n = delta[zone]; n > 0; n--) press(zone, n === 1 ? pressedAt[zone] : NaN, now);
@@ -189,8 +215,9 @@ function ingestKeys(all, playing, now) {
 }
 
 // ------------------------------------------------------------------ data
+// `values` and `changed` are the client's reused frame objects: read them here, never keep them.
 function onFrame(values, changed) {
-  const now = performance.now();
+  frameNowRead = false;
   const state = values['/state/number'];
   const mode = activeMode(state, values['/play/mode/number'], values['/settings/mode/number']);
   const all = values['/keys/all'];
@@ -200,13 +227,19 @@ function onFrame(values, changed) {
   if (playing && !wasPlaying) resetRun();
   wasPlaying = playing;
 
-  if (Array.isArray(all)) ingestKeys(all, playing, now);
+  // An unchanged keys array was already read (its counts and edges are known).
+  if (Array.isArray(all)) { if (changed.has('/keys/all')) ingestKeys(all, playing); }
   else if (hasLive) { hasLive = false; textDirty = true; }
 
-  if (mode === 'taiko') loadPalette(values['/beatmap/checksum'] || ''); // no-op unless the map changed
+  // The palette follows the map while taiko is active: on entering taiko or a map change.
+  if (mode === 'taiko' && (mode !== lastMode || changed.has('/beatmap/checksum'))) loadPalette(values['/beatmap/checksum'] || '');
+  lastMode = mode;
   updateShow();
-  requestRender();
+  if (drumDirty || seqDirty || textDirty) requestRender();
 }
+let lastMode = null;
+
+let chipTone = chip.dataset.tone;
 
 /** Gameplay shows the drum; song select, results and other rulesets show nothing. */
 function updateShow() {
@@ -218,7 +251,7 @@ function updateShow() {
   else if (!game) { next = 'chip'; text = 'osu! not running'; }
   else if (wasPlaying) next = hasLive ? 'play' : 'note';
   if (text) setText(chipText, text);
-  if (chip.dataset.tone !== tone) chip.dataset.tone = tone;
+  if (chipTone !== tone) { chipTone = tone; chip.dataset.tone = tone; }
   if (next !== show) { show = next; ov.dataset.show = next; textDirty = drumDirty = seqDirty = true; }
 }
 
@@ -316,8 +349,10 @@ function layout() {
 addEventListener('resize', layout);
 
 // ------------------------------------------------------------------ canvas sizing
-const drumBox = { w: 0, h: 0, scale: 1 };
-const seqBox = { w: 0, h: 0, scale: 1 };
+// Box fields start as null so V8 keeps them tagged: reading a fractional size back in the draw
+// path returns the stored number instead of boxing a new one.
+const drumBox = { w: null, h: null, scale: null };
+const seqBox = { w: null, h: null, scale: null };
 const zonePaths = [null, null, null, null];
 
 /** Backing stores follow devicePixelRatio × the page scale (CSS transforms don't reach the observed box). */
@@ -328,6 +363,10 @@ function sizeCanvas(canvas, box) {
   const h = Math.round(box.h * box.scale);
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
+  // The transform only changes here (resizing also resets it), so the draw path never sets it.
+  const ctx = canvas === drumCanvas ? drumCtx : seqCtx;
+  ctx.setTransform(box.scale, 0, 0, box.scale, 0, 0);
+  if (canvas === seqCanvas) buildSeqGeometry();
 }
 
 const resizer = new ResizeObserver(entries => {
@@ -379,24 +418,80 @@ function buildPaths(size) {
   zonePaths[3] = rimR;
 }
 
+// Hit strip geometry for the current box and pitch, built on resize/layout only. `slotXs` and the
+// stroke offsets are tagged arrays/fields of numbers boxed here once, read as-is by drawSeq.
+const slotX = new Int32Array(SEQ_MAX);
+const slotXs = new Array(SEQ_MAX).fill(null);   // slotX + 0.5, for the hollow kat strokes
+const seqGeo = { slots: 4, block: 2, row: 0, bottom: null, bottomStroke: null };
+// Older hits fade by strip position k of `count` shown. Every (count, k) pair is boxed once at
+// load into one tagged triangle, row `count` starting at count·(count−1)/2: a run filling the
+// strip reads a new row per hit instead of rebuilding one.
+const ageAlpha = new Array(SEQ_MAX * (SEQ_MAX + 1) / 2).fill(null);
+for (let count = 1, row = 0; count <= SEQ_MAX; row += count, count++) {
+  for (let k = 0; k < count; k++) {
+    const age = (k + 1) / count;
+    ageAlpha[row + k] = 0.3 + 0.7 * age * age;
+  }
+}
+
+function buildSeqGeometry() {
+  const w = seqBox.w;
+  const h = seqBox.h;
+  const slots = Math.max(4, Math.min(SEQ_MAX, Math.floor(w / seqPitch)));
+  const pitch = w / slots;
+  const row = Math.floor((h - 2) / 2);
+  const bottom = h - row;
+  seqGeo.slots = slots;
+  seqGeo.block = Math.max(2, Math.floor(pitch) - 2);
+  seqGeo.row = row;
+  seqGeo.bottom = bottom;
+  seqGeo.bottomStroke = bottom + 0.5;
+  for (let s = 0; s < slots; s++) {
+    const x = Math.round(s * pitch);
+    slotX[s] = x;
+    slotXs[s] = x + 0.5;
+  }
+}
+
+// Release decay by whole elapsed ms: index 0 is fully lit, DECAY_MS is out. The drum's alphas per
+// index are boxed once here (tagged arrays), so a fading frame only indexes tables.
+const levelQ = new Int32Array(DECAY_MS + 1);   // level × 1e6, for the redraw threshold
+const ALPHA_FILL_KAT = new Array(DECAY_MS + 1).fill(null);
+const ALPHA_FILL_DON = new Array(DECAY_MS + 1).fill(null);
+const ALPHA_STROKE = new Array(DECAY_MS + 1).fill(null);
+for (let e = 0; e <= DECAY_MS; e++) {
+  const p = e / DECAY_MS;
+  const lit = p <= 0 ? 1 : p >= 1 ? 0 : (1 - p) * (1 - p) * (1 - p);
+  levelQ[e] = Math.round(lit * 1e6);
+  ALPHA_FILL_KAT[e] = 0.12 + lit * 0.76;
+  ALPHA_FILL_DON[e] = 0.1 + lit * 0.72;
+  ALPHA_STROKE[e] = 0.5 + 0.5 * lit;
+}
+const REDRAW_Q = 2000; // skip redraws for level steps ≤ 0.002
+
 // ------------------------------------------------------------------ render
 function requestRender() {
   if (!raf) raf = requestAnimationFrame(render);
 }
 
-function render() {
+/** `t` is the frame's own timestamp, on the same origin as `performance.now()`. */
+function render(t) {
   raf = 0;
   if (show !== 'play') return; // hidden: nothing to draw; dirty flags carry over
-  const now = performance.now();
+  const now = t | 0;
   let animating = false;
   for (let i = 0; i < 4; i++) {
-    let next = 1;
+    let next = 0;
     if (!pressed[i]) {
-      const p = (now - litAt[i]) / DECAY_MS;
-      next = p <= 0 ? 1 : p >= 1 ? 0 : (1 - p) * (1 - p) * (1 - p);
-      if (next > 0) animating = true;
+      const e = now - litAt[i];
+      next = e <= 0 ? 0 : e >= DECAY_MS ? DECAY_MS : e;
+      if (next < DECAY_MS) animating = true;
     }
-    if (Math.abs(next - level[i]) > 0.002 || (next === 0 && level[i] !== 0)) { level[i] = next; drumDirty = true; }
+    const drawn = drawnIdx[i];
+    if (Math.abs(levelQ[next] - levelQ[drawn]) > REDRAW_Q || (next === DECAY_MS && drawn !== DECAY_MS)) {
+      drawnIdx[i] = next;
+      drumDirty = true;
+    }
   }
   if (drumDirty && drumBox.w && tokens) drawDrum();
   if (seqDirty && seqBox.w && tokens) drawSeq();
@@ -407,26 +502,26 @@ function render() {
 // Translucent resting fills: the drum reads as a shape over any background without a box.
 const RIM_REST = 'rgb(11 12 13 / 0.55)';
 const FACE_REST = 'rgb(23 25 28 / 0.6)';
+const CELL = 'rgb(5 6 7 / 0.45)';
 
 function drawDrum() {
   drumDirty = false;
   const ctx = drumCtx;
   const size = drumBox.w;
-  ctx.setTransform(drumBox.scale, 0, 0, drumBox.scale, 0, 0);
   ctx.clearRect(0, 0, size, size);
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i++) {
     const path = zonePaths[i];
-    const lit = level[i];
+    const idx = drawnIdx[i];
     const colour = zoneColour[i];
     ctx.globalAlpha = 1;
     ctx.fillStyle = KAT[i] ? RIM_REST : FACE_REST;
     ctx.fill(path);
     // Resting zones keep their colour identity, quietly; a press fills them.
-    ctx.globalAlpha = (KAT[i] ? 0.12 : 0.1) + lit * (KAT[i] ? 0.76 : 0.72);
+    ctx.globalAlpha = KAT[i] ? ALPHA_FILL_KAT[idx] : ALPHA_FILL_DON[idx];
     ctx.fillStyle = colour;
     ctx.fill(path);
-    ctx.globalAlpha = 0.5 + 0.5 * lit;
+    ctx.globalAlpha = ALPHA_STROKE[idx];
     ctx.strokeStyle = colour;
     ctx.stroke(path);
   }
@@ -436,41 +531,37 @@ function drawDrum() {
 function drawSeq() {
   seqDirty = false;
   const ctx = seqCtx;
-  const w = seqBox.w;
-  const h = seqBox.h;
-  ctx.setTransform(seqBox.scale, 0, 0, seqBox.scale, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  const slots = Math.max(4, Math.min(SEQ_MAX, Math.floor(w / seqPitch)));
-  const pitch = w / slots;
-  const block = Math.max(2, Math.floor(pitch) - 2);
-  const row = Math.floor((h - 2) / 2);
-  const top = 0;
-  const bottom = h - row;
+  const geo = seqGeo;
+  const slots = geo.slots;
+  const block = geo.block;
+  const row = geo.row;
+  const bottom = geo.bottom;
+  ctx.clearRect(0, 0, seqBox.w, seqBox.h);
   // Dark cells make a track that stays legible over bright map backgrounds.
   ctx.globalAlpha = 1;
-  ctx.fillStyle = 'rgb(5 6 7 / 0.45)';
+  ctx.fillStyle = CELL;
   for (let s = 0; s < slots; s++) {
-    const x = Math.round(s * pitch);
-    ctx.fillRect(x, top, block, row);
+    const x = slotX[s];
+    ctx.fillRect(x, 0, block, row);
     ctx.fillRect(x, bottom, block, row);
   }
   ctx.lineWidth = 1;
   const count = Math.min(seqLen, slots);
+  const ageRow = (count * (count - 1)) >> 1;
   for (let k = 0; k < count; k++) {
     const mask = seq[(seqHead - count + k + SEQ_MAX) % SEQ_MAX];
-    const x = Math.round((slots - count + k) * pitch);
-    const age = (k + 1) / count;
-    ctx.globalAlpha = 0.3 + 0.7 * age * age;
+    const slot = slots - count + k;
+    ctx.globalAlpha = ageAlpha[ageRow + k];
     for (let zone = 0; zone < 4; zone++) {
       if (!(mask & (1 << zone))) continue;
-      const y = HAND[zone] === 0 ? top : bottom;
+      const left = HAND[zone] === 0;
       if (KAT[zone]) {
         // Kat hollow, don solid: the shape carries the note type in every colour mode.
         ctx.strokeStyle = zoneColour[zone];
-        ctx.strokeRect(x + 0.5, y + 0.5, block - 1, row - 1);
+        ctx.strokeRect(slotXs[slot], left ? 0.5 : geo.bottomStroke, block - 1, row - 1);
       } else {
         ctx.fillStyle = zoneColour[zone];
-        ctx.fillRect(x, y, block, row);
+        ctx.fillRect(slotX[slot], left ? 0 : bottom, block, row);
       }
     }
   }
@@ -485,31 +576,60 @@ function setText(el, text) {
   el.textContent = text;
 }
 
+// Last number shown per field (-1 = dash): strings are only built for values that changed.
+const F_BAL_L = 4, F_BAL_R = 5, F_ALT = 6, F_REP = 7, F_KPS = 8, F_PEAK = 9;
+const shownNum = new Int32Array(10).fill(-2);
+function showNum(field, el, n) {
+  if (shownNum[field] === n) return;
+  shownNum[field] = n;
+  setText(el, n < 0 ? DASH : String(n));
+}
+function showPct(field, el, n) {
+  if (shownNum[field] === n) return;
+  shownNum[field] = n;
+  setText(el, n < 0 ? DASH : `${n}%`);
+}
+
+let balA = -1;
+let balTotal = -1;
+let altShown = -1;
+let pairsShown = -1;
+let emptyShown = null;
+
 function writeText() {
   textDirty = false;
-  const counts = hasLive ? live : null;
-  const total = counts ? counts[0] + counts[1] + counts[2] + counts[3] : 0;
-  for (let i = 0; i < 4; i++) setText(countEls[i], counts ? String(counts[i]) : DASH);
+  for (let i = 0; i < 4; i++) showNum(i, countEls[i], hasLive ? live[i] : -1);
 
-  let transform = 'scaleX(0)';
-  if (total > 0) {
-    const left = (counts[0] + counts[1]) / total;
-    const l = Math.round(left * 100);
-    setText(balL, `${l}%`);
-    setText(balR, `${100 - l}%`);
-    transform = `scaleX(${left.toFixed(3)})`;
-  } else {
-    setText(balL, DASH);
-    setText(balR, DASH);
+  const a = hasLive ? live[0] + live[1] : 0;
+  const total = hasLive ? a + live[2] + live[3] : 0;
+  if (a !== balA || total !== balTotal) {
+    balA = a;
+    balTotal = total;
+    let transform = 'scaleX(0)';
+    if (total > 0) {
+      const left = a / total;
+      const l = Math.round(left * 100);
+      showPct(F_BAL_L, balL, l);
+      showPct(F_BAL_R, balR, 100 - l);
+      transform = `scaleX(${left.toFixed(3)})`;
+    } else {
+      showPct(F_BAL_L, balL, -1);
+      showPct(F_BAL_R, balR, -1);
+    }
+    if (balFill._transform !== transform) { balFill._transform = transform; balFill.style.transform = transform; }
+    const empty = total === 0;
+    if (emptyShown !== empty) { emptyShown = empty; ov.dataset.empty = String(empty); }
   }
-  if (balFill._transform !== transform) { balFill._transform = transform; balFill.style.transform = transform; }
-  if (ov.dataset.empty !== String(total === 0)) ov.dataset.empty = String(total === 0);
 
   const pairs = alternations + repeats;
-  setText(altEl, pairs ? `${Math.round(alternations / pairs * 100)}%` : DASH);
-  setText(repEl, pairs ? String(repeats) : DASH);
-  setText(kpsEl, hasLive ? String(kps) : DASH);
-  setText(peakEl, peak ? String(peak) : DASH);
+  if (alternations !== altShown || pairs !== pairsShown) {
+    altShown = alternations;
+    pairsShown = pairs;
+    showPct(F_ALT, altEl, pairs ? Math.round(alternations / pairs * 100) : -1);
+    showNum(F_REP, repEl, pairs ? repeats : -1);
+  }
+  showNum(F_KPS, kpsEl, hasLive ? kps : -1);
+  showNum(F_PEAK, peakEl, peak ? peak : -1);
 }
 
 // ------------------------------------------------------------------ start

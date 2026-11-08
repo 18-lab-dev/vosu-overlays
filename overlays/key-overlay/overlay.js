@@ -45,6 +45,8 @@ const $ = id => document.getElementById(id);
 const block = $('block');
 const canvas = $('tape');
 const ctx = canvas.getContext('2d', { alpha: true });
+const staticLayer = document.createElement('canvas');
+const staticCtx = staticLayer.getContext('2d', { alpha: true });
 const capsEl = $('caps');
 const el = { read: $('read'), kps: $('kps'), peak: $('peak'), note: $('note'), chip: $('chip'), chipText: $('chip-text') };
 
@@ -86,8 +88,10 @@ function keyLabel(name) {
   return trimmed.slice(0, 5).toUpperCase();
 }
 
+/** Cap count text; called only when the count changes. toFixed(0) is String(n) for integers without
+ * V8's number-string cache, whose rebuild after a GC is a 64 KB allocation. */
 function formatCount(count, room) {
-  const plain = String(count);
+  const plain = count.toFixed(0);
   if (plain.length * 7.3 <= room) return plain;
   if (count < 1e6) return `${(count / 1000).toFixed(count < 1e4 ? 1 : 0)}k`;
   return `${(count / 1e6).toFixed(1)}m`;
@@ -112,7 +116,8 @@ let baselined = false;  // first keys frame of this attempt seen
 let observedEntry = false; // we saw the transition into play (counts start from zero)
 
 function resetAttempt() {
-  for (const t of tracks) {
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
     if (!t) continue;
     t.count = 0; t.pressed = false; t.ever = false; t.head = 0; t.size = 0; t.open = false;
   }
@@ -129,18 +134,28 @@ function pushBar(t, start, end) {
   t.open = Number.isNaN(end);
 }
 
-function pushPress(time, rate) {
-  kpsTimes[kpsHead] = time;
-  kpsHead = (kpsHead + 1) % KPS_RING;
-  if (kpsSize < KPS_RING) kpsSize++;
-  totalPresses++;
-  const n = countWindow(time, 1000 * rate);
+/** Records `count` presses at ck[CK_PRESS] and raises the peak. */
+function pushPresses(count) {
+  const time = ck[CK_PRESS];
+  for (let k = 0; k < count; k++) {
+    kpsTimes[kpsHead] = time;
+    kpsHead = (kpsHead + 1) % KPS_RING;
+    if (kpsSize < KPS_RING) kpsSize++;
+  }
+  totalPresses += count;
+  // Every press shares one time, so the window after the last one holds the most.
+  ck[CK_END] = time;
+  const n = countWindow();
   if (n > peakKps) peakKps = n;
 }
 
-/** Presses in (end - span, end]. Times are nearly ordered; a small tolerance absorbs cross-lane jitter. */
-function countWindow(end, span) {
-  const from = end - span;
+/**
+ * Presses in (end - span, end] for end = ck[CK_END] and span = 1000 ms of real time. Times are nearly
+ * ordered; a small tolerance absorbs cross-lane jitter.
+ */
+function countWindow() {
+  const end = ck[CK_END];
+  const from = end - 1000 * ck[CK_RATE];
   let n = 0;
   for (let k = 0, i = kpsHead; k < kpsSize; k++) {
     i = i === 0 ? KPS_RING - 1 : i - 1;
@@ -151,8 +166,10 @@ function countWindow(end, span) {
   return n;
 }
 
-function ingestKeys(list, now, rate) {
+/** Reads vosu's per-key list in place at gameplay time ck[CK_NOW]. */
+function ingestKeys(list) {
   if (!Array.isArray(list)) return;
+  const now = ck[CK_NOW];
   if (!baselined) {
     baselined = true;
     for (let i = 0; i < list.length; i++) {
@@ -184,7 +201,8 @@ function ingestKeys(list, now, rate) {
       resetAttempt();
       baselined = true;
       observedEntry = true;
-      return ingestKeys(list, now, rate);
+      ingestKeys(list);
+      return;
     }
     const delta = count - t.count;
     if (delta > 0) {
@@ -201,7 +219,7 @@ function ingestKeys(list, now, rate) {
       const end = pressed ? NaN : releasedAt !== null && releasedAt >= at ? releasedAt : at + 16;
       pushBar(t, at, end);
       // A count jump can include complete taps between samples; they count, but have no timestamps to draw.
-      if (!burst) for (let k = 0; k < delta; k++) pushPress(at, rate);
+      if (!burst) { ck[CK_PRESS] = at; pushPresses(delta); }
       t.count = count;
     } else if (t.open && !pressed) {
       const last = (t.head + RING - 1) % RING;
@@ -212,35 +230,56 @@ function ingestKeys(list, now, rate) {
   }
 }
 
+/** Ends held bars at the current gameplay time (wall time ck[CK_T], set by onFrame). */
 function closeOpen() {
-  for (const t of tracks) {
+  clockNow();
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
     if (!t || !t.open) continue;
     const last = (t.head + RING - 1) % RING;
-    t.ends[last] = Math.max(t.starts[last], clockAt(performance.now()));
+    t.ends[last] = Math.max(t.starts[last], ck[CK_NOW]);
     t.open = false;
   }
 }
 
 // ------------------------------------------------------------------ gameplay clock
 // Map clock samples arrive every few ms during play with delivery jitter; follow them smoothly and
-// stop advancing when they stop (pause, freeze, stalled reader).
-const clock = { base: 0, at: 0, prev: NaN, running: false, valid: false, rate: 1, paused: false };
-function clockAt(t) {
-  if (!clock.valid) return 0;
-  if (!clock.running || clock.paused) return clock.base;
-  return clock.base + Math.min(Math.max(0, t - clock.at), EXTRAPOLATE) * clock.rate;
+// stop advancing when they stop (pause, freeze, stalled reader). Its numbers, and the times handed
+// between the per-message and per-frame functions, live in one Float64Array: a fractional number
+// passed to, returned from or stored by a function outside it would be boxed on the heap.
+const CK_BASE = 0;  // gameplay ms at CK_AT
+const CK_AT = 1;    // wall ms of the last sample
+const CK_PREV = 2;  // last sampled gameplay ms
+const CK_RATE = 3;  // playback rate
+const CK_T = 4;     // wall ms the next clockNow() reads
+const CK_NOW = 5;   // clockNow() result: gameplay ms at CK_T
+const CK_PRESS = 6; // pushPresses() time
+const CK_END = 7;   // countWindow() window end
+const ck = new Float64Array(8);
+ck[CK_PREV] = NaN;
+ck[CK_RATE] = 1;
+const clock = { running: false, valid: false, paused: false };
+/** Gameplay ms at wall time ck[CK_T], into ck[CK_NOW]. */
+function clockNow() {
+  if (!clock.valid) ck[CK_NOW] = 0;
+  else if (!clock.running || clock.paused) ck[CK_NOW] = ck[CK_BASE];
+  else ck[CK_NOW] = ck[CK_BASE] + Math.min(Math.max(0, ck[CK_T] - ck[CK_AT]), EXTRAPOLATE) * ck[CK_RATE];
 }
-function clockSample(live, t) {
+/** Follows a map clock sample `live` taken at wall time ck[CK_T]. */
+function clockSample(live) {
   if (!clock.valid) {
-    clock.valid = true; clock.base = live; clock.at = t; clock.prev = live; clock.running = false;
+    clock.valid = true; ck[CK_BASE] = live; ck[CK_AT] = ck[CK_T]; ck[CK_PREV] = live; clock.running = false;
     return;
   }
-  const predicted = clockAt(t);
+  clockNow();
+  const predicted = ck[CK_NOW];
   const error = live - predicted;
-  clock.running = live > clock.prev;
-  clock.base = !clock.running || Math.abs(error) > 60 ? live : predicted + error * 0.2;
-  clock.at = t;
-  clock.prev = live;
+  clock.running = live > ck[CK_PREV];
+  // Two stores, not one conditional value: mixing `live` (as parsed) with a computed number would box it.
+  if (!clock.running || Math.abs(error) > 60) ck[CK_BASE] = live;
+  else ck[CK_BASE] = predicted + error * 0.2;
+  ck[CK_AT] = ck[CK_T];
+  ck[CK_PREV] = live;
 }
 
 // ------------------------------------------------------------------ lanes
@@ -354,7 +393,7 @@ function computeGeometry(mode, n) {
   const x = Math.max(0, Math.round((W - width * k) / 2));
   const y = Math.max(0, Math.round((H - height * k) / 2));
   // Caps at the end side (bottom / right): presses travel towards the start, so the tape is mirrored.
-  return { v, caps, flip: caps === 'end', n, widths, pos, tape, cssW, cssH, width, k, x, y, dpr: 0 };
+  return { v, caps, flip: caps === 'end', n, widths, pos, tape, cssW, cssH, width, k, x, y, dpr: 0, box: null };
 }
 
 function buildLanes(mode) {
@@ -399,6 +438,18 @@ function buildLanes(mode) {
   resizeCanvas();
 }
 
+// Device-pixel numbers the per-frame drawing passes to the canvas, rebuilt with the canvas. They sit
+// in an array that also holds null, so V8 keeps each one boxed once and the canvas calls take them
+// as they are; a fractional number computed during the frame would be boxed anew on every call.
+const BOX_W = 0;       // canvas width covered by the tape box (cssW · dpr)
+const BOX_H = 1;       // cssH · dpr
+const BOX_TAPE = 2;    // tape length (mirror axis for caps at the end)
+const BOX_MIN = 3;     // shortest bar and press edge: 2 design px
+const BOX_EDGE = 4;    // the press edge drawn back from a bar's far end
+const BOX_BAR = 5;     // released bar alpha
+const BOX_HELD = 6;    // held bar alpha
+const BOX_LANES = 7;   // per lane: across offset, thickness
+
 function resizeCanvas() {
   if (!geometry) return;
   const g = geometry;
@@ -407,7 +458,26 @@ function resizeCanvas() {
   const bh = Math.round(g.cssH * dpr);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   g.dpr = dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const box = new Array(BOX_LANES + 2 * g.n).fill(null);
+  box[BOX_W] = g.cssW * dpr;
+  box[BOX_H] = g.cssH * dpr;
+  box[BOX_TAPE] = g.tape * dpr;
+  box[BOX_MIN] = 2 * dpr;
+  box[BOX_EDGE] = -2 * dpr;
+  box[BOX_BAR] = 0.72;
+  box[BOX_HELD] = 0.9;
+  for (let i = 0; i < g.n; i++) {
+    box[BOX_LANES + 2 * i] = (g.pos[i] + INSET) * dpr;
+    box[BOX_LANES + 2 * i + 1] = (g.widths[i] - INSET * 2) * dpr;
+  }
+  g.box = box;
+  // Lane beds and the ruler never move: drawn once here, copied under the bars every frame.
+  if (staticLayer.width !== bw || staticLayer.height !== bh) { staticLayer.width = bw; staticLayer.height = bh; }
+  staticCtx.setTransform(1, 0, 0, 1, 0, 0);
+  staticCtx.clearRect(0, 0, bw, bh);
+  staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawLaneBeds(staticCtx, g);
+  drawRuler(staticCtx, g);
   dirty = true;
   kick();
 }
@@ -448,7 +518,7 @@ function updateVisibility() {
   if (show && !shownOnce) { shownOnce = true; setTimeout(() => block.removeAttribute('data-instant'), 400); }
   // A tiny chip for connection and no-game states; nothing elsewhere.
   const chip = status !== 'live' ? (status === 'offline' ? 'vosu offline' : 'Connecting') : view === 'nogame' ? 'osu! not running' : '';
-  el.chip.hidden = !chip;
+  if (el.chip.hidden !== !chip) el.chip.hidden = !chip;
   if (chip) { text(el.chipText, chip); attr(el.chip, 'data-state', status === 'live' ? 'idle' : status); }
 }
 
@@ -504,10 +574,9 @@ function layoutMayChange(changed) {
 
 function onFrame(v, changed) {
   values = v;
-  const now = performance.now();
+  ck[CK_T] = performance.now();
   if (changed.has(P.paused)) clock.paused = v[P.paused] === true;
-  const rate = Number(v[P.rate]) > 0 ? Number(v[P.rate]) : Number(v[P.modsRate]) > 0 ? Number(v[P.modsRate]) : 1;
-  clock.rate = rate;
+  ck[CK_RATE] = Number(v[P.rate]) > 0 ? Number(v[P.rate]) : Number(v[P.modsRate]) > 0 ? Number(v[P.modsRate]) : 1;
 
   const state = v[P.state];
   const nextView = !Number.isInteger(state) ? 'nogame' : state === 2 ? 'play' : state === 7 ? 'results' : 'idle';
@@ -526,12 +595,12 @@ function onFrame(v, changed) {
 
   if (changed.has(P.live) && Number.isFinite(v[P.live])) {
     const live = v[P.live];
-    if (view === 'play' && clock.valid && live < clock.prev - 1000) {
+    if (view === 'play' && clock.valid && live < ck[CK_PREV] - 1000) {
       // Rewound (retry without a state change): the old tape no longer belongs to this attempt.
       resetAttempt();
       observedEntry = true;
     }
-    clockSample(live, now);
+    clockSample(live);
   }
 
   if (view === 'play' && changed.has(P.playMode) && !changed.has(P.state) && tracks.length) {
@@ -539,7 +608,7 @@ function onFrame(v, changed) {
     resetAttempt();
     observedEntry = false;
   }
-  if (view === 'play' && changed.has(P.keys)) ingestKeys(v[P.keys], clockAt(now), rate);
+  if (view === 'play' && changed.has(P.keys)) { clockNow(); ingestKeys(v[P.keys]); }
 
   // The map clock ticks constantly (song-select preview too); alone it only matters while the tape has content.
   if (changed.size === 1 && changed.has(P.live)) {
@@ -562,6 +631,9 @@ let raf = 0;
 let dirty = true;
 let hasContent = false; // the tape shows presses (or KPS is non-zero) that move with the clock
 let lastLiveKps = -2;
+let shownKps = -2;      // readout figures on screen (-1: '—')
+let shownPeak = -2;
+let shownEmpty = null;
 document.fonts?.ready.then(() => { dirty = true; kick(); });
 
 function kick() { if (!raf) raf = requestAnimationFrame(frame); }
@@ -569,31 +641,47 @@ function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 function frame() {
   raf = 0;
   if (!geometry || !values || swapTimer) return; // fading out: keep the old ruleset's last frame
-  const now = clockAt(performance.now());
-  const animating = render(now);
+  ck[CK_T] = performance.now();
+  clockNow();
+  const animating = render();
   dirty = false;
   if (animating) kick();
 }
 
-/** Draws the tape and updates DOM readouts; returns whether another frame is needed. */
-function render(now) {
+/**
+ * Draws the tape at gameplay time ck[CK_NOW] and updates DOM readouts; returns whether another frame
+ * is needed. Allocation-free: bars are snapped to whole device pixels and drawn as integers along the
+ * tape (a mirrored transform puts the caps at the end), every fractional value comes from g.box.
+ */
+function render() {
   const g = geometry;
-  const rate = clock.rate;
+  const box = g.box;
+  const now = ck[CK_NOW];
   const playing = view === 'play';
-  const pxPerMs = cfg.speed / 1000 / rate; // gameplay ms → design px
+  const pxPerMs = cfg.speed / 1000 / ck[CK_RATE]; // gameplay ms → design px
+  const dpr = g.dpr; // set by resizeCanvas, which follows every computeGeometry
   let anyVisible = false;
   let anyHeld = false;
 
-  ctx.clearRect(0, 0, g.cssW, g.cssH);
-  drawLaneBeds(g);
-  drawRuler(g);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.clearRect(0, 0, box[BOX_W], box[BOX_H]);
+  ctx.drawImage(staticLayer, 0, 0);
 
   if (playing) {
+    if (g.flip) {
+      if (g.v) ctx.setTransform(1, 0, 0, -1, 0, box[BOX_TAPE]);
+      else ctx.setTransform(-1, 0, 0, 1, box[BOX_TAPE], 0);
+    }
+    const min = box[BOX_MIN];
+    const edge = box[BOX_EDGE];
     for (let li = 0; li < lanes.length; li++) {
       const lane = lanes[li];
       const t = tracks[lane.src];
       if (!t || t.size === 0) continue;
       ctx.fillStyle = lane.color;
+      const across = box[BOX_LANES + 2 * li];
+      const thick = box[BOX_LANES + 2 * li + 1];
       for (let k = 0, i = t.head; k < t.size; k++) {
         i = i === 0 ? RING - 1 : i - 1;
         const start = t.starts[i];
@@ -604,14 +692,30 @@ function render(now) {
         if (near >= g.tape) break;
         const far = Math.min(g.tape, Math.max(0, (now - start) * pxPerMs));
         anyVisible = true;
-        drawBar(g, li, near, far, held);
+        // Distances from the caps in whole device pixels; bars are at least 2 design px long.
+        const a = Math.round(near * dpr) | 0;
+        const b = Math.round(far * dpr) | 0;
+        if (held) ctx.globalAlpha = box[BOX_HELD];
+        else ctx.globalAlpha = box[BOX_BAR];
+        if (b - a < min) {
+          // The whole short bar is its press edge.
+          if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick);
+          ctx.globalAlpha = 1;
+          if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick);
+        } else {
+          if (g.v) ctx.fillRect(across, a, thick, b - a); else ctx.fillRect(a, across, b - a, thick);
+          // Press edge: the moment the key went down (the far end), crisp at full strength.
+          ctx.globalAlpha = 1;
+          if (g.v) ctx.fillRect(across, b, thick, edge); else ctx.fillRect(b, across, edge, thick);
+        }
       }
     }
   }
   ctx.globalAlpha = 1;
 
   // Caps: strings are only built when a count changes.
-  for (const lane of lanes) {
+  for (let li = 0; li < lanes.length; li++) {
+    const lane = lanes[li];
     const t = tracks[lane.src];
     const pressed = playing && t ? t.pressed : false;
     if (pressed !== lane.shownPressed) { lane.shownPressed = pressed; lane.lit.style.opacity = pressed ? '1' : '0'; }
@@ -619,7 +723,8 @@ function render(now) {
     if (count !== lane.shownCount) { lane.shownCount = count; lane.countEl.textContent = count < 0 ? '—' : formatCount(count, lane.room); }
   }
 
-  const liveKps = playing && (baselined || totalPresses) ? countWindow(now, 1000 * rate) : -1;
+  let liveKps = -1;
+  if (playing && (baselined || totalPresses)) { ck[CK_END] = now; liveKps = countWindow(); }
   if (cfg.showKps && (dirty || liveKps !== lastLiveKps)) updateReadout(liveKps);
   lastLiveKps = liveKps;
   if (dirty) updateNote();
@@ -631,10 +736,15 @@ function render(now) {
 /** KPS and peak; liveKps is -1 when there is no live figure. */
 function updateReadout(liveKps) {
   const live = liveKps >= 0;
-  text(el.kps, live ? String(liveKps) : '—');
-  text(el.peak, live ? String(peakKps) : '—');
-  attr(el.read, 'data-empty', live ? '0' : '1');
+  const peak = live ? peakKps : -1;
+  if (liveKps !== shownKps) { shownKps = liveKps; el.kps.textContent = live ? figure(liveKps) : '—'; }
+  if (peak !== shownPeak) { shownPeak = peak; el.peak.textContent = live ? figure(peak) : '—'; }
+  if (live !== shownEmpty) { shownEmpty = live; attr(el.read, 'data-empty', live ? '0' : '1'); }
 }
+
+// KPS figures are window counts, at most KPS_RING: each string is built once and reused.
+const figures = new Array(KPS_RING + 1).fill(null);
+function figure(n) { return figures[n] ??= n.toFixed(0); }
 
 /** One short line when the vosu key feed is missing during play. */
 function updateNote() {
@@ -643,60 +753,40 @@ function updateNote() {
   if (missing) text(el.note, 'No key data · enable ENABLE_KEY_OVERLAY in vosu');
 }
 
-function snap(value) { const d = geometry.dpr || 1; return Math.round(value * d) / d; }
-/** Along-tape coordinate of the span [d0, d1] (distances from the caps), honouring the mirror. */
-function along(g, d0, d1) { return g.flip ? g.tape - d1 : d0; }
-
-function drawLaneBeds(g) {
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = BED;
+function drawLaneBeds(c, g) {
+  c.globalAlpha = 1;
+  c.fillStyle = BED;
   for (let li = 0; li < lanes.length; li++) {
-    if (g.v) ctx.fillRect(g.pos[li], 0, g.widths[li], g.tape);
-    else ctx.fillRect(0, g.pos[li], g.tape, g.widths[li]);
+    if (g.v) c.fillRect(g.pos[li], 0, g.widths[li], g.tape);
+    else c.fillRect(0, g.pos[li], g.tape, g.widths[li]);
   }
 }
 
-function drawRuler(g) {
+function drawRuler(c, g) {
   // Static time-ago scale from the caps: minor ticks every 100 ms of real time, major every 500 ms.
   let minor = cfg.speed * 0.1;
   let every = 5;
   if (minor < 8) { minor = cfg.speed * 0.25; every = 4; }
   const base = g.v ? 0 : g.cssH - RULER;
-  ctx.fillStyle = BED;
-  if (g.v) ctx.fillRect(0, 0, RULER - 1, g.tape);
-  else ctx.fillRect(0, base + 1, g.tape, RULER - 1);
-  ctx.fillStyle = '#7e8288';
+  const dpr = g.dpr || 1;
+  c.fillStyle = BED;
+  if (g.v) c.fillRect(0, 0, RULER - 1, g.tape);
+  else c.fillRect(0, base + 1, g.tape, RULER - 1);
+  c.fillStyle = '#7e8288';
   for (let k = 1; k * minor <= g.tape; k++) {
-    const d = snap(k * minor);
+    const d = Math.round(k * minor * dpr) / dpr; // on a device pixel
     const at = g.flip ? g.tape - d : d;
     const len = k % every === 0 ? 7 : 3;
-    if (g.v) ctx.fillRect(RULER - 2 - len, at, len, 1);
-    else ctx.fillRect(at, base + 2, 1, len);
+    if (g.v) c.fillRect(RULER - 2 - len, at, len, 1);
+    else c.fillRect(at, base + 2, 1, len);
   }
-  if (g.v) ctx.fillRect(RULER - 2, 0, 1, g.tape);
-  else ctx.fillRect(0, base + 2, g.tape, 1);
-}
-
-function drawBar(g, li, near, far, held) {
-  const a = snap(near);
-  let b = snap(far);
-  if (b - a < 2) b = a + 2;
-  const across = g.pos[li] + INSET;
-  const thick = g.widths[li] - INSET * 2;
-  const from = along(g, a, b);
-  ctx.globalAlpha = held ? 0.9 : 0.72;
-  if (g.v) ctx.fillRect(across, from, thick, b - a);
-  else ctx.fillRect(from, across, b - a, thick);
-  // Press edge: the moment the key went down (the far end), crisp at full strength.
-  ctx.globalAlpha = 1;
-  const edge = Math.min(2, b - a);
-  const at = g.flip ? from : from + (b - a) - edge;
-  if (g.v) ctx.fillRect(across, at, thick, edge);
-  else ctx.fillRect(at, across, edge, thick);
+  if (g.v) c.fillRect(RULER - 2, 0, 1, g.tape);
+  else c.fillRect(0, base + 2, g.tape, 1);
 }
 
 // ------------------------------------------------------------------ connection
 function onStatus(next) {
+  if (next === status) return; // the client reports 'live' with every message
   status = next;
   updateVisibility();
 }

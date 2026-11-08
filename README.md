@@ -81,6 +81,44 @@ scales. The service caches timelines by chart, rate, window, hop and mode; the
 overlay never recalculates them locally. Reform estimates are not displayed
 as ranks or clear guarantees.
 
+## Official overlay set (candidates)
+
+Self-contained 18-LAB overlays in `overlays/`, each served by vosu from its static root (copy the folder there, or install the packaged ZIP) at `http://127.0.0.1:24050/<id>/`. They are candidates for publication; none is released. Fields marked *vosu* are vosu-only and absent on tosu; each overlay says so on screen instead of inventing values.
+
+| Overlay | Rulesets | Size | Shows |
+| --- | --- | --- | --- |
+| `now-playing` | all | 600×320 | Map card: background, status, stars (live in play), mod-adjusted AR/CS/OD/HP, BPM, rate-adjusted length, objects, mods, progress |
+| `now-playing-ticker` | all | 1920×52 | One-line map bar with progress hairline and paused marquee |
+| `stream-scene` | all | 1920×1080 | Full streamer scene: transparent gameplay and webcam slots, now playing, live play strip, results band, player card, session |
+| `stream-interstitial` | all | 1920×1080 | Starting soon / be right back / ending scene with countdown, queued map and session |
+| `hit-error` | osu, taiko, mania | 1920×1080 | Hit error bar: window ladder, fading ticks, moving average, UR, mean, early/late, mania press/release rows |
+| `hit-error-arc` | osu, taiko, mania | 400×360 | Hit error dial with needle, UR centre and recent-hit histogram |
+| `timing-drift` | osu, taiko, mania | 640×300 | Rolling mean and UR across the attempt |
+| `key-overlay` | all | 480×640 | Scrolling key-press tape with counts and KPS (*vosu* `keys.all`) |
+| `key-counter` | all | 640×200 | Key caps, counts, balance and KPS sparkline (*vosu* `keys.all`) |
+| `pp-counter` | all | 424×236 | Live pp, if-FC and max achievable, accuracy→pp ladder in song select |
+| `strain-graph` | all | 720×232 | Map strain with playhead, kiai and breaks, combined or per skill |
+| `combo-hud` | all | 1920×1080 | HUD replacement: combo bump/break, accuracy and rank, score, HP, progress ring |
+| `results-card` | all | 760×448 | Results splash with judgement breakdown and hit-error histogram |
+| `leaderboard` | all | 420×720 | Live leaderboard with sliding reorder and gap to the next rank |
+| `profile-card` | all | 640×360 | Player card with rank, pp, accuracy, level and session deltas |
+| `session-tracker` | all | 320×440 | Pass/fail/retry strip, best pp, grade tally, pp and rank movement |
+| `aim-scatter` | osu | 1920×1080 | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
+| `tap-meter` | osu | 360×308 | Stream BPM, consistency, alternation and finger balance (*vosu* `keys.all`) |
+| `skill-radar` | osu | 408×388 | Aim/speed/accuracy/flashlight pp, live vs FC, over the map's skill profile |
+| `taiko-drum` | taiko | 576×288 | Four-zone drum, hand balance, alternation, KPS (*vosu* `keys.all`) |
+| `taiko-pace` | taiko | 400×280 | OK and miss budget for a target accuracy, max achievable accuracy |
+| `taiko-lanes` | taiko | 480×360 | Color/rhythm/stamina strain lanes with the leading skill |
+| `catcher-trail` | catch | 640×640 | Catcher position seismograph with dash, travel and turns (*vosu* `catcher`) |
+| `catcher-heatmap` | catch | 640×208 | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
+| `fruit-ledger` | catch | 520×219 | Fruits/drops/droplets caught and missed, combo status, max accuracy |
+| `column-timing` | mania | 500×460 | Per-column bias and UR with the weakest column called out (*vosu* `ENABLE_MANIA_KEY_HIT_ERRORS`) |
+| `judgement-ratio` | mania | 1100×380 | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS |
+| `ln-timing` | mania | 440×304 | Long-note press vs release distributions |
+| `kps-graph` | mania | 480×276 | KPS over the attempt against the map's density |
+
+Mode-specific overlays render nothing outside their ruleset, so an OBS source never leaves an empty frame on screen.
+
 ## Developing official overlays
 
 Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.png`. They link vosu's own `/assets/tokens.css` (18-LAB tokens and fonts) rather than copying it, and follow the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js` (packages must be self-contained). Edit the shared file, then run:

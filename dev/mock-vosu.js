@@ -626,7 +626,16 @@ Bun.serve({
     }
     if (path === '/__dev/settings') {
       const id = url.searchParams.get('id');
-      const patch = Object.fromEntries([...url.searchParams].filter(([k]) => k !== 'id').map(([k, v]) => [k, v === 'true' ? true : v === 'false' ? false : v !== '' && Number.isFinite(Number(v)) ? Number(v) : v]));
+      // Type each value as vosu does, from the setting's schema type (options stay strings).
+      const schema = existsSync(join(OVERLAYS, id, 'settings.json')) ? JSON.parse(readFileSync(join(OVERLAYS, id, 'settings.json'), 'utf8')) : [];
+      const typeOf = key => schema.find(entry => entry.uniqueID === key)?.type;
+      const patch = Object.fromEntries([...url.searchParams].filter(([k]) => k !== 'id').map(([k, v]) => {
+        const type = typeOf(k);
+        if (type === 'checkbox') return [k, v === 'true'];
+        if (type === 'number') return [k, Number(v)];
+        if (type) return [k, v];
+        return [k, v === 'true' ? true : v === 'false' ? false : v !== '' && Number.isFinite(Number(v)) ? Number(v) : v];
+      }));
       overrides.set(id, { ...(overrides.get(id) || {}), ...patch });
       const message = JSON.stringify({ command: 'updateSettings', message: overlaySettings(id) });
       for (const client of commandClients) if (client.data.overlay === id) client.send(message);

@@ -85,7 +85,8 @@ function coerce(fallback, value) {
     return Number.isFinite(number) ? number : fallback;
   }
   if (typeof fallback === 'boolean') return typeof value === 'boolean' ? value : fallback;
-  if (typeof fallback === 'string') return typeof value === 'string' ? value : fallback;
+  // Option values are strings in settings.json, but an option list of numbers can reach us as numbers.
+  if (typeof fallback === 'string') return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : fallback;
   return value ?? fallback;
 }
 

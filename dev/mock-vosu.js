@@ -518,7 +518,7 @@ function publish(client) {
 }
 
 function overlayMeta(id) {
-  const meta = { id, name: id, description: '', resolution: [1920, 1080] };
+  const meta = { id, name: id, description: '', resolution: [1920, 1080], placement: {} };
   const file = join(OVERLAYS, id, 'metadata.txt');
   if (!existsSync(file)) return meta;
   for (const line of readFileSync(file, 'utf8').split('\n')) {
@@ -526,9 +526,58 @@ function overlayMeta(id) {
     const value = rest.join('=').trim();
     if (!value) continue;
     if (key.trim() === 'resolution') meta.resolution = JSON.parse(value);
+    else if (key.trim() === 'placement') meta.placement = JSON.parse(value);
     else if (['name', 'description'].includes(key.trim())) meta[key.trim()] = value;
   }
   return meta;
+}
+
+/** The mania stage's left edge and width on the 1920×1080 stage, from the backdrop skin.ini when present. */
+function maniaStage(keys) {
+  let start = 136, widths = Array(keys).fill(30), gaps = Array(Math.max(0, keys - 1)).fill(0);
+  const file = STAGE_BACKDROPS && join(STAGE_BACKDROPS, 'skin.ini');
+  if (file && existsSync(file)) {
+    let section = null;
+    for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const line = raw.replace(/\/\/.*$/, '').trim();
+      if (line.startsWith('[')) { section = line.toLowerCase() === '[mania]' ? {} : null; continue; }
+      const colon = line.indexOf(':');
+      if (!section || colon < 0) continue;
+      section[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+      if (Number(section.keys) === keys) {
+        const list = (v, n, d) => Array.from({ length: n }, (_, i) => { const x = Number.parseFloat(String(v ?? '').split(',')[i]); return Number.isFinite(x) && x > 0 ? x : d; });
+        if (section.columnstart) start = Number.parseFloat(section.columnstart) || start;
+        if (section.columnwidth) widths = list(section.columnwidth, keys, 30);
+        if (section.columnspacing) gaps = list(section.columnspacing, keys - 1, 0);
+      }
+    }
+  }
+  const unit = 2.25;
+  return { x: start * unit, w: (widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0)) * unit };
+}
+
+/**
+ * Resolves a metadata `placement` anchor for one axis to the page's top-left coordinate.
+ * Numbers are the page's left/top edge. Strings: `left+N`, `right-N`, `center±N`, `top+N`,
+ * `bottom-N` (screen edges); mania x also `stage-left-N` (page's right edge N px left of the
+ * stage), `stage-right+N` (page's left edge N px right of the stage), `stage-center±N`.
+ */
+function resolveAnchor(anchor, size, axis) {
+  if (typeof anchor === 'number') return anchor;
+  const full = axis === 'x' ? 1920 : 1080;
+  const match = /^(stage-left|stage-right|stage-center|left|right|top|bottom|center)([+-]\d+(?:\.\d+)?)?$/.exec(String(anchor ?? 'left'));
+  if (!match) return 0;
+  const offset = Number(match[2] ?? 0);
+  const stage = axis === 'x' && match[1].startsWith('stage') ? maniaStage(config.keys) : null;
+  switch (match[1]) {
+    case 'left': case 'top': return offset;
+    case 'right': case 'bottom': return full + offset - size;
+    case 'center': return (full - size) / 2 + offset;
+    case 'stage-left': return stage.x + offset - size;
+    case 'stage-right': return stage.x + stage.w + offset;
+    case 'stage-center': return stage.x + (stage.w - size) / 2 + offset;
+  }
+  return 0;
 }
 
 /**
@@ -575,27 +624,53 @@ function layoutSvg() {
 }
 
 /**
- * Overlays on a 1920×1080 stand-in osu! screen: dimmed map background, the skin backdrop or the
- * ruleset's busy regions (layoutSvg), then each overlay at its declared resolution at `x`,`y`
- * (default 0,0). `id` may list several overlays (`a,b,c`) to check how their default placements
- * share the screen. `layout=0` hides the wireframe; `dim` sets background dim.
+ * Overlays as their hosts show them. Screen mode (default): a 1920×1080 stand-in osu! screen
+ * (dimmed map background, then the skin backdrop or the ruleset wireframe) with each overlay page
+ * at its metadata `placement` for the current ruleset (resolveAnchor), or at `x`,`y` when given.
+ * Cell mode (`cell=WxH`): one vosu-tools replay-renderer cell, the playfield scaled as the renderer
+ * scales it (fill the cell's height, or its width when narrower), the page at `x`,`y` in the cell.
+ * `id` may list several overlays. `w`/`h` override the page size, `layout=0` hides the wireframe,
+ * `guide=1` draws the focus ellipse (keep each page's centre outside it), `dim` sets background dim.
+ * The resolved boxes are embedded as JSON (#placements) for dev/shoot.mjs.
  */
 function stagePage(id, params) {
   const dim = Number(params.get('dim') ?? 0.55);
-  const x = Number(params.get('x') ?? 0);
-  const y = Number(params.get('y') ?? 0);
-  const frames = id.split(',').filter(Boolean).map(one => {
-    let [width, height] = overlayMeta(one).resolution;
-    width = Number(params.get('w')) || width;
-    height = Number(params.get('h')) || height;
-    return `<iframe src="/${one}/" style="width:${width}px;height:${height}px" allowtransparency="true"></iframe>`;
-  }).join('');
-  // layout: unset → skin backdrop when available, else wireframe; 1 → wireframe; 0 → plain map
-  // background only (previews of non-gameplay states).
+  const cell = /^(\d+)x(\d+)$/.exec(params.get('cell') ?? '');
+  const [W, H] = cell ? [Number(cell[1]), Number(cell[2])] : [1920, 1080];
+  const boxes = id.split(',').filter(Boolean).map(one => {
+    const meta = overlayMeta(one);
+    const width = Number(params.get('w')) || meta.resolution[0];
+    const height = Number(params.get('h')) || meta.resolution[1];
+    const anchor = meta.placement[config.mode] ?? [0, 0];
+    const x = params.has('x') ? Number(params.get('x')) : cell ? 0 : resolveAnchor(anchor[0], width, 'x');
+    const y = params.has('y') ? Number(params.get('y')) : cell ? 0 : resolveAnchor(anchor[1], height, 'y');
+    const cx = x + width / 2, cy = y + height / 2;
+    // Inside the inscribed ellipse means the page's centre sits over the gameplay focus.
+    const focus = ((cx - W / 2) / (W / 2)) ** 2 + ((cy - H / 2) / (H / 2)) ** 2 <= 1;
+    return { id: one, x: Math.round(x), y: Math.round(y), width, height, centreInFocus: focus };
+  });
+  const frames = boxes.map(b => `<iframe src="/${b.id}/" style="left:${b.x}px;top:${b.y}px;width:${b.width}px;height:${b.height}px" allowtransparency="true"></iframe>`).join('');
   const mode = params.get('layout');
-  const backdrop = backdropFile() && mode === null ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
-  const layout = backdrop || (mode === '0' ? '' : layoutSvg());
-  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}`;
+  let layout;
+  if (cell) {
+    layout = cellSvg(W, H);
+  } else {
+    // layout: unset → skin backdrop when available, else wireframe; 1 → wireframe; 0 → map background only.
+    const backdrop = backdropFile() && mode === null ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
+    layout = backdrop || (mode === '0' ? '' : layoutSvg());
+  }
+  const guide = params.get('guide') === '1' ? `<svg style="position:absolute;inset:0;z-index:2;pointer-events:none" width="${W}" height="${H}"><ellipse cx="${W / 2}" cy="${H / 2}" rx="${W / 2 - 2}" ry="${H / 2 - 2}" fill="none" stroke="rgb(239 91 79 / .9)" stroke-width="3" stroke-dasharray="14 8"/>${boxes.map(b => `<circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="6" fill="${b.centreInFocus ? '#ef5b4f' : '#6fbf8e'}"/>`).join('')}</svg>` : '';
+  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:${W}px;height:${H}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}${guide}<script type="application/json" id="placements">${JSON.stringify(boxes)}</script>`;
+}
+
+/** One replay-renderer cell's playfield, scaled as the renderer scales it (README "playfield.scale"). */
+function cellSvg(W, H) {
+  const extent = config.mode === 'mania' ? [maniaStage(config.keys).w, 1080]
+    : config.mode === 'taiko' ? [1920, 281] : [1152, 864];
+  const scale = Math.min(H / extent[1], W / extent[0]);
+  const w = extent[0] * scale, h = extent[1] * scale;
+  const label = { mania: `${config.keys}K stage`, taiko: 'taiko strip', osu: 'playfield', fruits: 'playfield' }[config.mode];
+  return `<svg style="position:absolute;inset:0" width="${W}" height="${H}"><rect x="${(W - w) / 2}" y="${(H - h) / 2}" width="${w}" height="${h}" fill="rgb(255 255 255 / .06)" stroke="rgb(255 255 255 / .35)" stroke-dasharray="6 6"/><text x="${(W - w) / 2 + 8}" y="${(H - h) / 2 + 20}" fill="rgb(255 255 255 / .5)" font-size="14" font-family="monospace">${label} · cell ${W}×${H}</text></svg>`;
 }
 
 /** Every overlay live at once, each on its own scaled stand-in osu! screen, for review. */

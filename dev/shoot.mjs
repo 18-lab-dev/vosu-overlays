@@ -28,6 +28,9 @@ const dpr = Number(arg('dpr', 1));
 const settle = Number(arg('settle', 900));
 // --layout 1 forces the wireframe stage (previews), 0 hides it; default: backdrop if available.
 const layout = arg('layout', '');
+// --stage "<query>" adds stage parameters, e.g. "cell=474x1080&x=0&y=20&w=474&h=240" for a
+// replay-renderer cell, "guide=1" for the focus ellipse, or "x=..&y=.." to override placement.
+const stageQuery = arg('stage', '');
 const base = `http://127.0.0.1:${port}`;
 const defaults = [];
 for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
@@ -65,15 +68,17 @@ const reset = async query => {
 };
 
 async function stage() {
-  await page.goto(`${base}/__dev/stage?id=${encodeURIComponent(id)}${layout ? `&layout=${encodeURIComponent(layout)}` : ''}`);
+  await page.goto(`${base}/__dev/stage?id=${encodeURIComponent(id)}${layout ? `&layout=${encodeURIComponent(layout)}` : ''}${stageQuery ? `&${stageQuery}` : ''}`);
   const size = await page.evaluate(() => ({ width: document.body.offsetWidth, height: document.body.offsetHeight }));
   await page.setViewportSize(size);
   await page.waitForTimeout(settle);
+  // Each overlay page's box and whether its centre lies inside the gameplay focus ellipse.
+  return page.evaluate(() => JSON.parse(document.getElementById('placements')?.textContent || '[]'));
 }
 
 for (const query of cases) {
   await reset(query);
-  await stage();
+  const boxes = await stage();
   const name = query.replace(/freeze=\d*&?|&$/g, '').replace(/[=&]/g, '-').replace(/-+$/, '');
   const file = join(out, `${name}.png`);
   // Right after a viewport resize Chromium can refuse a capture until the compositor produces
@@ -84,7 +89,7 @@ for (const query of cases) {
       await page.waitForTimeout(600);
     }
   }
-  console.log(file);
+  console.log(file, boxes.map(b => `${b.id} ${b.width}x${b.height}@${b.x},${b.y}${b.centreInFocus ? ' CENTRE-IN-FOCUS' : ''}`).join(' | '));
 }
 
 if (perf !== 'none') {

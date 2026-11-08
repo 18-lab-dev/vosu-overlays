@@ -1,0 +1,5 @@
+name = Results card
+author = 18-LAB
+version = 0.1.0
+description = Results splash for every ruleset: typographic grade, score, accuracy, combo, pp and if-FC, ruleset-correct judgement breakdown, mods and rate, and a hit-error histogram with UR captured during the attempt. Transparent outside the results screen.
+resolution = [760,448]

@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"showHistogram","type":"checkbox","title":"Show hit-error histogram","description":"Timing histogram with UR, mean and early/late split, captured while the attempt was played. osu!catch has no timing and never shows it.","value":true},
+ {"uniqueID":"showMap","type":"checkbox","title":"Show map","description":"Title, artist, difficulty, mapper and star rating above the score.","value":true},
+ {"uniqueID":"hold","type":"number","title":"Hold duration / s","description":"Seconds the card stays up after the results screen opens. 0 keeps it up for as long as the results screen is open.","value":0},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Brand tag in the card header.","value":true}
+]

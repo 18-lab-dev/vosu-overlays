@@ -1,0 +1,5 @@
+name = Hit error
+author = 18-LAB
+version = 0.1.0
+description = Hit error bar for osu!, taiko and mania: rate-aware judgement window ladder, fading hit ticks, moving-average marker, live UR, mean offset and early/late split, with an optional mania press/release split. Results hold the attempt's distribution.
+resolution = [1920,1080]

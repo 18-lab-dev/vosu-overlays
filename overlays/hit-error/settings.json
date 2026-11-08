@@ -1,0 +1,15 @@
+[
+ {"uniqueID":"width","type":"number","title":"Bar length / px","description":"Length of the timing axis, 280–960 px. A vertical bar uses it as its height.","value":520},
+ {"uniqueID":"orientation","type":"options","title":"Orientation","description":"Horizontal runs early → late from left to right; vertical runs early → late from top to bottom.","options":["horizontal","vertical"],"value":"horizontal"},
+ {"uniqueID":"position","type":"options","title":"Position","description":"Edge of the 1920×1080 frame the bar sits against.","options":["bottom","top","left","right","center"],"value":"bottom"},
+ {"uniqueID":"inset","type":"number","title":"Edge inset / px","description":"Distance from the chosen edge, 0–400 px.","value":40},
+ {"uniqueID":"lifetime","type":"number","title":"Tick lifetime / s","description":"How long each hit tick stays on the bar while it fades, 0.25–30 s.","value":4},
+ {"uniqueID":"scale","type":"options","title":"Scale","description":"judgement windows: the bar spans every timing window of the map (rate-aware). great window: zooms to ±1.5 × the 300/GREAT window; hits beyond pin to the ends.","options":["judgement windows","great window"],"value":"judgement windows"},
+ {"uniqueID":"showUr","type":"checkbox","title":"Show unstable rate","description":"Ten times the standard deviation of this attempt's hit errors.","value":true},
+ {"uniqueID":"showMean","type":"checkbox","title":"Show mean offset","description":"Average hit error in ms, labelled early or late.","value":true},
+ {"uniqueID":"showEarlyLate","type":"checkbox","title":"Show early/late split","description":"Share of hits that landed early and late, at each end of the bar.","value":true},
+ {"uniqueID":"showDistribution","type":"checkbox","title":"Live distribution","description":"Smoothed distribution of every hit this attempt above the ticks. Results always show it.","value":true},
+ {"uniqueID":"releaseRow","type":"options","title":"osu!mania release row","description":"Separate row for long-note releases (vosu pressHitErrors/releaseHitErrors). auto shows it when the map has hold notes.","options":["auto","always","off"],"value":"auto"},
+ {"uniqueID":"showIdle","type":"checkbox","title":"Show outside gameplay","description":"In song select, preview the selected map's timing windows. Off: only gameplay and results.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

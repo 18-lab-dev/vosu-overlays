@@ -1,22 +1,23 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Results timing: on the results screen only, adds what osu! leaves out there: UR, timing mean,
 // early/late split and a hit-error histogram captured while the attempt was played, plus pp and
-// the if-FC gap (stable's results screen shows no pp; lazer shows pp but no if-FC). It floats in
-// space the results screen leaves empty and renders nothing in every other state.
-import { subscribe, settings, fit, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
+// the if-FC gap (stable's results screen shows no pp; lazer shows pp but no if-FC). Renders
+// nothing in every other state.
+//
+// The page is content-sized: hosts (OBS, vosulay, the replay renderer) place and size it. The
+// layout re-flows to the box it gets: a wide box (or orientation = horizontal) lays the readouts
+// out in one row, a taller one stacks them; the design is then scaled to the box's height or
+// width, whichever binds, and the spare length goes to the histogram.
+import { subscribe, settings, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
 const RESULTS = 7;
 const READY_FALLBACK_MS = 1500;
 const BINS = 41;
 const AMBER = '#ff963f';
-
-// Placement (positions live in style.css; settings add a nudge and scale):
-// - header (default): a one-row strip in the right part of osu!stable's results header band
-//   (x ≈ 1000–1900, y 8–130). Below it the ranking panel, grade art, mods and buttons fill the
-//   screen, and the title/mapper/player text sits on the band's left. On lazer the top of the
-//   results screen above the centred score panel is free as well.
-// - center: a stacked block in the column between stable's score panel and grade (x ≈ 900–1390),
-//   for skins whose grade art leaves it empty.
+// Design boxes (CSS px at scale 1) per orientation; metadata.txt's resolution is the horizontal one.
+const DESIGN = { h: { w: 840, h: 112 }, v: { w: 320, h: 300 } };
+// Wider than this aspect lays out in a row.
+const ROW_ASPECT = 1.6;
 
 const POINTERS = [
   '/state/number', '/resultsScreen/mode/number', '/play/mode/number', '/settings/mode/number',
@@ -25,13 +26,11 @@ const POINTERS = [
 ];
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
-const zone = $('zone');
+const box = $('frame');
 const card = $('card');
 const chip = $('chip');
 const canvas = $('hist');
 const ctx = canvas.getContext('2d', { alpha: true });
-fit(stage, 1920, 1080);
 
 const css = getComputedStyle(document.documentElement);
 const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
@@ -40,6 +39,13 @@ const COLORS = {
   max: '#ebe8e1', great: '#7fa6cf', good: '#6fbf8e', ok: '#b8b5ad', meh: '#e8b04a',
 };
 let highlight = AMBER;
+
+// Page box and the layout derived from it (set from ResizeObserver, applied in rAF).
+let pageWidth = innerWidth;
+let pageHeight = innerHeight;
+let orient = 'h';
+let scale = 1;
+let canvasCss = { w: 0, h: 0 };
 
 // --------------------------------------------------------------------- hit-error capture
 // Every timing event of the attempt, appended from the array's new tail only.
@@ -73,7 +79,7 @@ function ingest(array) {
 }
 
 // ------------------------------------------------------------------------- state
-const DEFAULTS = { zone: 'header', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showHistogram: true, showPp: true, hold: 0, showBrand: true };
+const DEFAULTS = { orientation: 'auto', align: 'right', backing: 'none', accent: 'map', showHistogram: true, showPp: true, hold: 0 };
 let config = { ...DEFAULTS };
 let values = null;
 let lastState;
@@ -85,7 +91,7 @@ let visible = false;
 let textDirty = true;
 let histDirty = true;
 let classDirty = true;
-let placeDirty = true;
+let layoutDirty = true;
 let frame = 0;
 let chipTimer = 0;
 let checksum = '';
@@ -153,7 +159,7 @@ function onFrame(v, changed) {
     if (next !== checksum) { checksum = next; requestPalette(); }
   }
   if (state === RESULTS) textDirty = true;
-  if (placeDirty || (state === RESULTS && visible)) schedule();
+  if (state === RESULTS && visible) schedule();
   updateVisibility();
 }
 
@@ -172,8 +178,8 @@ function requestPalette() {
 
 function applyTint() {
   const use = config.accent === 'map' ? palette : null;
-  applyPalette(zone, use);
-  zone.classList.toggle('tint', !!use);
+  applyPalette(box, use);
+  box.classList.toggle('tint', !!use);
   const next = use?.accent || AMBER;
   if (next !== highlight) { highlight = next; histDirty = true; schedule(); }
 }
@@ -199,15 +205,11 @@ function onStatus(next) {
 
 settings(DEFAULTS, next => {
   const accentChanged = next.accent !== config.accent;
-  config = {
-    ...next,
-    hold: Math.max(0, Number(next.hold) || 0),
-    scale: Math.min(2, Math.max(0.5, Number(next.scale) || 1)),
-  };
+  config = { ...next, hold: Math.max(0, Number(next.hold) || 0) };
   classDirty = true;
   histDirty = true;
   textDirty = true;
-  placeDirty = true;
+  layoutDirty = true;
   armHold();
   if (accentChanged) requestPalette();
   if (values) updateVisibility();
@@ -216,17 +218,32 @@ settings(DEFAULTS, next => {
 
 subscribe(POINTERS, onFrame, { onStatus });
 
+// The page box decides orientation and scale; the canvas box its backing-store size.
 new ResizeObserver(entries => {
-  const box = entries[0].contentRect;
-  const dpr = devicePixelRatio || 1;
-  const width = Math.round(box.width * dpr);
-  const height = Math.round(box.height * dpr);
+  const rect = entries[0].contentRect;
+  pageWidth = rect.width;
+  pageHeight = rect.height;
+  layoutDirty = true;
+  schedule();
+}).observe(document.documentElement);
+
+new ResizeObserver(entries => {
+  const rect = entries[0].contentRect;
+  canvasCss = { w: rect.width, h: rect.height };
+  sizeCanvas();
+}).observe(canvas);
+
+// Backing store in device px: layout px × the frame's scale × devicePixelRatio.
+function sizeCanvas() {
+  const px = (devicePixelRatio || 1) * scale;
+  const width = Math.round(canvasCss.w * px);
+  const height = Math.round(canvasCss.h * px);
   if (width === canvas.width && height === canvas.height) return;
   canvas.width = width;
   canvas.height = height;
   histDirty = true;
   schedule();
-}).observe(canvas);
+}
 
 // ------------------------------------------------------------------------ render
 // Writes only changed strings; "—" (no data) marks the element empty so CSS can quiet it.
@@ -244,13 +261,35 @@ function currentMode() {
   return MODES[number] ?? 'osu';
 }
 
-function place() {
-  zone.dataset.layout = config.zone === 'center' ? 'stack' : 'strip';
-  zone.style.transform = `translate(${Number(config.x) || 0}px, ${Number(config.y) || 0}px) scale(${config.scale})`;
+function layout() {
+  const width = pageWidth || DESIGN.h.w;
+  const height = pageHeight || DESIGN.h.h;
+  orient = config.orientation === 'horizontal' ? 'h' : config.orientation === 'vertical' ? 'v' : width / height >= ROW_ASPECT ? 'h' : 'v';
+  const design = DESIGN[orient];
+  // Scale to the binding dimension; the frame then spans the box in design px, so the other
+  // dimension re-flows (histogram length) rather than letterboxing, up to a cap past which the
+  // readouts would drift apart; any remaining space is left empty and `align` places the frame.
+  scale = Math.min(width / design.w, height / design.h);
+  let frameWidth = width / scale;
+  let frameHeight = height / scale;
+  if (orient === 'h') frameHeight = Math.min(frameHeight, design.h * 1.25);
+  else { frameWidth = Math.min(frameWidth, design.w * 1.5); frameHeight = Math.min(frameHeight, design.h * 1.6); }
+  const align = config.align === 'left' || config.align === 'center' ? config.align : 'right';
+  const spare = width - frameWidth * scale;
+  const x = align === 'left' ? 0 : align === 'center' ? spare / 2 : spare;
+  box.dataset.orient = orient;
+  box.dataset.align = align;
+  box.style.width = `${frameWidth}px`;
+  box.style.height = `${frameHeight}px`;
+  box.style.transform = `translate(${Math.round(x)}px, 0) scale(${scale})`;
+  // Mono labels and units stay at least 9 px on screen in small boxes.
+  box.style.setProperty('--label', `${Math.max(12, 9 / scale).toFixed(2)}px`);
+  box.classList.toggle('compact', scale < 0.75);
+  sizeCanvas();
 }
 
 function renderText() {
-  zone.classList.toggle('no-timing', !hasTiming());
+  box.classList.toggle('no-timing', !hasTiming());
   const pp = num(values['/resultsScreen/pp/current']);
   const ppFc = num(values['/resultsScreen/pp/fc']);
   $('perf').hidden = !hasPp();
@@ -314,7 +353,7 @@ function renderTiming() {
     if (++bins[b] > peak) peak = bins[b];
   }
 
-  const dpr = devicePixelRatio || 1;
+  const dpr = (devicePixelRatio || 1) * scale; // device px per design px
   const hair = Math.max(1, Math.round(dpr));
   const strip = Math.round(4 * dpr);
   const base = height - strip - Math.round(4 * dpr); // bar baseline (device px)
@@ -364,12 +403,11 @@ function renderTiming() {
 
 function render() {
   frame = 0;
-  if (placeDirty) { placeDirty = false; place(); }
+  if (layoutDirty) { layoutDirty = false; layout(); }
   if (classDirty) {
     classDirty = false;
-    zone.dataset.backing = config.backing;
-    zone.classList.toggle('no-brand', !config.showBrand);
-    zone.classList.toggle('no-hist', !config.showHistogram);
+    box.dataset.backing = config.backing;
+    box.classList.toggle('no-hist', !config.showHistogram);
     card.classList.toggle('on', visible);
     card.setAttribute('aria-hidden', visible ? 'false' : 'true');
   }

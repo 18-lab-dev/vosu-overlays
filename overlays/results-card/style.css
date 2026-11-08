@@ -7,35 +7,33 @@ html[data-theme] { color-scheme: normal; }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { color: var(--fg); font: 14px/1.25 var(--font-body); -webkit-font-smoothing: antialiased; }
-#stage { position: relative; width: 1920px; height: 1080px; }
 p { margin: 0; }
 [hidden] { display: none !important; }
 
-/* Highlight: the map's tonal accent when available (accent = map), else 18-LAB amber. */
-.zone { --hl: var(--accent); --rule-float: rgb(235 232 225 / .24); }
-.zone.tint { --hl: var(--map-accent, var(--accent)); }
-
-/* Placement. strip: right part of stable's results header band (x ≈ 1000–1900, y 8–130), right-
-   aligned so it never reaches the title text on the left. stack: the column between the score
-   panel and the grade. Nudge and scale arrive as a transform from overlay.js. */
-.zone { position: absolute; text-shadow: 0 1px 2px rgb(0 0 0 / .65); }
-.zone[data-layout="strip"] { right: 20px; top: 8px; transform-origin: 100% 0; }
-.zone[data-layout="stack"] { left: 945px; top: 300px; width: 400px; transform-origin: 50% 0; }
+/* The frame is laid out in design px at the box's aspect (overlay.js sets width/height and the
+   scale that maps it onto the page), so the layout re-flows to the host's box instead of being
+   letterboxed. Highlight = the map's tonal accent (accent = map), else amber. */
+.frame {
+  --hl: var(--accent);
+  --rule-float: rgb(235 232 225 / .24);
+  position: absolute; left: 0; top: 0;
+  transform-origin: 0 0;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
+}
+.frame.tint { --hl: var(--map-accent, var(--accent)); }
 
 .label {
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--label, 12px)/1 var(--font-mono);
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--fg-dim);
   white-space: nowrap;
 }
-.brand { color: var(--fg); margin-right: 10px; }
-.zone.no-brand .brand { display: none; }
 
 /* ------------------------------------------------------------------- card */
 .card {
   position: relative;
-  padding: 12px 16px;
+  width: 100%; height: 100%;
   contain: layout paint;
   opacity: 0;
   transform: translateY(-6px);
@@ -44,13 +42,9 @@ p { margin: 0; }
 }
 .card.on { opacity: 1; transform: none; visibility: visible; transition: opacity 200ms var(--ease-draft), transform 240ms var(--ease-draft), visibility 0s; }
 
-/* Backing: none (default) floats on the game; scrim adds a soft fade; panel the 18-LAB surface. */
-.zone[data-backing="scrim"] .card { contain: layout; }
-.zone[data-backing="scrim"] .card::before {
-  content: ""; position: absolute; inset: -24px -40px; z-index: -1; pointer-events: none;
-  background: radial-gradient(farthest-side, rgb(11 12 13 / .66), rgb(11 12 13 / .5) 60%, rgb(11 12 13 / 0));
-}
-.zone[data-backing="panel"] .card {
+/* Backing: none (default) floats on the game; scrim a soft fade inside the box; panel the graphite surface. */
+.frame[data-backing="scrim"] .card { background: radial-gradient(farthest-side, rgb(11 12 13 / .62), rgb(11 12 13 / .45) 70%, rgb(11 12 13 / 0)); }
+.frame[data-backing="panel"] .card {
   background: rgb(17 18 20 / .86);
   border: 1px solid var(--rule-strong);
   border-top: 2px solid var(--hl);
@@ -63,57 +57,75 @@ p { margin: 0; }
 .value { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .c-mean b { font: 600 28px/.85 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
 .c-pp .big { font-size: 36px; color: var(--fg); }
+.c-fc b { font: 600 28px/.85 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
 /* Units take no line box, so each value's box ends on its numeral baseline and cells line up. */
-small { font: 500 12px/0 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); }
-/* strip: measured offsets so UR, mean, pp and if-FC numerals share one baseline. */
-.zone[data-layout="strip"] .c-mean .value, .zone[data-layout="strip"] .c-fc .value { margin-bottom: -1.6px; }
-.zone[data-layout="strip"] .c-pp .value { margin-bottom: -.6px; }
+small { font: 500 var(--label, 12px)/0 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); }
+/* Small boxes (multiplayer cells, half-size sources): overlay.js raises --label so mono text
+   stays ≥ 9 px on screen, and long labels give way to short ones. */
+.short, .frame.compact .long { display: none; }
+.frame.compact .short { display: inline; }
+.frame.compact .c-pp small { display: none; }
+.c-fc small { color: var(--hl); }
+.c-fc small:empty { display: none; }
 
 .axis { display: flex; justify-content: space-between; gap: 16px; }
 .axis b { font-weight: 500; color: var(--fg); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .axis .early { color: var(--signal); }
 .axis .late { color: var(--accent); }
 
-.hist { position: relative; }
+.hist { position: relative; flex: 1; min-height: 40px; }
 #hist { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 200ms var(--ease-draft); }
 .card.on #hist { opacity: 1; transition-delay: 120ms; }
 
-.c-fc b { font: 600 28px/.85 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.c-fc small { color: var(--hl); }
-.c-fc small:empty { display: none; }
+.frame.no-timing .timing, .frame.no-hist .c-hist { display: none !important; }
 
-.zone.no-timing .timing, .zone.no-hist .c-hist { display: none !important; }
+/* horizontal (default 840×112): one row of columns split by hairlines, label on top, value on
+   the bottom line; the histogram takes the spare width (up to 520) and align places the row. */
+.frame[data-orient="h"] .card { display: flex; padding: 12px 20px; justify-content: flex-end; }
+.frame[data-orient="h"][data-align="left"] .card { justify-content: flex-start; }
+.frame[data-orient="h"][data-align="center"] .card { justify-content: center; }
+.frame[data-orient="h"] .cell { display: flex; flex-direction: column; justify-content: space-between; flex: none; padding: 0 20px; border-left: 1px solid var(--rule-float); }
+.frame[data-orient="h"] .cell:first-child, .frame.no-timing[data-orient="h"] .c-pp { border-left: 0; padding-left: 0; }
+.frame[data-orient="h"] .cell:last-child { padding-right: 0; }
+.frame[data-orient="h"] .c-hist { flex: 1 1 300px; min-width: 200px; max-width: 520px; gap: 8px; }
+/* Measured offsets so UR, mean, pp and if-FC numerals share one baseline. */
+.frame[data-orient="h"] .c-mean .value, .frame[data-orient="h"] .c-fc .value { margin-bottom: -1.6px; }
+.frame[data-orient="h"] .c-pp .value { margin-bottom: -.6px; }
 
-/* strip: one row of columns split by hairlines, each label-top / value-bottom on an 88 px band. */
-.zone[data-layout="strip"] .card { display: flex; }
-.zone[data-layout="strip"] .cell { display: flex; flex-direction: column; justify-content: space-between; height: 88px; padding: 0 20px; border-left: 1px solid var(--rule-float); }
-.zone[data-layout="strip"] .cell:first-child, .zone.no-timing .c-pp { border-left: 0; padding-left: 0; }
-.zone[data-layout="strip"] .cell:last-child { padding-right: 0; }
-.zone[data-layout="strip"] .c-hist { width: 300px; }
-.zone[data-layout="strip"] .hist { height: 62px; }
-
-/* stack: two readouts over the histogram, pp below a hairline. */
-.zone[data-layout="stack"] .card { display: grid; grid-template-columns: 1fr auto; row-gap: 14px; }
-.zone[data-layout="stack"] .cell { display: flex; flex-direction: column; gap: 10px; }
-.zone[data-layout="stack"] .c-mean { align-items: flex-end; }
-.zone[data-layout="stack"] .c-hist { grid-column: 1 / -1; }
-.zone[data-layout="stack"] .hist { height: 96px; }
-.zone[data-layout="stack"] .c-fc { align-items: flex-end; }
-.zone[data-layout="stack"] .c-pp, .zone[data-layout="stack"] .c-fc { padding-top: 12px; border-top: 1px solid var(--rule-float); }
-.zone.no-timing[data-layout="stack"] .c-pp, .zone.no-timing[data-layout="stack"] .c-fc { padding-top: 0; border-top: 0; }
+/* vertical (default 320×300): two readouts over the histogram, pp below a hairline; align
+   right mirrors the columns so the headline numbers sit on the outer edge. */
+.frame[data-orient="v"] .card {
+  display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; gap: 14px 16px;
+  grid-template-areas: "ur mean" "hist hist" "pp fc";
+  padding: 16px 20px;
+}
+.frame[data-orient="v"][data-align="right"] .card { grid-template-columns: auto 1fr; grid-template-areas: "mean ur" "hist hist" "fc pp"; }
+.frame.no-timing[data-orient="v"] .card { grid-template-rows: auto; grid-template-areas: "pp fc"; }
+.frame.no-timing[data-orient="v"][data-align="right"] .card { grid-template-areas: "fc pp"; }
+.frame[data-orient="v"] .cell { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.frame[data-orient="v"] .c-ur { grid-area: ur; }
+.frame[data-orient="v"] .c-mean { grid-area: mean; }
+.frame[data-orient="v"] .c-hist { grid-area: hist; }
+.frame[data-orient="v"] .c-pp { grid-area: pp; }
+.frame[data-orient="v"] .c-fc { grid-area: fc; }
+.frame[data-orient="v"]:not([data-align="right"]) :is(.c-mean, .c-fc),
+.frame[data-orient="v"][data-align="right"] :is(.c-ur, .c-pp) { align-items: flex-end; }
+.frame[data-orient="v"] :is(.c-pp, .c-fc) { padding-top: 12px; border-top: 1px solid var(--rule-float); }
+.frame.no-timing[data-orient="v"] :is(.c-pp, .c-fc) { padding-top: 0; border-top: 0; }
 
 /* No data: quiet, small placeholders instead of display-size dashes. */
 .empty { color: var(--fg-dim) !important; }
 .big.empty { font-size: 28px; }
 
 /* ------------------------------------------------------------- status chip */
-/* vosu down can happen in any state, so the chip sits where no ruleset draws HUD: right edge at
-   y ≈ 140, below the score/accuracy counters and above the taiko lane and osu! key counter. */
+/* Bottom of the box: at the suggested top-right placement that is below the score/accuracy HUD,
+   which matters because vosu can be down in any state. */
 .chip {
-  position: absolute; right: 16px; top: 132px;
+  position: absolute; right: 20px; bottom: 6px;
   display: inline-flex; align-items: center; gap: 6px;
   font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
 }
-.zone[data-layout="stack"] .chip { right: auto; left: 16px; }
+.frame[data-align="left"] .chip { right: auto; left: 20px; }
+.frame[data-align="center"] .chip { right: auto; left: 50%; transform: translateX(-50%); }
 .chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--danger); box-shadow: 0 1px 2px rgb(0 0 0 / .65); }
 .chip[data-state="connecting"] i { background: var(--caution); }

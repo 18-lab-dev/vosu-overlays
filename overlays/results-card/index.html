@@ -3,37 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Results timing · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Results timing</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <div id="zone" class="zone" data-layout="strip">
-    <section id="card" class="card" aria-label="Results timing and performance" aria-hidden="true">
-      <div class="cell c-ur timing">
-        <p class="label"><span class="brand">18—LAB</span>UR</p>
-        <b id="ur" class="big">—</b>
-      </div>
-      <div class="cell c-mean timing">
-        <p class="label">Mean</p>
-        <p class="value"><b id="mean">—</b><small>ms</small></p>
-      </div>
-      <div class="cell c-hist timing">
-        <p class="label axis"><span class="early">Early <b id="early">—</b></span><span class="late"><b id="late">—</b> Late</span></p>
-        <div class="hist"><canvas id="hist" aria-label="Hit error histogram"></canvas></div>
-      </div>
-      <div id="perf" class="cell c-pp">
-        <p class="label">Performance</p>
-        <p class="value"><b id="pp" class="big">—</b><small>pp</small></p>
-      </div>
-      <div id="ifFc" class="cell c-fc">
-        <p class="label">If FC</p>
-        <p class="value"><b id="ppFc">—</b><small id="ppGap"></small></p>
-      </div>
-    </section>
-    <p id="chip" class="chip" hidden><i></i><span id="chipText">vosu offline</span></p>
-  </div>
+<div id="frame" class="frame" data-orient="h" data-align="right">
+  <section id="card" class="card" aria-label="Results timing and performance" aria-hidden="true">
+    <div class="cell c-ur timing">
+      <p class="label">UR</p>
+      <b id="ur" class="big">—</b>
+    </div>
+    <div class="cell c-mean timing">
+      <p class="label">Mean</p>
+      <p class="value"><b id="mean">—</b><small>ms</small></p>
+    </div>
+    <div class="cell c-hist timing">
+      <p class="label axis"><span class="early">Early <b id="early">—</b></span><span class="late"><b id="late">—</b> Late</span></p>
+      <div class="hist"><canvas id="hist" aria-label="Hit error histogram"></canvas></div>
+    </div>
+    <div id="perf" class="cell c-pp">
+      <p class="label"><span class="long">Performance</span><span class="short">pp</span></p>
+      <p class="value"><b id="pp" class="big">—</b><small>pp</small></p>
+    </div>
+    <div id="ifFc" class="cell c-fc">
+      <p class="label">If FC</p>
+      <p class="value"><b id="ppFc">—</b><small id="ppGap"></small></p>
+    </div>
+  </section>
+  <p id="chip" class="chip" hidden><i></i><span id="chipText">vosu offline</span></p>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

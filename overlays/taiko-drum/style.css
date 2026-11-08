@@ -1,0 +1,146 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+*, *::before, *::after { box-sizing: border-box; }
+/* tokens.css sets color-scheme: dark; a mismatched embedder would then paint an opaque backdrop. */
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
+#stage { position: absolute; left: 0; top: 0; }
+
+.label, .chip, .status, .num, .hand, .don-label, .seq-hands {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.num { color: var(--fg-dim); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+b { font-weight: 600; }
+.count, .big, .mid, .don {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* Panel ------------------------------------------------------------------ */
+.panel {
+  --d: 148px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 8px 16px 16px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  contain: layout paint;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft);
+}
+.panel[data-visible="true"] { opacity: 1; transform: none; }
+.panel[data-size="small"] { --d: 116px; }
+.panel[data-size="large"] { --d: 188px; }
+
+.head { display: flex; align-items: center; gap: 8px; height: 20px; margin-bottom: 12px; }
+.brand { font: 500 10px/12px var(--font-mono); letter-spacing: .08em; color: var(--fg); }
+.title { font: 500 13px/1 var(--font-body); color: var(--fg-dim); margin-right: auto; }
+.panel[data-brand="false"] .brand { display: none; }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.chip .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+.panel[data-phase="live"] .chip { color: var(--accent); }
+.panel[data-phase="live"] .chip .dot { background: var(--accent); box-shadow: none; }
+.panel[data-phase="result"] .chip { color: var(--fg-dim); }
+.panel[data-phase="result"] .chip .dot { background: var(--fg-dim); box-shadow: none; }
+
+.body { display: flex; align-items: center; }
+
+/* Drum ------------------------------------------------------------------- */
+.drum-col { display: flex; align-items: center; gap: 12px; }
+.kat { display: flex; flex-direction: column; gap: 6px; width: 44px; }
+.kat-l { align-items: flex-end; text-align: right; }
+.kat-r { align-items: flex-start; }
+.count { font-size: calc(var(--d) * .15); }
+
+.drum { position: relative; width: var(--d); height: var(--d); flex: none; }
+.drum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.don { position: absolute; top: 50%; font-size: calc(var(--d) * .15); transform: translate(-50%, -62%); }
+.don-l { left: calc(50% - var(--d) * .175); }
+.don-r { left: calc(50% + var(--d) * .175); }
+.don-label { position: absolute; top: calc(50% + var(--d) * .085); transform: translateX(-50%); font-size: 9px; line-height: 10px; color: var(--fg-dim); }
+.don-label-l { left: calc(50% - var(--d) * .175); }
+.don-label-r { left: calc(50% + var(--d) * .175); }
+.panel[data-size="small"] .don-label { display: none; }
+.panel[data-size="small"] .don { transform: translate(-50%, -50%); }
+
+/* Stats ------------------------------------------------------------------ */
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 192px;
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid var(--rule);
+}
+.panel[data-stats="false"] .stats { display: none; }
+
+.kps-row { display: flex; align-items: flex-end; justify-content: space-between; }
+.kps { display: flex; flex-direction: column; gap: 2px; }
+.big { font-size: 40px; line-height: 34px; min-width: 2ch; }
+.kps-sub { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding-bottom: 1px; }
+.kps-sub .num { font-size: 12px; line-height: 14px; color: var(--fg-dim); }
+
+.balance { display: flex; flex-direction: column; gap: 6px; }
+.balance-row { display: flex; align-items: center; gap: 8px; }
+.side { display: inline-flex; gap: 4px; min-width: 36px; font-size: 11px; color: var(--fg-dim); }
+.side-r { justify-content: flex-end; }
+.hand { color: var(--muted); }
+.balance-track { position: relative; flex: 1; height: 4px; background: var(--rule-strong); border-radius: 1px; overflow: hidden; }
+.balance-fill { position: absolute; inset: 0; background: var(--fg-dim); transform-origin: 0 50%; transform: scaleX(0); }
+.panel[data-colour="hands"] .balance-track { background: var(--accent); }
+.panel[data-colour="hands"] .balance-fill { background: var(--signal); }
+.panel[data-empty="true"] .balance-track { background: var(--rule-strong); }
+.balance-mid { position: absolute; left: calc(50% - 1px); top: 0; width: 2px; height: 4px; background: var(--bg); }
+
+.panel .empty { color: var(--muted); }
+
+.seq { display: flex; align-items: stretch; gap: 6px; height: 24px; }
+.seq-hands { display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; line-height: 11px; }
+.seq canvas { flex: 1; min-width: 0; height: 24px; display: block; }
+
+.pair { display: flex; gap: 16px; }
+.pair > div { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.mid { font-size: 22px; }
+
+.note { width: 0; min-width: 100%; margin: 12px 0 0; font: 400 12px/16px var(--font-body); color: var(--fg-dim); }
+.note code { font: 500 11px/16px var(--font-mono); color: var(--caution); }
+
+/* Connection status: the only thing shown while the socket is down. ----- */
+.status {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  text-transform: none;
+  letter-spacing: .02em;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+}
+.status[data-state="offline"], .status[data-state="connecting"] { opacity: 1; }
+.status[data-state="offline"] .dot { color: var(--danger); }
+.status[data-state="connecting"] .dot { color: var(--caution); }

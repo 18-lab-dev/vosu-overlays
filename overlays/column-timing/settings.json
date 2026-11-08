@@ -1,0 +1,7 @@
+[
+ {"uniqueID":"tickLifetime","type":"number","title":"Tick lifetime / s","description":"How long a fresh hit tick stays bright before fading into the column's accumulated distribution. 0.5–30 s.","value":6},
+ {"uniqueID":"release","type":"options","title":"Hold release row","options":["auto","always","off"],"description":"Per-column timing of osu!mania hold (LN) releases, on 1.5× release windows. auto = only on maps with holds.","value":"auto"},
+ {"uniqueID":"numbers","type":"checkbox","title":"Show numbers","description":"Per-column mean (ms, − early / + late) and UR under the strips. Off leaves the strips and the summary line.","value":true},
+ {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","value":true},
+ {"uniqueID":"align","type":"options","title":"Alignment","options":["left","right"],"description":"Which edge of the source the panel hugs; its width follows the key count.","value":"left"}
+]

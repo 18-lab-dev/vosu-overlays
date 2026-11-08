@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Column timing · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="stage">
+  <div class="dock" id="dock">
+    <p class="chip" id="chip" data-state="connecting" role="status"><i aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span></p>
+    <section class="panel is-hidden" id="panel" aria-label="Per-column timing">
+      <header class="head">
+        <b class="brand" id="brand">18—LAB</b>
+        <span class="label">Column timing</span>
+        <span class="keys" id="keys"></span>
+      </header>
+      <div class="body" id="body">
+        <div class="row cols" id="cols"><span class="gut"></span></div>
+        <div class="row strip press">
+          <span class="gut axis" aria-hidden="true"><span>Early</span><span class="zero">0</span><span>Late</span></span>
+          <canvas id="press" aria-label="Press timing per column"></canvas>
+        </div>
+        <div class="row num mean" id="mean"><span class="gut">Mean</span></div>
+        <div class="row num ur" id="ur"><span class="gut">UR</span></div>
+        <div class="rel" id="rel">
+          <div class="row strip release">
+            <span class="gut axis single" aria-hidden="true">Release</span>
+            <canvas id="release" aria-label="Hold release timing per column"></canvas>
+          </div>
+          <div class="row num rmean" id="rmean"><span class="gut">Mean</span></div>
+        </div>
+      </div>
+      <p class="message" id="message" hidden></p>
+      <footer class="foot" id="foot">
+        <span class="fact"><span class="label">Highest UR</span><b id="weak">—</b></span>
+        <span class="fact"><span class="label">Bias</span><b id="bias">—</b></span>
+        <span class="fact all"><span class="label">All UR</span><b id="all">—</b></span>
+      </footer>
+    </section>
+  </div>
+</main>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Now playing · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <article id="card" data-layout="full" data-phase="none" aria-label="Now playing">
+    <div class="top">
+      <div class="band" id="band" aria-hidden="true"></div>
+      <header class="head">
+        <span class="status" id="status" data-f="status" hidden></span>
+        <span class="ruleset" data-f="ruleset"></span>
+        <span class="spacer"></span>
+        <span class="conn" id="conn" hidden><i></i><span data-f="conn"></span></span>
+        <span class="phase" id="phase"><i></i><span data-f="phase"></span></span>
+        <span class="brand" id="brand">18—LAB</span>
+      </header>
+      <div class="ident" id="ident">
+        <div class="names">
+          <h1 class="title" data-f="title">—</h1>
+          <p class="artist" data-f="artist"></p>
+        </div>
+        <div class="stars" id="stars">
+          <span class="label" data-f="starsLabel">Star rating</span>
+          <span class="sr"><b data-f="stars">—</b><i>★</i></span>
+          <span class="of" data-f="starsOf"></span>
+        </div>
+      </div>
+      <div class="diff" id="diff">
+        <span class="version" data-f="version"></span>
+        <span class="mapper" id="mapperWrap"><span class="by">by</span> <span data-f="mapper"></span></span>
+        <span class="spacer"></span>
+        <span class="mods" id="mods"></span>
+      </div>
+    </div>
+    <div class="stats" id="stats">
+      <div class="cell" data-k="ar"><span class="label">AR</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="cs"><span class="label">CS</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="od"><span class="label">OD</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="hp"><span class="label">HP</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell wide" data-k="bpm"><span class="label">BPM</span><span class="val"><b class="to">—</b><span class="aux"></span></span></div>
+      <div class="cell wide" data-k="len"><span class="label">Length</span><span class="val"><b class="to">—</b><span class="aux"></span></span></div>
+    </div>
+    <div class="counts" id="counts">
+      <span class="label">Objects</span><b data-f="objects">—</b>
+      <span class="parts"><span data-c="0"><b></b> <span></span></span><span data-c="1"><b></b> <span></span></span><span data-c="2"><b></b> <span></span></span></span>
+      <span class="spacer"></span>
+      <span class="label">Max combo</span><b data-f="combo">—</b>
+    </div>
+    <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+  </article>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

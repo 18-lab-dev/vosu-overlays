@@ -1,0 +1,5 @@
+name = Now playing
+author = 18-LAB
+version = 0.1.0
+description = Map title and data card: background band, ranked status, star rating (live during play), mod-adjusted AR/CS/OD/HP, BPM, rate-adjusted length, object counts and mods, with a thin play progress bar. All rulesets.
+resolution = [600,320]

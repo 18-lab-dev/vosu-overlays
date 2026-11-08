@@ -1,0 +1,8 @@
+[
+ {"uniqueID":"layout","type":"options","title":"Layout","options":["full","compact"],"description":"full = background band, difficulty line, stat row and object counts. compact = a slim strip: title, difficulty, mods and an inline stat row.","value":"full"},
+ {"uniqueID":"unicode","type":"checkbox","title":"Original-language titles","description":"Show the title and artist in their original script (titleUnicode / artistUnicode) when the map has them.","value":false},
+ {"uniqueID":"showBackground","type":"checkbox","title":"Background art","description":"Show the map's background as a dimmed band behind the title.","value":true},
+ {"uniqueID":"showStats","type":"checkbox","title":"Stat rows","description":"Show the difficulty settings, BPM and length row (plus object counts in the full layout). Mod-adjusted values show the original first: 9→10.33.","value":true},
+ {"uniqueID":"anchor","type":"options","title":"Anchor","options":["top","bottom"],"description":"Which edge of the source the card sticks to when its height changes (compact layout, stats hidden, two-line titles).","value":"top"},
+ {"uniqueID":"showBrand","type":"checkbox","title":"18—LAB tag","description":"Show the 18—LAB tag in the card header.","value":true}
+]

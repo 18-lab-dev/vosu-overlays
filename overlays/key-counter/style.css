@@ -1,0 +1,75 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { font: 400 14px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; }
+
+/* ---------- panel ---------- */
+.panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 12px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  contain: layout paint;
+  user-select: none;
+}
+.panel[data-anchor="top-left"] { left: 0; top: 0; transform-origin: 0 0; }
+.panel[data-anchor="top-right"] { right: 0; top: 0; transform-origin: 100% 0; }
+.panel[data-anchor="bottom-left"] { left: 0; bottom: 0; transform-origin: 0 100%; }
+.panel[data-anchor="bottom-right"] { right: 0; bottom: 0; transform-origin: 100% 100%; }
+
+.label {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---------- header ---------- */
+.head { display: flex; align-items: center; gap: 8px; height: 14px; }
+.brand { font: 500 10px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg); white-space: nowrap; }
+.brand[hidden] { display: none; }
+.mode { margin-left: auto; color: var(--fg-dim); }
+.status { display: none; margin-left: auto; align-items: center; gap: 6px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+#status-text { font: 500 10px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg-dim); white-space: nowrap; }
+
+.note { display: none; margin: 10px 0 0; font: 400 13px/1.3 var(--font-body); color: var(--fg-dim); white-space: nowrap; }
+.note b { font: 500 11px/1 var(--font-mono); color: var(--fg); letter-spacing: .02em; }
+
+.body { display: flex; gap: 16px; margin-top: 10px; }
+
+/* Phases: only the header strip when there is nothing to count. */
+.panel[data-phase="connecting"] .status,
+.panel[data-phase="offline"] .status { display: flex; }
+.panel[data-phase="connecting"] .mode,
+.panel[data-phase="offline"] .mode { display: none; }
+.panel[data-phase="offline"] .dot { background: var(--danger); }
+.panel[data-phase="connecting"] .body,
+.panel[data-phase="offline"] .body,
+.panel[data-phase="absent"] .body,
+.panel[data-phase="nokeys"] .body { display: none; }
+.panel[data-phase="connecting"],
+.panel[data-phase="offline"] { padding-bottom: 8px; }
+.panel[data-phase="absent"] .note,
+.panel[data-phase="nokeys"] .note { display: block; }
+
+/* ---------- caps + stats (both canvases are sized by overlay.js) ---------- */
+canvas { display: block; }
+#keys { flex: none; }
+.stats { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding-left: 16px; border-left: 1px solid var(--rule); }
+.stats-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.span { opacity: .8; }
+.panel[data-spark="off"] .span { display: none; }
+
+/* ---------- vertical ---------- */
+.panel[data-orient="vertical"] .body { flex-direction: column; gap: 12px; }
+.panel[data-orient="vertical"] .stats { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--rule); }

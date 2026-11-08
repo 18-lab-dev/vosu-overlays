@@ -1,0 +1,8 @@
+[
+ {"uniqueID":"orientation","type":"options","title":"Orientation","options":["horizontal","vertical"],"description":"Horizontal: a row of caps with the KPS block beside it. Vertical: a column of caps with counts to the right and KPS below; give the browser source more height (e.g. 360×640), otherwise the panel scales down to fit.","value":"horizontal"},
+ {"uniqueID":"capSize","type":"number","title":"Cap size / px","description":"Edge length of each key cap; clamped to 28–80 px. The panel scales down when many keys (e.g. 10K mania) would not fit the browser source.","value":48},
+ {"uniqueID":"showSparkline","type":"checkbox","title":"Show KPS history","description":"Bars of taps per second over the last 10 s; on the results screen, the whole attempt.","value":true},
+ {"uniqueID":"showTotal","type":"checkbox","title":"Show total taps","description":"Sum of all key counts for the attempt.","value":true},
+ {"uniqueID":"anchor","type":"options","title":"Position anchor","options":["top-left","top-right","bottom-left","bottom-right"],"description":"Corner of the browser source the panel sticks to, so it grows away from that corner when the key count changes.","value":"top-left"},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

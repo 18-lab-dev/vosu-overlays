@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Key counter · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<section id="panel" class="panel" data-phase="connecting" data-orient="horizontal" data-anchor="top-left" aria-label="Key counter">
+  <header class="head">
+    <span class="brand" id="brand">18—LAB</span>
+    <span class="label">Keys</span>
+    <span class="label mode" id="mode"></span>
+    <span class="status" id="status"><i class="dot"></i><span id="status-text">Connecting</span></span>
+  </header>
+  <p class="note" id="note"></p>
+  <div class="body">
+    <canvas id="keys" aria-label="Key presses per key"></canvas>
+    <div class="stats">
+      <div class="stats-head"><span class="label" id="kps-label">KPS</span><span class="label span" id="span-label">10 s</span></div>
+      <canvas id="stats" aria-label="Keys per second, total and peak"></canvas>
+    </div>
+  </div>
+</section>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

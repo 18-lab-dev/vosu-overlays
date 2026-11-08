@@ -282,10 +282,7 @@ function documentAt() {
       },
     },
     play,
-    leaderboard: [
-      { isFailed: false, position: 1, team: 0, id: 1, name: 'mrekk', score: 98123456, accuracy: 99.21, hits: { 0: 0, 50: 0, 100: 12, 300: total - 12, geki: 0, katu: 0 }, combo: { current: total, max: total }, mods, rank: 'S' },
-      { isFailed: false, position: 2, team: 0, id: 2, name: 'sxlvia', score: Math.round(score), accuracy, hits, combo: play.combo, mods, rank },
-    ],
+    leaderboard: leaderboard({ score, accuracy, hits, combo: play.combo, mods, rank, total }),
     performance: { accuracy: ppAcc, graph: { series: scenario.series, xaxis: scenario.xaxis } },
     resultsScreen: state === STATE.results ? {
       scoreId: 4400000000 + scenario.attempt, playerName: 'sxlvia', mode: modeObj, score: Math.round(score), accuracy, name: 'sxlvia', hits, mods,
@@ -310,6 +307,29 @@ function documentAt() {
 }
 
 function zeroHits() { return { 0: 0, 50: 0, 100: 0, 300: 0, geki: 0, katu: 0, sliderEndHits: 0, smallTickHits: 0, largeTickHits: 0 }; }
+
+const RIVALS = ['kestrel', 'nullpoint', 'hanabi_7', 'quietstorm', 'Velvet Axis', 'mintcircuit', 'oriole', 'paperlantern', 'Tsubame', 'graphite', 'lowtide', 'Ember Rail', 'sundial'];
+
+/**
+ * Rivals hold fixed final scores spread across the player's expected final score, so the live
+ * score climbs past them and positions change during play. Lazer: vosu fills no leaderboard.
+ */
+function leaderboard({ score, accuracy, hits, combo, mods, rank, total }) {
+  if (config.client === 'lazer') return [];
+  if (!scenario.finalScore) {
+    let estimate = 0;
+    for (let i = 0; i < scenario.objects.length; i++) estimate += 300 * (1 + (i % 400) / 25);
+    scenario.finalScore = estimate;
+  }
+  const rows = RIVALS.map((name, i) => {
+    const fraction = 1.12 - i * 0.075;
+    return { isFailed: i === 9, team: 0, id: 100 + i, name, score: Math.round(scenario.finalScore * fraction), accuracy: Math.round((99.6 - i * 0.45) * 100) / 100, hits: { 0: i % 3, 50: 0, 100: 6 + i * 3, 300: total - 6 - i * 3, geki: 0, katu: 0 }, combo: { current: total - i * 9, max: total - i * 9 }, mods: i % 2 ? mods : { checksum: '', number: 0, name: '', array: [], rate: 1 }, rank: i < 4 ? 'S' : 'A' };
+  });
+  rows.push({ isFailed: false, team: 0, id: 7562902, name: 'sxlvia', score: Math.round(score), accuracy, hits, combo, mods, rank });
+  rows.sort((a, b) => b.score - a.score);
+  rows.forEach((row, index) => { row.position = index + 1; });
+  return rows;
+}
 
 function countObjects(mode, objects) {
   const holds = mode === 'mania' ? objects.filter(o => o.ln).length : 0;
@@ -373,7 +393,14 @@ let current = null;
 let revision = 0;
 function tick() {
   revision++;
-  current = config.state === 'offline' ? null : documentAt();
+  // `offline` = vosu up, osu! not running (every pointer absent). `down` = vosu unreachable:
+  // sockets are closed on sight so overlays show their disconnected state and keep retrying.
+  current = config.state === 'offline' || config.state === 'down' ? null : documentAt();
+  if (config.state === 'down') {
+    for (const client of subscribers) client.ws.close(1011, 'mock vosu down');
+    for (const ws of commandClients) ws.close(1011, 'mock vosu down');
+    return;
+  }
   for (const client of subscribers) publish(client);
 }
 
@@ -430,7 +457,7 @@ function galleryPage() {
     return `<figure><div class="frame" style="height:${Math.ceil(h * scale)}px"><iframe src="/${id}/" style="width:${w}px;height:${h}px;transform:scale(${scale})" loading="lazy"></iframe></div><figcaption><a href="/__dev/stage?id=${id}" target="_blank">${name}</a> <code>${id} · ${w}×${h}</code><p>${description}</p></figcaption></figure>`;
   }).join('');
   const modes = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['menu', 'play', 'results'].map(state => `<button data-q="mode=${mode}&state=${state}&freeze=">${mode} ${state}</button>`)).join('');
-  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}<button data-q="state=offline">offline</button><button data-q="ext=0">ext off</button><button data-q="ext=1">ext on</button><button data-q="keys=7">7K</button><button data-q="keys=4">4K</button><button data-q="client=lazer">lazer</button><button data-q="client=stable">stable</button></header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
+  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}<button data-q="state=offline">osu! closed</button><button data-q="state=down">vosu down</button><button data-q="ext=0">ext off</button><button data-q="ext=1">ext on</button><button data-q="keys=7">7K</button><button data-q="keys=4">4K</button><button data-q="client=lazer">lazer</button><button data-q="client=stable">stable</button></header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
 }
 
 function overlaySettings(id) {
@@ -468,7 +495,7 @@ function overlayIds() {
 function controlPage() {
   const links = overlayIds().map(id => `<li><a href="/${id}/" target="_blank">${id}</a> · <a href="/__dev/stage?id=${id}" target="_blank">stage</a></li>`).join('');
   const presets = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['play', 'menu', 'results'].map(state => `<a href="/__dev/scenario?mode=${mode}&state=${state}">${mode}/${state}</a>`)).join(' · ');
-  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p><a href="/__dev/gallery">Gallery of every overlay</a></p><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">offline</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a></p><ul>${links}</ul></body>`;
+  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p><a href="/__dev/gallery">Gallery of every overlay</a></p><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">osu! closed</a> · <a href="/__dev/scenario?state=down">vosu down</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a></p><ul>${links}</ul></body>`;
 }
 
 function file(id, rest) {
@@ -537,6 +564,7 @@ Bun.serve({
   },
   websocket: {
     open(ws) {
+      if (config.state === 'down') return ws.close(1011, 'mock vosu down');
       if (ws.data.kind === 'commands') commandClients.add(ws);
       if (ws.data.kind === 'v2' || ws.data.kind === 'precise') {
         const send = () => ws.send(JSON.stringify(current ? current[ws.data.kind === 'v2' ? 'doc' : 'precise'] : { error: 'osu is not ready/running' }));

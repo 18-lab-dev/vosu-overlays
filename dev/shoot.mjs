@@ -28,7 +28,7 @@ const defaults = [];
 for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
   defaults.push(`mode=${mode}&state=menu&freeze=0`, `mode=${mode}&state=play&freeze=60000`, `mode=${mode}&state=results&freeze=0`);
 }
-defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=osu&state=offline');
+defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=osu&state=offline', 'mode=osu&state=down');
 const cases = (arg('cases') ? arg('cases').split(';') : defaults).filter(Boolean);
 const perf = arg('perf', 'mode=mania&state=play&keys=7&start=110000');
 

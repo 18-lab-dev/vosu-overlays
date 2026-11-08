@@ -1,13 +1,13 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!mania judgement counter floating beside the stage: MAX…MISS counts, proportional bar,
-// MAX:300 ratio, accuracy, combo and key presses per second from /keys/all count deltas.
-// Results keep only what osu!'s ranking screen lacks (the ratio and the attempt's peak KPS).
-import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
+// osu!mania judgement counter: MAX…MISS counts, proportional bar, MAX:300 ratio, accuracy,
+// combo and key presses per second from /keys/all count deltas. The page is content-sized: a
+// tall box gets the data column, a wide one the compact focus row (for over the stage, just above
+// the receptors). Results keep only what osu!'s ranking screen lacks (ratio and peak KPS).
+import { subscribe, settings, activeMode, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const EDGE = 48; // px between the cluster and the screen edge of its band
-const STAGE_CLEARANCE = 96; // px kept free beside the stage for skin HP bars and stage art
+// Base metrics (CSS px) each layout is designed at; the page scales them to its box.
+const BASE = { vertical: { w: 260, h: 384 }, horizontal: { w: 600, h: 82 } };
+const HORIZONTAL_ASPECT = 2; // auto orientation: boxes at least this wide per unit of height
 const STATE_PLAY = 2;
 const STATE_RESULTS = 7;
 const KPS_WINDOW = 1000; // ms of wall clock
@@ -19,7 +19,6 @@ const PLAY_HITS = KEYS.map(key => `/play/hits/${key}`);
 const RESULT_HITS = KEYS.map(key => `/resultsScreen/hits/${key}`);
 const P = {
   state: '/state/number',
-  client: '/client',
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
   resultsMode: '/resultsScreen/mode/number',
@@ -29,11 +28,9 @@ const P = {
   keys: '/keys/all',
   keyCount: '/beatmap/stats/cs/converted',
   checksum: '/beatmap/checksum',
-  skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
 const hud = $('hud');
 const chip = $('chip');
 const canvas = $('bar');
@@ -50,8 +47,6 @@ const text = {
   kps: $('kps'), peak: $('peak'), peakLabel: $('peak-label'), chip: $('chip-text'),
 };
 const note = $('note');
-
-fit(stage, WIDTH, HEIGHT);
 
 // ------------------------------------------------------------------ state
 let socketStatus = 'connecting';
@@ -79,12 +74,8 @@ let lastPhase = '';
 let barDirty = true;
 let pending = 0;
 
-// Placement inputs; the band is recomputed only when one of them changes.
-let placedFor = '';
 let paletteFor = '';
-// The current skin's mania stage (skin.ini through vosu) for the key count in play; null = defaults.
-let skinFor = '';
-let skinGeometry = null;
+let unit = 1; // page px per base px
 
 function resetKps() {
   ringHead = 0;
@@ -143,48 +134,30 @@ function schedule() {
   if (!pending) pending = requestAnimationFrame(render);
 }
 
-// ------------------------------------------------------------------ placement + tint
-/** Reads the skin's [Mania] section for this key count once per skin/key-count change, off the hot path. */
-function loadSkin(keyCount, skinName) {
-  const key = `${keyCount}|${skinName ?? ''}`;
-  if (key === skinFor) return;
-  skinFor = key;
-  skinGeometry = null;
-  maniaSkin(keyCount, skinName ?? '').then(geometry => {
-    if (skinFor !== key) return;
-    skinGeometry = geometry;
-    placedFor = '';
-    schedule();
-  });
-}
-
+// ------------------------------------------------------------------ box layout + tint
 /**
- * Puts the cluster in osu!'s free band on the chosen side of the mania stage, held at the band's
- * screen edge. The stage comes from the skin (or the columnStart/columnWidth overrides); when the
- * chosen band is too narrow for the cluster, the other side is used if it fits.
+ * Lays the cluster out for the page's box: orientation from the box's aspect (or the setting),
+ * scale so the base design fits, and the cluster spans the box width in base units. Runs on
+ * resize and settings changes only (it reads the window size, never inside a frame).
  */
-function place(keyCount, client) {
-  const key = `${options.side}|${keyCount}|${client}|${options.x}|${options.y}|${options.scale}|${options.backing}|${options.columnStart}|${options.columnWidth}`;
-  if (key === placedFor) return;
-  placedFor = key;
-  const geometry = { keys: keyCount, client: client === 'lazer' ? 'lazer' : 'stable' };
-  if (skinGeometry) Object.assign(geometry, { columnStart: skinGeometry.columnStart, columnWidth: skinGeometry.columnWidth, columnSpacing: skinGeometry.columnSpacing });
-  if (options.columnStart > 0) geometry.columnStart = options.columnStart;
-  if (options.columnWidth > 0) { geometry.columnWidth = options.columnWidth; geometry.columnSpacing = 0; }
-  const layout = osuLayout('mania', geometry);
-  const scale = Math.min(2, Math.max(0.5, options.scale || 1));
-  const need = (options.backing === 'panel' ? 268 : 240) * scale + EDGE + STAGE_CLEARANCE;
-  const bandOn = side => layout.free.find(r => (side === 'left' ? r.x === 0 : r.x > 0));
-  const other = options.side === 'left' ? 'right' : 'left';
-  const side = (bandOn(options.side)?.w ?? 0) >= need || (bandOn(other)?.w ?? 0) < need ? options.side : other;
-  const band = bandOn(side) || { y: 0, h: HEIGHT };
-  stage.style.setProperty('--edge', `${EDGE}px`);
-  stage.style.setProperty('--cy', `${Math.round(band.y + band.h / 2)}px`);
-  stage.style.setProperty('--nx', `${Math.round(options.x)}px`);
-  stage.style.setProperty('--ny', `${Math.round(options.y)}px`);
-  stage.style.setProperty('--scale', String(scale));
-  setAttr(hud, 'side', side);
-  setAttr(chip, 'side', side);
+function layout() {
+  if (!options) return;
+  const width = innerWidth || BASE.vertical.w;
+  const height = innerHeight || BASE.vertical.h;
+  const orient = options.orientation === 'horizontal' || options.orientation === 'vertical'
+    ? options.orientation
+    : width >= height * HORIZONTAL_ASPECT ? 'horizontal' : 'vertical';
+  const base = BASE[orient];
+  unit = Math.max(0.25, Math.min(width / base.w, height / base.h));
+  const align = ['left', 'right', 'center'].includes(options.align) ? options.align : orient === 'horizontal' ? 'center' : 'left';
+  setAttr(hud, 'orient', orient);
+  setAttr(hud, 'align', align);
+  setAttr(chip, 'align', align);
+  hud.style.setProperty('--u', String(unit));
+  hud.style.setProperty('--w', `${width / unit}px`);
+  hud.style.setProperty('--justify', align === 'left' ? 'start' : align === 'right' ? 'end' : 'center');
+  // A new unit with an unchanged CSS box would not wake the ResizeObserver: size it here too.
+  sizeCanvas(canvas.clientWidth, canvas.clientHeight);
 }
 
 function loadPalette() {
@@ -235,10 +208,9 @@ function render() {
   const v = values;
   const state = v?.[P.state];
 
-  // Connection and no-game states: one small chip in the zone, nothing else.
+  // Connection and no-game states: one small chip in the box, nothing else.
   if (socketStatus !== 'live' || !v || state === undefined) {
     hide();
-    place(4, 'stable');
     setAttr(chip, 'shown', 'true');
     setAttr(chip, 'state', socketStatus === 'live' ? 'idle' : socketStatus);
     setText(text.chip, socketStatus === 'offline' ? 'vosu offline' : socketStatus === 'live' ? 'osu! not running' : 'Connecting to vosu');
@@ -256,8 +228,6 @@ function render() {
   const keyCount = state === STATE_PLAY && Array.isArray(keys) && keys.length
     ? keys.length
     : Number.isInteger(cs) && cs > 0 && cs <= 18 ? cs : 4;
-  loadSkin(keyCount, v[P.skin]);
-  place(keyCount, v[P.client]);
 
   counts.fill(0);
   let phase;
@@ -348,7 +318,7 @@ const COLORS = ['--j-max', '--j-great', '--j-good', '--j-ok', '--j-meh', '--j-mi
 const TRACK = 'rgb(8 9 10 / .55)';
 const TICK = 'rgb(235 232 225 / .34)';
 const TICK_MAJOR = 'rgb(235 232 225 / .7)';
-let scale = 1;
+let scale = 1; // device px per canvas CSS px (DPR × page unit)
 
 function drawBar(total) {
   barDirty = false;
@@ -356,7 +326,7 @@ function drawBar(total) {
   const h = canvas.height;
   if (!w || !h) return;
   ctx.clearRect(0, 0, w, h);
-  const barHeight = Math.round(6 * scale);
+  const barHeight = Math.min(h, Math.round(6 * scale));
   ctx.fillStyle = TRACK;
   ctx.fillRect(0, 0, w, barHeight);
   if (total > 0) {
@@ -377,6 +347,7 @@ function drawBar(total) {
       x = end;
     }
   }
+  if (hud.dataset.orient !== 'vertical') return;
   const line = Math.max(1, Math.round(scale));
   const top = barHeight + Math.round(3 * scale);
   for (let k = 0; k <= 10; k++) {
@@ -387,33 +358,35 @@ function drawBar(total) {
   }
 }
 
-new ResizeObserver(entries => {
-  const box = entries[entries.length - 1].contentRect;
-  scale = devicePixelRatio || 1;
-  const w = Math.round(box.width * scale);
-  const h = Math.round(box.height * scale);
+/** Sizes the canvas backing store to its CSS box × DPR × page unit (the cluster is scaled by unit). */
+function sizeCanvas(width, height) {
+  scale = (devicePixelRatio || 1) * unit;
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   barDirty = true;
   drawnPhase = '';
   schedule();
+}
+new ResizeObserver(entries => {
+  const box = entries[entries.length - 1].contentRect;
+  sizeCanvas(box.width, box.height);
 }).observe(canvas);
 
 // ------------------------------------------------------------------ settings + data
-settings({ side: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showRatio: true, showKps: true, showBrand: true, columnStart: 0, columnWidth: 0 }, s => {
+settings({ orientation: 'auto', align: 'auto', backing: 'none', accent: 'map', showRatio: true, showKps: true }, s => {
   options = s;
-  options.side = s.side === 'left' ? 'left' : 'right';
   setAttr(hud, 'backing', ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none');
   setAttr(hud, 'accent', s.accent === '18-lab' ? '18-lab' : 'map');
   setAttr(hud, 'ratio', String(s.showRatio));
   setAttr(hud, 'kps', String(s.showKps));
-  setAttr(hud, 'brand', String(s.showBrand));
-  placedFor = '';
   loadPalette();
-  schedule();
+  layout();
 });
+addEventListener('resize', layout);
 
 subscribe([
-  P.state, P.client, P.playMode, P.settingsMode, P.resultsMode, P.source,
+  P.state, P.playMode, P.settingsMode, P.resultsMode, P.source,
   ...PLAY_HITS, P.accuracy, P.combo, P.keys,
-  ...RESULT_HITS, P.keyCount, P.checksum, P.skin,
+  ...RESULT_HITS, P.keyCount, P.checksum,
 ], onFrame, { onStatus });

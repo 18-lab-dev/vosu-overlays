@@ -2,28 +2,17 @@
 // Aim scatter: every osu! circle / slider-head hit as a dot at the cursor's offset from the
 // object's centre (vosu `play.hitOffsets`, ENABLE_HIT_OFFSETS), coloured by timing error, with a
 // running centroid, 1σ covariance ellipse, aim bias and on-centre share for the whole attempt.
-// It floats in a side band beside the 4:3 playfield (osuLayout) and shows during play and on
-// results, where neither osu!stable nor lazer shows where the cursor landed.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+// The page is the overlay's own box: hosts place and size it, and the layout re-flows to it
+// (vertical column or horizontal strip, from the box's aspect or the `orientation` setting).
+import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const W = 1920;
-const H = 1080;
-// Target geometry, CSS px. Gameplay uses the full 288 px target in a side band; results use a
-// compact 116 px target in the free right part of the results header strip.
-const FULL = { view: 288, ring: 104, dot: 2.6, bezel: 1 };
-const COMPACT = { view: 116, ring: 44, dot: 1.6, bezel: 0.45 };
-let geo = FULL;
-let VIEW = FULL.view;
-let HALF = VIEW / 2;
-let RING = FULL.ring;
-let EDGE = HALF - 6;              // off-target hits pin to this radius
-let DOT = FULL.dot;
+// Reference boxes the type scale is derived from (the default resolution is the vertical one).
+const REF_V = { w: 280, h: 340 };
+const REF_H = { w: 560, h: 124 };
+const RING_RATIO = 104 / 288;     // hit-circle radius / target diameter
 const CENTRE = 1 / 3;             // "on centre" = within R/3
 const RECENT = 40;                // newest hits drawn bright on the live layer
 const BUCKETS = 41;               // timing colour steps across ±great
-const CLUSTER_H = 420;            // gameplay: head + target + legend + readouts (for centring)
-const RESULTS_W = 588;            // results strip width
-const RESULTS_BAND = { x: 1000, y: 8, w: 900, h: 122 }; // stable results: free right of the header strip
 const PLAYING = 2;
 const RESULTS = 7;
 const FALLBACK_RADIUS = 54.4 - 4.48 * 4;
@@ -41,7 +30,6 @@ const P = {
 };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
 const aim = $('aim');
 const readouts = $('readouts');
 const canvases = { reticle: $('reticle'), trail: $('trail'), live: $('live') };
@@ -51,7 +39,7 @@ const ctx = {
   live: canvases.live.getContext('2d', { alpha: true }),
 };
 const el = {
-  brand: $('brand'), status: $('status'), statusText: $('status-text'), cs: $('cs'), radius: $('radius'),
+  status: $('status'), statusText: $('status-text'),
   window: $('window'), bias: $('bias'), biasArrow: $('bias-arrow'), biasDir: $('bias-dir'),
   centre: $('centre'), centreSub: $('centre-sub'), spread: $('spread'), spreadSub: $('spread-sub'),
 };
@@ -65,7 +53,6 @@ const C = {
   mid: rgb(token('--fg', '#ebe8e1')),
   late: rgb(token('--accent', AMBER)),
   fg: rgb(token('--fg', '#ebe8e1')),
-  dim: token('--fg-dim', '#b8b5ad'),
 };
 const mix = (a, b, t) => `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)} ${Math.round(a[1] + (b[1] - a[1]) * t)} ${Math.round(a[2] + (b[2] - a[2]) * t)})`;
 // Early/late colours are fixed (they carry meaning). Steeper near zero (|t|^0.6) so a few ms
@@ -79,6 +66,20 @@ const fgA = alpha => `rgb(${C.fg[0]} ${C.fg[1]} ${C.fg[2]} / ${alpha})`;
 // Highlight (centroid, ellipse, bias) follows the map's tonal-spot accent, else 18-LAB amber.
 let hl = AMBER;
 let hlFill = 'rgb(255 150 63 / .08)';
+
+// ------------------------------------------------------------------ target geometry (CSS px)
+let VIEW = 220;                   // target diameter
+let HALF = VIEW / 2;
+let RING = VIEW * RING_RATIO;     // hit-circle radius on screen
+let EDGE = HALF - 4;              // off-target hits pin to this radius
+let DOT = 2.2;                    // dot radius
+let K = VIEW / 288;               // detail scale (ticks, marks) relative to the 288 px design
+
+function setDiameter(d) {
+  VIEW = d; HALF = d / 2; RING = d * RING_RATIO; K = d / 288;
+  EDGE = HALF - Math.max(2, 6 * K);
+  DOT = Math.max(1.3, Math.min(2.8, d / 105));
+}
 
 // ------------------------------------------------------------------ attempt store (grows by doubling)
 let cap = 2048;
@@ -133,10 +134,7 @@ function rebucket() {
 }
 
 // ------------------------------------------------------------------ state
-const options = {
-  zone: 'right', x: 0, y: 0, size: 100, dots: 'All hits', ellipse: true,
-  results: true, backing: 'none', accent: 'map', brand: true,
-};
+const options = { orientation: 'auto', align: 'center', dots: 'All hits', ellipse: true, results: true, backing: 'none', accent: 'map' };
 let limit = Infinity;             // dots kept on the target; Infinity = all hits
 let status = 'connecting';
 let state;                        // /state/number
@@ -144,8 +142,8 @@ let mode = null;
 let extension = 'unknown';        // 'on' | 'off' | 'unknown'
 let prevState;
 let checksum = null;
-let palette = null;
 let view = '';
+let small = false;                // half-size box (multiplayer cell): shorter labels
 let baked = 0;                    // all-hits mode: dots already rasterised on the trail layer
 let drawnN = -1;
 const dirty = { size: true, reticle: true, trail: true, live: true, dom: true };
@@ -216,8 +214,7 @@ function loadPalette() {
   mapPalette(wanted).then(result => { if (wanted === checksum && options.accent === 'map') setPalette(result); });
 }
 
-function setPalette(next) {
-  palette = next;
+function setPalette(palette) {
   applyPalette(aim, palette);
   hl = palette?.accent || AMBER;
   const [r, g, b] = rgb(hl);
@@ -226,55 +223,50 @@ function setPalette(next) {
   schedule();
 }
 
-// ------------------------------------------------------------------ placement & sizing
-function place() {
-  const k = options.size / 100;
-  const nx = Number(options.x) || 0;
-  const ny = Number(options.y) || 0;
-  if (view === 'results') {
-    // Right-aligned in the free part of stable's results header; never over the ranking panel.
-    const band = RESULTS_BAND;
-    aim.style.left = `${Math.round(band.x + band.w - RESULTS_W + nx)}px`;
-    aim.style.top = `${Math.round(band.y + (band.h - COMPACT.view) / 2 + ny)}px`;
-    aim.style.transformOrigin = '100% 50%';
+// ------------------------------------------------------------------ box layout (resize / settings only)
+/**
+ * Re-flows to the page box: vertical column (status, target, legend, readouts) for upright boxes,
+ * horizontal strip (target beside the text) for wide ones. Type scales with the box against the
+ * reference size, labels floored so they stay legible in half-size multiplayer cells; the target
+ * takes the space the text leaves. Pure arithmetic (no layout reads), so it gives the same answer
+ * whichever view is showing.
+ */
+function layoutBox() {
+  const w = innerWidth || REF_V.w;
+  const h = innerHeight || REF_V.h;
+  const orient = options.orientation === 'vertical' || options.orientation === 'horizontal'
+    ? options.orientation : (h / w >= 0.75 ? 'vertical' : 'horizontal');
+  const ref = orient === 'vertical' ? REF_V : REF_H;
+  const s = Math.max(0.45, Math.min(3, Math.min(w / ref.w, h / ref.h)));
+  const t = Math.max(0.8, s);
+  if (aim.dataset.orient !== orient) aim.dataset.orient = orient;
+  aim.style.setProperty('--s', s.toFixed(3));
+  aim.style.setProperty('--t', t.toFixed(3));
+  small = s < 0.8;
+  aim.classList.toggle('is-small', small);
+  dirty.dom = true;
+  const pad = 6 * s;
+  let d;
+  if (orient === 'vertical') {
+    // Text rows at this scale (line boxes from style.css): head, legend, readouts (rule, label,
+    // number, sub line), plus the row gaps; the rest goes to the target.
+    const sub = s < 0.8 ? 0 : 16 * t;
+    const text = 14.4 * t + 12 * t + (11 * s + 14.4 * t + 30 * s + 2 + sub) + 4 * 6 * s + 4;
+    d = Math.min(w - 2 * pad, h - 2 * pad - text);
   } else {
-    const layout = osuLayout('osu');
-    const field = layout.busy;
-    let cx;
-    if (options.zone === 'left') {
-      cx = field.x / 2;
-    } else {
-      // Right band, kept clear of the key counter on the far edge.
-      const right = layout.hud.keys ? layout.hud.keys.x : W;
-      cx = (field.x + field.w + right) / 2;
-    }
-    const top = field.y + field.h / 2 - CLUSTER_H * k / 2;
-    aim.style.left = `${Math.round(cx - FULL.view / 2 + nx)}px`;
-    aim.style.top = `${Math.round(top + ny)}px`;
-    aim.style.transformOrigin = '50% 0';
+    d = Math.min(h - 2 * pad, w * 0.42);
   }
-  aim.style.transform = k === 1 ? '' : `scale(${k})`;
-}
-
-function setGeometry(next) {
-  if (next === geo) return;
-  geo = next;
-  VIEW = geo.view; HALF = VIEW / 2; RING = geo.ring; DOT = geo.dot;
-  EDGE = HALF - 6 * geo.bezel;
-  dirty.size = true;
-}
-
-function measure() {
-  const fitScale = Math.min(innerWidth / W, innerHeight / H) || 1;
-  const next = (devicePixelRatio || 1) * (options.size / 100) * fitScale;
-  if (Math.abs(next - pixel) < 1e-3 && !dirty.size) return;
+  d = Math.max(48, Math.floor(d));
+  aim.style.setProperty('--d', `${d}px`);
+  if (d !== VIEW) { setDiameter(d); dirty.size = true; }
+  const next = devicePixelRatio || 1;
+  if (Math.abs(next - pixel) > 1e-3) dirty.size = true;
   pixel = next;
-  dirty.size = true;
   schedule();
 }
 
 function resize() {
-  const side = Math.max(1, Math.round(VIEW * pixel));
+  const side = Math.max(1, Math.round(VIEW * (devicePixelRatio || 1)));
   for (const canvas of Object.values(canvases)) { canvas.width = side; canvas.height = side; }
   pixel = side / VIEW;
   // Dot sprites: one filled disc per colour bucket, rasterised at the device scale.
@@ -305,6 +297,7 @@ function drawReticle() {
   c.setTransform(pixel, 0, 0, pixel, 0, 0);
   const hair = 1 / pixel;
   const mid = crisp(HALF);
+  const full = VIEW >= 180;
 
   // Lens: a dark disc that fades out past the bezel, so dots and hairlines read over any map
   // background without a box. The panel backing brings its own surface.
@@ -317,17 +310,16 @@ function drawReticle() {
     c.fillRect(0, 0, VIEW, VIEW);
   }
 
-  const b = geo.bezel;
   c.lineWidth = hair;
   c.strokeStyle = fgA(0.12);
   c.beginPath();
-  c.moveTo(HALF - RING - 18 * b, mid); c.lineTo(HALF + RING + 18 * b, mid);
-  c.moveTo(mid, HALF - RING - 18 * b); c.lineTo(mid, HALF + RING + 18 * b);
+  c.moveTo(HALF - RING - 18 * K, mid); c.lineTo(HALF + RING + 18 * K, mid);
+  c.moveTo(mid, HALF - RING - 18 * K); c.lineTo(mid, HALF + RING + 18 * K);
   c.stroke();
 
-  // Ruler ticks every 10 playfield px along both axes, inside the circle (full size only).
+  // Ruler ticks every 10 playfield px along both axes, inside the circle (large targets only).
   const s = scale();
-  if (geo === FULL) {
+  if (full) {
     c.strokeStyle = fgA(0.26);
     c.beginPath();
     for (let d = 10; d * s < RING - 2; d += 10) {
@@ -347,18 +339,18 @@ function drawReticle() {
   c.setLineDash([]);
 
   // The hit circle.
-  c.lineWidth = geo === FULL ? 1.5 : 1.25;
+  c.lineWidth = full ? 1.5 : 1.25;
   c.strokeStyle = fgA(0.72);
   c.beginPath(); c.arc(HALF, HALF, RING, 0, Math.PI * 2); c.stroke();
 
-  // Bezel: 10° ticks, 30° majors, cardinal points brightest.
+  // Bezel: 10° ticks, 30° majors, cardinal points brightest (30° only on small targets).
   c.lineWidth = hair * Math.max(1, Math.round(pixel * 0.9));
-  for (let deg = 0; deg < 360; deg += geo === FULL ? 10 : 30) {
+  for (let deg = 0; deg < 360; deg += full ? 10 : 30) {
     const major = deg % 30 === 0;
     const cardinal = deg % 90 === 0;
     const a = deg * Math.PI / 180;
-    const r0 = RING + 5 * b + 1;
-    const r1 = RING + (cardinal ? 14 : major ? 10 : 7) * b + 1;
+    const r0 = RING + 5 * K + 1;
+    const r1 = RING + (cardinal ? 14 : major ? 10 : 7) * K + 1;
     c.strokeStyle = fgA(cardinal ? 0.7 : major ? 0.42 : 0.22);
     c.beginPath();
     c.moveTo(HALF + Math.cos(a) * r0, HALF + Math.sin(a) * r0);
@@ -415,7 +407,7 @@ function drawLive() {
   if (ld > EDGE) { lx *= EDGE / ld; ly *= EDGE / ld; }
   c.lineWidth = 1.25;
   c.strokeStyle = RAMP[bucket[n - 1]];
-  c.beginPath(); c.arc(HALF + lx, HALF + ly, DOT + 3, 0, Math.PI * 2); c.stroke();
+  c.beginPath(); c.arc(HALF + lx, HALF + ly, DOT + 2.5, 0, Math.PI * 2); c.stroke();
 
   const cx = HALF + mx * s, cy = HALF + my * s;
   if (options.ellipse && n >= 3) {
@@ -438,13 +430,13 @@ function drawLive() {
   c.beginPath(); c.moveTo(HALF, HALF); c.lineTo(cx, cy);
   c.lineWidth = 3; c.strokeStyle = 'rgb(8 9 10 / .7)'; c.stroke();
   c.lineWidth = 1.25; c.strokeStyle = hl; c.stroke();
+  const arm = Math.max(4.5, 6 * K), gap = Math.max(1.8, 2.5 * K);
   c.beginPath();
-  const arm = geo === FULL ? 6 : 4.5, gap = geo === FULL ? 2.5 : 1.8;
   c.moveTo(cx - arm, cy); c.lineTo(cx - gap, cy); c.moveTo(cx + gap, cy); c.lineTo(cx + arm, cy);
   c.moveTo(cx, cy - arm); c.lineTo(cx, cy - gap); c.moveTo(cx, cy + gap); c.lineTo(cx, cy + arm);
   c.lineWidth = 3.5; c.strokeStyle = 'rgb(8 9 10 / .8)'; c.stroke();
   c.lineWidth = 1.5; c.strokeStyle = hl; c.stroke();
-  c.beginPath(); c.arc(cx, cy, geo === FULL ? 1.6 : 1.1, 0, Math.PI * 2); c.fillStyle = hl; c.fill();
+  c.beginPath(); c.arc(cx, cy, Math.max(1.1, 1.6 * K), 0, Math.PI * 2); c.fillStyle = hl; c.fill();
   c.lineCap = 'butt';
 }
 
@@ -454,44 +446,39 @@ const shown = (node, visible) => { if (node.hasAttribute('hidden') === visible) 
 const DIRECTIONS = ['right', 'down-right', 'down', 'down-left', 'left', 'up-left', 'up', 'up-right'];
 const px = v => v.toFixed(1);
 let arrowDeg = null;
+// The circle the target is scaled to: converted CS and its radius in playfield px.
+const circle = (withRadius = true) => cs === null ? 'CS —' : withRadius ? `CS ${cs.toFixed(1)} · R ${px(radius)} px` : `CS ${cs.toFixed(1)}`;
 
 /**
- * What the cluster shows: `data` during osu! play, `results` (compact strip in the results header)
- * with a held attempt, `notice` when vosu runs without ENABLE_HIT_OFFSETS, `chip` for
- * connection / no-game, else `none` (other rulesets, song select, menus: nothing to add there).
+ * What the box shows: `data` during osu! play; `summary` (readouts only, at the box's foot) on
+ * results with a held attempt, so the target never covers the results screen's buttons;
+ * `notice` when vosu runs without ENABLE_HIT_OFFSETS; `chip` for connection / no game; else
+ * `none` (other rulesets, song select, menus: nothing to add there).
  */
 function viewFor() {
   if (status !== 'live') return 'chip';
   if (state === undefined) return 'chip';
   if (mode !== 'osu') return 'none';
   if (state === PLAYING) return extension === 'off' ? 'notice' : 'data';
-  if (state === RESULTS && options.results && n > 0) return 'results';
+  if (state === RESULTS && options.results && n > 0) return 'summary';
   return 'none';
 }
 
 function updateDom() {
   dirty.dom = false;
   const next = viewFor();
-  if (next !== view) {
-    view = next;
-    aim.dataset.view = view;
-    place();
-    setGeometry(view === 'results' ? COMPACT : FULL);
-    if (dirty.size) { measure(); schedule(); }
-  }
+  if (next !== view) { view = next; aim.dataset.view = view; }
 
   let tone = 'idle', label;
   if (status === 'connecting') { tone = 'busy'; label = 'Connecting'; }
   else if (status === 'offline') { tone = 'error'; label = 'vosu offline'; }
   else if (state === undefined) label = 'No game';
-  else if (state === PLAYING) { tone = 'live'; label = extension === 'off' ? 'Playing' : `${n} hits`; }
-  else label = `Results · ${n}`;
+  else if (state === PLAYING) { tone = 'live'; label = extension === 'off' ? 'Playing' : circle(!small); }
+  else label = `Results · ${circle(false)}`;
   if (el.status.dataset.tone !== tone) el.status.dataset.tone = tone;
   text(el.statusText, label);
-  if (view !== 'data' && view !== 'results') return;
+  if (view !== 'data' && view !== 'summary') return;
 
-  text(el.cs, cs === null ? 'CS —' : `CS ${cs.toFixed(1)}`);
-  text(el.radius, radius === null ? 'R —' : `R ${px(radius)} px`);
   text(el.window, great === null ? '± — ms' : `±${Math.round(great * 10) / 10} ms`);
 
   const have = n > 0;
@@ -533,30 +520,26 @@ function frame() {
 
 // ------------------------------------------------------------------ settings & boot
 const BACKINGS = new Set(['none', 'scrim', 'panel']);
+const ALIGNS = new Set(['left', 'center', 'right']);
 
 settings(options, next => {
-  const size = Math.max(60, Math.min(200, Math.round(next.size) || 100));
-  const sizeChanged = size !== options.size;
   const backing = BACKINGS.has(next.backing) ? next.backing : 'none';
   const backingChanged = backing !== options.backing;
   const accentChanged = next.accent !== options.accent;
-  Object.assign(options, next, { size, backing, zone: next.zone === 'left' ? 'left' : 'right' });
+  Object.assign(options, next, { backing, align: ALIGNS.has(next.align) ? next.align : 'center' });
   const match = /(\d+)/.exec(options.dots);
   const nextLimit = /all/i.test(options.dots) || !match ? Infinity : Math.max(1, Number(match[1]));
   if (nextLimit !== limit) { limit = nextLimit; dirty.trail = true; }
   if (aim.dataset.backing !== backing) aim.dataset.backing = backing;
+  if (aim.dataset.align !== options.align) aim.dataset.align = options.align;
   if (backingChanged) dirty.reticle = true;
   if (accentChanged) loadPalette();
-  shown(el.brand, options.brand !== false);
-  place();
   dirty.live = dirty.dom = true;
-  if (sizeChanged) dirty.size = true;
-  measure();
-  schedule();
+  layoutBox();
 });
 
-fit(stage, W, H);
-addEventListener('resize', measure);
-matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', measure);
+new ResizeObserver(layoutBox).observe(document.documentElement);
+matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', layoutBox);
+document.fonts?.ready.then(layoutBox);
 subscribe(Object.values(P), onData, { onStatus });
 schedule();

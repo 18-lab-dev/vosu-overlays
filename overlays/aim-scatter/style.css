@@ -5,26 +5,66 @@
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 /* tokens.css sets color-scheme: dark; a differing embedder scheme would paint an opaque backdrop. */
 html[data-theme] { color-scheme: normal; }
-#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
 
-/* One floating cluster in an osu! side band; overlay.js sets left/top and the scale. */
+/*
+ * The page is the overlay's own box; hosts (OBS, vosulay, the replay renderer) size and place it.
+ * overlay.js picks the arrangement from the box's aspect and sets --s (graphics/number scale),
+ * --t (label scale, floored for legibility) and --d (target diameter) on resize.
+ */
 .aim {
+  --s: 1; --t: 1; --d: 220px;
   --hl: var(--map-accent, var(--accent));
   --lift: 0 1px 2px rgb(0 0 0 / .75), 0 0 6px rgb(0 0 0 / .45);
+  --gap: calc(6px * var(--s));
   position: absolute;
-  left: 0; top: 0;
-  width: 288px;
+  inset: 0;
+  padding: calc(6px * var(--s));
+  display: grid;
+  align-content: center;
+  row-gap: var(--gap);
   color: var(--fg);
-  font: 400 14px/1.2 var(--font-body);
+  font: 400 calc(14px * var(--t))/1.2 var(--font-body);
   text-shadow: var(--lift);
   user-select: none;
   isolation: isolate;
-  contain: layout style;
-  transform-origin: 50% 0;
+  contain: strict;
   opacity: 1;
   transition: opacity 200ms var(--ease-draft);
 }
+
+.head { grid-area: head; }
+.target { grid-area: target; }
+.notice { grid-area: notice; }
+.legend { grid-area: legend; }
+.readouts { grid-area: readouts; }
+
+/* Vertical column: status, target, legend, readouts. Alignment places the target in the column. */
+.aim[data-orient="vertical"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "target" "notice" "legend" "readouts";
+}
+.aim[data-orient="vertical"][data-align="left"] .target { justify-self: start; }
+.aim[data-orient="vertical"][data-align="center"] .target { justify-self: center; }
+.aim[data-orient="vertical"][data-align="right"] .target { justify-self: end; }
+
+/* Horizontal strip: target beside the text column; right alignment mirrors it. */
+.aim[data-orient="horizontal"] {
+  column-gap: calc(18px * var(--s));
+  grid-template-columns: var(--d) minmax(0, 1fr);
+  grid-template-areas: "target head" "target notice" "target readouts" "target legend";
+}
+.aim[data-orient="horizontal"][data-align="right"] {
+  grid-template-columns: minmax(0, 1fr) var(--d);
+  grid-template-areas: "head target" "notice target" "readouts target" "legend target";
+}
+.aim[data-orient="horizontal"] .target { align-self: center; }
+.aim[data-orient="horizontal"][data-view="notice"],
+.aim[data-orient="horizontal"][data-view="summary"],
+.aim[data-orient="horizontal"][data-view="chip"] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "notice" "readouts"; }
+
+/* Views: data (play), summary (results), notice (extension off), chip (connection / no game), none. */
 .aim[data-view="none"] { opacity: 0; }
+.aim[data-view="chip"] { align-content: start; }
 .aim[data-view="chip"] .target,
 .aim[data-view="chip"] .legend,
 .aim[data-view="chip"] .readouts,
@@ -33,78 +73,55 @@ html[data-theme] { color-scheme: normal; }
 .aim[data-view="notice"] .legend,
 .aim[data-view="notice"] .readouts,
 .aim[data-view="data"] .notice,
-.aim[data-view="results"] .notice,
-.aim[data-view="results"] .corner { display: none; }
+.aim[data-view="summary"] .notice,
+.aim[data-view="summary"] .target,
+.aim[data-view="summary"] .legend { display: none; }
+/* Results: readouts only, at the box's foot, clear of the results screen's buttons above. */
+.aim[data-view="summary"] { align-content: end; }
 
-/* Results: a compact strip in the free right part of osu!stable's results header. */
-.aim[data-view="results"] {
-  display: grid;
-  grid-template-columns: 116px 1fr;
-  grid-template-rows: auto auto auto;
-  column-gap: var(--space-5);
-  width: 588px;
-}
-.aim[data-view="results"] .head { grid-column: 2; grid-row: 1; }
-.aim[data-view="results"] .target { grid-column: 1; grid-row: 1 / 4; width: 116px; height: 116px; margin: 0; }
-.aim[data-view="results"] .target canvas { width: 116px; height: 116px; }
-.aim[data-view="results"] .readouts { grid-column: 2; grid-row: 2; margin-top: var(--space-1); }
-.aim[data-view="results"] .legend { grid-column: 2; grid-row: 3; margin-top: var(--space-2); }
-.aim[data-view="results"] .readout { padding-top: 6px; }
-.aim[data-view="results"] .readout dd b { font-size: 26px; }
-.aim[data-view="results"] .readout dd:first-of-type { margin-top: 2px; }
+/* Small boxes (multiplayer cells): drop secondary lines, keep the numbers. */
+.aim.is-small .readout__sub,
+.aim.is-small .legend__window,
+.aim.is-small .long { display: none; }
 
-/* Optional backings. Default is none: the target's own lens (canvas) carries contrast. */
-.aim::before { content: none; position: absolute; z-index: -1; pointer-events: none; }
-.aim[data-backing="scrim"]::before {
-  content: "";
-  inset: -48px -56px;
-  background: radial-gradient(closest-side, rgb(8 9 10 / .66), rgb(8 9 10 / .5) 55%, rgb(8 9 10 / 0));
-}
-.aim[data-backing="panel"]::before {
-  content: "";
-  inset: -12px;
+/* Optional backings. Default none: the target's own lens (canvas) carries contrast. */
+.aim[data-backing="scrim"] { background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .44) 60%, rgb(8 9 10 / 0)); }
+.aim[data-backing="panel"] {
+  --lift: none;
   background: rgb(17 18 20 / .86);
   border: 1px solid var(--rule-strong);
   border-top: 2px solid var(--hl);
   border-radius: var(--radius);
 }
-.aim[data-backing="panel"] { --lift: none; }
 
-/* Labels: mono caps, the family's data voice; ≥ 12 px for compressed streams. */
-.head, .corner, .legend, .readout dt, .readout__sub, .readout small, .notice {
+/* Labels: mono caps, the family's data voice; ≥ 12 px at the default size. */
+.head, .legend, .readout dt, .readout__sub, .readout small, .notice {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--t));
   letter-spacing: .08em;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
 
-.head { display: flex; align-items: center; gap: var(--space-2); height: 20px; white-space: nowrap; }
-.brand { color: var(--fg); font-weight: 500; letter-spacing: .04em; }
-.brand[hidden] { display: none; }
+.head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; white-space: nowrap; line-height: 1.2; }
 .title { color: var(--fg-dim); }
 .status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--fg-dim); }
-.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
+.status .dot { width: calc(7px * var(--t)); height: calc(7px * var(--t)); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
 .status[data-tone="live"] .dot { background: var(--hl); }
 .status[data-tone="busy"] .dot { background: var(--caution); }
 .status[data-tone="error"] .dot { background: var(--danger); }
 
-.target { position: relative; width: 288px; height: 288px; margin-top: var(--space-1); }
-.target canvas { position: absolute; left: 0; top: 0; width: 288px; height: 288px; display: block; }
+.target { position: relative; width: var(--d); height: var(--d); }
+.target canvas { position: absolute; left: 0; top: 0; width: var(--d); height: var(--d); display: block; }
 
-.corner { position: absolute; top: 2px; color: var(--fg-dim); line-height: 1; }
-.corner--tl { left: 0; }
-.corner--tr { right: 0; text-align: right; }
-
-.notice { margin: var(--space-2) 0 0; color: var(--fg); text-transform: none; letter-spacing: .02em; white-space: nowrap; }
+.notice { margin: 0; color: var(--fg); text-transform: none; letter-spacing: .02em; white-space: nowrap; }
 .notice b { color: var(--caution); font-weight: 500; }
 
 .legend {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-1);
   color: var(--fg-dim);
   line-height: 1;
 }
@@ -120,17 +137,17 @@ html[data-theme] { color-scheme: normal; }
 }
 .legend__ramp::after { content: ""; position: absolute; left: calc(50% - .5px); top: -3px; width: 1px; height: 10px; background: var(--fg); }
 
-.readouts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-3); margin: var(--space-3) 0 0; }
-.readout { min-width: 0; padding-top: var(--space-2); border-top: 1px solid rgb(235 232 225 / .28); }
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(12px * var(--s)); margin: 0; }
+.readout { min-width: 0; padding-top: calc(6px * var(--s)); border-top: 1px solid rgb(235 232 225 / .28); }
 .readout dt { color: var(--fg-dim); }
 .readout dd { margin: 0; white-space: nowrap; }
-.readout dd b { font: 600 32px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.readout dd:first-of-type { margin-top: 4px; }
+.readout dd b { font: 600 calc(30px * var(--s))/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
+.readout dd:first-of-type { margin-top: calc(3px * var(--s)); }
 .readout small { margin-left: 3px; color: var(--fg-dim); text-transform: none; letter-spacing: .02em; }
-.readout__sub { display: flex; align-items: center; gap: 4px; min-height: 14px; margin-top: 2px !important; color: var(--fg-dim); text-transform: none; letter-spacing: 0; }
+.readout__sub { display: flex; align-items: center; gap: 4px; min-height: 1.2em; margin-top: 2px !important; color: var(--fg-dim); text-transform: none; letter-spacing: 0; }
 .readout:first-child dd b { color: var(--hl); }
 .readouts.is-empty small { visibility: hidden; }
 .readouts.is-empty dd b, .readouts.is-empty .readout:first-child dd b { color: var(--fg-dim); }
-.arrow { width: 11px; height: 11px; flex: none; fill: none; stroke: var(--hl); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.arrow { width: 1em; height: 1em; flex: none; fill: none; stroke: var(--hl); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .arrow[hidden] { display: none; }
 .lc { text-transform: none; }

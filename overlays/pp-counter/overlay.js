@@ -20,18 +20,25 @@ const P = {
   cur: '/play/pp/current', fc: '/play/pp/fc', max: '/play/pp/maxAchievable',
   rPp: '/resultsScreen/pp/current', rFc: '/resultsScreen/pp/fc',
 };
-// Breakdown components: label plus current/fc pointers, resolved once.
-const PART = {};
-for (const [key, label] of [['aim', 'Aim'], ['speed', 'Speed'], ['accuracy', 'Acc'], ['flashlight', 'FL'], ['difficulty', 'Diff']]) {
-  PART[key] = { label, cur: `/play/pp/detailed/current/${key}`, fc: `/play/pp/detailed/fc/${key}` };
-  P[`c_${key}`] = PART[key].cur;
-  P[`f_${key}`] = PART[key].fc;
+const PART_LABELS = [['aim', 'Aim'], ['speed', 'Speed'], ['accuracy', 'Acc'], ['flashlight', 'FL'], ['difficulty', 'Diff']];
+for (const [key] of PART_LABELS) {
+  P[`c_${key}`] = `/play/pp/detailed/current/${key}`;
+  P[`f_${key}`] = `/play/pp/detailed/fc/${key}`;
 }
+const LADDER = ['95', '97', '98', '99', '100'];
+for (const a of LADDER) P[`a${a}`] = `/performance/accuracy/${a}`;
+// Every pointer gets a fixed slot in `D`, the overlay's own copy of the latest values (the
+// client reuses its values object for every frame, so it is copied in the handler, not kept).
+const POINTERS = Object.values(P);
+const I = {};
+Object.keys(P).forEach((key, i) => { I[key] = i; });
+const D = POINTERS.map(() => undefined);
+// Breakdown components: label plus current/fc slots, resolved once.
+const PART = {};
+for (const [key, label] of PART_LABELS) PART[key] = { label, cur: I[`c_${key}`], fc: I[`f_${key}`] };
 const OSU_PARTS = [PART.aim, PART.speed, PART.accuracy, PART.flashlight];
 const OTHER_PARTS = [PART.difficulty, PART.accuracy];
-const LADDER = ['95', '97', '98', '99', '100'];
-const LADDER_P = LADDER.map(a => `/performance/accuracy/${a}`);
-LADDER_P.forEach((pointer, i) => { P[`a${LADDER[i]}`] = pointer; });
+const LADDER_I = LADDER.map(a => I[`a${a}`]);
 const SELECT_STATES = new Set([5, 6, 13]);
 const SOURCE_LABEL = { player: 'Live', replay: 'Replay', spectator: 'Spectating', watching: 'Spectating', autoplay: 'Auto' };
 
@@ -58,7 +65,8 @@ for (let i = 0; i < 4; i++) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Cached DOM writers: every write is skipped when the string (or flag) is unchanged.
+// Cached DOM writers: every write is skipped when the string (or flag) is unchanged. Numbers are
+// cached as numbers before these (see `shown*` below), so strings are only built when they change.
 const cache = new Map();
 function text(node, value) {
   if (cache.get(node) === value) return;
@@ -85,6 +93,16 @@ let opt = {
   showIfFc: true, showMax: true, showBreakdown: true, showLadder: true, decimals: 1,
 };
 let decimals = 1;
+let scale = 10;         // 10 ** decimals
+let fracs = [''];       // '.0' … '.9' (or '.00' … '.99'): every fraction string, built per setting
+function setDecimals(next) {
+  decimals = next;
+  scale = 10 ** next;
+  fracs = [];
+  for (let i = 0; i < scale; i++) fracs.push(next ? '.' + String(i).padStart(next, '0') : '');
+  shown.fill(-2);
+  shownValue.fill(NaN);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Layout: orientation from the box's aspect (or the setting), type/graphics scaled from the box
@@ -105,35 +123,37 @@ addEventListener('resize', layout);
 
 // ---------------------------------------------------------------------------------------------
 // Data
-let values = {};
 let modelDirty = true;
 let online = 'connecting';
 
-const num = pointer => { const v = values[pointer]; return typeof v === 'number' && Number.isFinite(v) ? v : NaN; };
-const pos = pointer => { const v = num(pointer); return v > 0 ? v : NaN; };
+const num = slot => { const v = D[slot]; return typeof v === 'number' && Number.isFinite(v) ? v : NaN; };
+const pos = slot => { const v = num(slot); return v > 0 ? v : NaN; };
+
+// Per-frame numeric state lives in typed arrays: module-level `let` doubles would box a fresh
+// heap number on every write.
+const F = new Float64Array(3);
+const NOW = 0, LAST_TEXT = 1, RAIL_SCALE = 2;
+F[RAIL_SCALE] = NaN;
 
 // ---------------------------------------------------------------------------------------------
 // Tweens: fixed-duration ease-out (expo) from the shown value to the latest target. A new target
 // restarts the ease from wherever the readout is, so frequent pp updates chase smoothly and a big
-// jump lands in TWEEN_MS instead of crawling its tail.
-const tweens = { big: tween(), a: tween(), b: tween(), fill: tween(), fc: tween(), max: tween() };
-const TWEEN_LIST = Object.values(tweens);
-let frameNow = 0;
-function tween() { return { value: NaN, from: NaN, target: NaN, t0: 0 }; }
-function retarget(t, target, from) {
-  if (Number.isNaN(target)) { t.value = t.from = t.target = NaN; return; }
-  if (from !== undefined) t.value = from;
-  else if (Number.isNaN(t.value)) t.value = target;
-  if (target === t.target && from === undefined) return;
-  t.from = t.value;
-  t.target = target;
-  t.t0 = frameNow;
-}
-function step(t, now) {
-  if (t.value === t.target || Number.isNaN(t.target)) return false;
-  const p = (now - t.t0) / TWEEN_MS;
-  t.value = p >= 1 ? t.target : t.from + (t.target - t.from) * (1 - 2 ** (-10 * p));
-  return true;
+// jump lands in TWEEN_MS instead of crawling its tail. Five slots per tween: value, from, target,
+// t0 and the incoming target, which derive() writes before retarget() reads it (a double passed as
+// an argument would be boxed per call).
+const BIG = 0, A = 5, B = 10, FILL = 15, FC = 20, MAX = 25;
+const IN = 4;
+const T = new Float64Array(30);
+for (let o = 0; o < T.length; o += 5) T[o] = T[o + 1] = T[o + 2] = T[o + IN] = NaN;
+function retarget(o, countUp) {
+  const target = T[o + IN];
+  if (target !== target) { T[o] = T[o + 1] = T[o + 2] = NaN; return; }
+  if (countUp) T[o] = 0;
+  else if (T[o] !== T[o]) T[o] = target;
+  if (target === T[o + 2] && !countUp) return;
+  T[o + 1] = T[o];
+  T[o + 2] = target;
+  T[o + 3] = F[NOW];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -162,12 +182,11 @@ function tint() {
 let view = 'offline';
 let parts = OSU_PARTS;
 let everLive = false;
-const ladder = [NaN, NaN, NaN, NaN, NaN];
-let railScale = NaN;
+let extrasDirty = false;  // breakdown chips and the rail's SS label, written with the readout text
 
 function derive() {
   modelDirty = false;
-  const state = values[P.state];
+  const state = D[I.state];
   const live = online === 'live';
   if (live) everLive = true;
   const next = !live ? 'offline'
@@ -176,8 +195,9 @@ function derive() {
         : state === 7 ? 'results'
           : SELECT_STATES.has(state) && opt.showLadder ? 'select'
             : 'hidden';
-  const mode = activeMode(state, values[P.playMode], values[P.setMode]);
-  if (live) loadPalette(typeof values[P.checksum] === 'string' && values[P.checksum] ? values[P.checksum] : null);
+  const mode = activeMode(state, D[I.playMode], D[I.setMode]);
+  const sum = D[I.checksum];
+  if (live) loadPalette(typeof sum === 'string' && sum ? sum : null);
 
   const changed = next !== view;
   const previous = view;
@@ -185,81 +205,98 @@ function derive() {
   attr(el.root, 'data-view', next);
   // A view change counts readouts up from 0; data that just appeared (page loaded, osu! started,
   // socket back) shows at once.
-  const countUp = changed && previous !== 'offline' && previous !== 'idle' && previous !== 'hidden' ? 0 : undefined;
+  const countUp = changed && previous !== 'offline' && previous !== 'idle' && previous !== 'hidden';
 
   let stateLabel = '';
   let tone = 'idle';
   if (next === 'offline') { stateLabel = online === 'connecting' && !everLive ? 'Connecting to vosu' : 'vosu offline'; tone = online === 'connecting' && !everLive ? 'wait' : 'down'; }
   else if (next === 'idle') stateLabel = 'osu! not running';
   else if (next === 'play') {
-    const failed = values[P.failed] === true;
-    const source = values[P.source];
+    const failed = D[I.failed] === true;
+    const source = D[I.source];
     stateLabel = failed ? 'Failed' : SOURCE_LABEL[source] || 'Live';
     tone = failed ? 'fail' : source === 'player' || source == null ? 'live' : 'watch';
   } else if (next === 'results') { stateLabel = 'Result'; tone = 'done'; }
   else if (next === 'select') stateLabel = 'by accuracy';
   text(el.state, stateLabel);
   text(el.kicker, next === 'offline' || next === 'idle' ? ''
-    : next === 'results' && values[P.client] === 'lazer' ? 'pp if FC' : 'pp');
+    : next === 'results' && D[I.client] === 'lazer' ? 'pp if FC' : 'pp');
   attr(el.root, 'data-tone', tone);
 
-  for (let i = 0; i < LADDER.length; i++) ladder[i] = pos(LADDER_P[i]);
-  const ss = ladder[4];
   const fade = NaN;
-
   if (next === 'play') {
-    const cur = num(P.cur), fc = num(P.fc), max = num(P.max);
+    const cur = num(I.cur), fc = num(I.fc), max = num(I.max), ss = pos(LADDER_I[4]);
     text(el.labelA, 'If FC');
     text(el.labelB, 'Max');
     show(el.rowA, opt.showIfFc);
     show(el.rowB, opt.showMax);
-    retarget(tweens.big, cur, countUp);
-    retarget(tweens.a, opt.showIfFc ? fc : fade, countUp);
-    retarget(tweens.b, opt.showMax ? max : fade, countUp);
-    retarget(tweens.fill, cur, countUp);
-    retarget(tweens.fc, opt.showIfFc ? fc : fade, countUp);
-    retarget(tweens.max, opt.showMax ? max : fade, countUp);
+    T[BIG + IN] = T[FILL + IN] = cur;
+    T[A + IN] = T[FC + IN] = opt.showIfFc ? fc : fade;
+    T[B + IN] = T[MAX + IN] = opt.showMax ? max : fade;
+    retarget(BIG, countUp);
+    retarget(A, countUp);
+    retarget(B, countUp);
+    retarget(FILL, countUp);
+    retarget(FC, countUp);
+    retarget(MAX, countUp);
     // The replay renderer and tosu may report no accuracy ladder: the rail then spans the
-    // largest of the live values.
-    railScale = maxOf(maxOf(ss, fc), maxOf(max, cur));
+    // largest of the live values (each pair: the larger positive one, else NaN).
+    const ssFc = ss > 0 ? (fc > ss ? fc : ss) : fc > 0 ? fc : NaN;
+    const maxCur = max > 0 ? (cur > max ? cur : max) : cur > 0 ? cur : NaN;
+    F[RAIL_SCALE] = ssFc > 0 ? (maxCur > ssFc ? maxCur : ssFc) : maxCur > 0 ? maxCur : NaN;
     parts = mode === 'osu' ? OSU_PARTS : OTHER_PARTS;
     show(el.chips, opt.showBreakdown);
-    renderChips();
-    text(el.scaleMax, Number.isNaN(ss) ? 'max' : `SS ${Math.round(ss)}`);
+    extrasDirty = true;
   } else if (next === 'results') {
     // osu!stable's results screen shows no pp at all; lazer shows the final pp, so there the
     // big readout is the if-FC value instead.
-    const final = num(P.rPp), fc = num(P.rFc), gap = fc - final;
-    const lazer = values[P.client] === 'lazer';
+    const final = num(I.rPp), fc = num(I.rFc), gap = fc - final;
+    const lazer = D[I.client] === 'lazer';
     text(el.labelA, 'If FC');
     text(el.labelB, 'To FC');
     show(el.rowA, !lazer);
     show(el.rowB, gap >= 0.5);
-    retarget(tweens.big, lazer ? fc : final, countUp);
-    retarget(tweens.a, lazer ? fade : fc, countUp);
-    retarget(tweens.b, gap >= 0.5 ? gap : fade, countUp);
+    T[BIG + IN] = lazer ? fc : final;
+    T[A + IN] = lazer ? fade : fc;
+    T[B + IN] = gap >= 0.5 ? gap : fade;
+    retarget(BIG, countUp);
+    retarget(A, countUp);
+    retarget(B, countUp);
   } else if (next === 'select') {
-    for (let i = 0; i < LADDER.length; i++) text(ladderValues[i], Number.isNaN(ladder[i]) ? '—' : Math.round(ladder[i]).toString());
+    for (let i = 0; i < LADDER.length; i++) {
+      const v = pos(LADDER_I[i]);
+      const r = v !== v ? -1 : Math.round(v);
+      if (r === shownLadder[i]) continue;
+      shownLadder[i] = r;
+      text(ladderValues[i], r < 0 ? '—' : r.toFixed(0));
+    }
   }
   if (changed) textForce = true;
   railDirty = true;
 }
 
-function maxOf(a, b) {
-  return a > 0 ? (b > a ? b : a) : b > 0 ? b : NaN;
-}
-
-function renderChips() {
+// Breakdown chips and the SS label: whole pp, rebuilt only when the rounded number changes.
+const shownChip = new Int32Array(4).fill(-1);
+const shownLadder = new Int32Array(5).fill(-2);
+const shownSs = new Int32Array(1).fill(-2);
+function renderExtras() {
+  extrasDirty = false;
   let n = 0;
-  for (const part of parts) {
+  for (let p = 0; p < parts.length; p++) {
+    const part = parts[p];
     const c = num(part.cur), f = num(part.fc);
     if (!(c > 0 || f > 0) || n >= chips.length) continue;
-    const chip = chips[n++];
+    const chip = chips[n];
     show(chip.li, true);
     text(chip.label, part.label);
-    text(chip.value, Math.round(c > 0 ? c : 0).toString());
+    const r = Math.round(c > 0 ? c : 0);
+    if (r !== shownChip[n]) { shownChip[n] = r; text(chip.value, r.toFixed(0)); }
+    n++;
   }
   for (; n < chips.length; n++) show(chips[n].li, false);
+  const ss = pos(LADDER_I[4]);
+  const r = ss !== ss ? -1 : Math.round(ss);
+  if (r !== shownSs[0]) { shownSs[0] = r; text(el.scaleMax, r < 0 ? 'max' : 'SS ' + r.toFixed(0)); }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -290,23 +327,41 @@ function buildHatch() {
   hatch = ctx.createPattern(tile, 'repeat');
 }
 
-// Resizing a canvas resets its context state, so the label font is set here, not per frame.
+// Resizing a canvas resets its context state, so the label font and the marker shadow geometry
+// are set here, not per frame (the shadow only shows while shadowColor is opaque: markers), along
+// with every device-pixel coordinate that depends only on the canvas size. Canvas arguments stay
+// integers (`| 0`): a computed fractional double passed to the canvas binding is boxed per call.
+let px = 1, barY = 0, barH = 0, tickY = 0, majorH = 0, minorH = 0, fcTop = 0, fcH = 0, labelY = 0;
+const tickX = new Int32Array(11);
+const LABEL_TEXT = ['FC', 'MAX'];
+const labelW = new Float64Array(2);
 function setRailFont() {
   ctx.font = `500 ${Math.round(12 * k)}px ${FONT}`;
   ctx.textBaseline = 'alphabetic';
-  widths.clear();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 2 * k;
+  ctx.shadowOffsetY = k;
+  px = Math.max(1, Math.round(k));
+  barY = Math.round(BAR_Y * k);
+  barH = Math.round(BAR_H * k);
+  tickY = Math.round(TICK_Y * k);
+  majorH = Math.round(5 * k);
+  minorH = Math.round(3 * k);
+  fcTop = Math.round(13 * k);
+  fcH = barY + barH + Math.round(2 * k) - fcTop;
+  labelY = Math.round(LABEL_Y * k);
+  // Graduations every tenth of the scale; majors at 0, ½ and the end.
+  for (let i = 0; i <= 10; i++) tickX[i] = Math.min(cw - px, Math.round((i / 10) * cw));
+  for (let i = 0; i < LABEL_TEXT.length; i++) labelW[i] = ctx.measureText(LABEL_TEXT[i]).width;
   railDirty = true;
   kick();
 }
 
-let scaleNow = 1;
-const at = v => Math.max(0, Math.min(cw, Math.round((v / scaleNow) * cw)));
-
 function drawRail() {
   railDirty = false;
   if (!cw || !ch) return;
-  const w = cw, px = Math.max(1, Math.round(k));
-  const by = Math.round(BAR_Y * k), bh = Math.round(BAR_H * k), ty = Math.round(TICK_Y * k);
+  const w = cw;
+  const by = barY, bh = barH;
   ctx.clearRect(0, 0, w, ch);
   if (view !== 'play') return;
   ctx.fillStyle = C.track;
@@ -314,23 +369,22 @@ function drawRail() {
   // A light hairline under the bar keeps the rail's full length readable on dark backgrounds.
   ctx.fillStyle = C.tick;
   ctx.fillRect(0, by + bh, w, px);
-  // Graduations every tenth of the scale; majors at 0, ½ and the end.
   for (let i = 0; i <= 10; i++) {
-    const x = Math.min(w - px, Math.round((i / 10) * w));
     const major = i === 0 || i === 5 || i === 10;
     ctx.fillStyle = major ? C.tickMajor : C.tick;
-    ctx.fillRect(x, ty, px, Math.round((major ? 5 : 3) * k));
+    ctx.fillRect(tickX[i], tickY, px, major ? majorH : minorH);
   }
-  if (!(railScale > 0)) return;
-  scaleNow = railScale;
+  const s = F[RAIL_SCALE];
+  if (!(s > 0)) return;
   occupied = 0;
-  const fill = tweens.fill.value;
-  const fc = tweens.fc.value;
-  const potential = tweens.max.value;
-  const fx = fill > 0 ? at(fill) : 0;
+  const fill = T[FILL];
+  const fc = T[FC];
+  const potential = T[MAX];
+  // Value → x, clamped to the rail (inlined: a helper call would box its double argument).
+  const fx = fill > 0 ? Math.max(0, Math.min(w, Math.round((fill / s) * w))) | 0 : 0;
   let mx = -1;
   if (potential > fill) {
-    mx = at(potential);
+    mx = Math.max(0, Math.min(w, Math.round((potential / s) * w))) | 0;
     ctx.fillStyle = C.hatchBg;
     ctx.fillRect(fx, by, mx - fx, bh);
     ctx.fillStyle = hatch;
@@ -342,39 +396,35 @@ function drawRail() {
   ctx.fillRect(0, by, fx, bh);
   // FC owns its label; MAX takes whichever side of its tick is free, or stays unlabelled.
   ctx.shadowColor = C.shadow;
-  ctx.shadowBlur = 2 * k;
-  ctx.shadowOffsetY = k;
   if (fc > 0) {
-    const x = Math.min(w - px * 2, at(fc));
+    const x = Math.min(w - px * 2, Math.max(0, Math.min(w, Math.round((fc / s) * w)))) | 0;
     ctx.fillStyle = C.fg;
-    const top = Math.round(13 * k);
-    ctx.fillRect(x, top, px * 2, by + bh + Math.round(2 * k) - top);
-    placeLabel(x, 'FC', C.fg, CENTER, CENTER);
+    ctx.fillRect(x, fcTop, px * 2, fcH);
+    placeLabel(x, 0, C.fg, CENTER, CENTER);
   }
-  if (mx >= 0) placeLabel(mx, 'MAX', C.dim, END, START);
+  if (mx >= 0) placeLabel(mx, 1, C.dim, END, START);
   ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
 }
 
 // Marker labels: up to four occupied [left, right] spans, checked before each label is drawn.
 const START = 0, END = 1, CENTER = 2;
 const spans = new Float64Array(8);
 let occupied = 0;
-const widths = new Map();
 function placeLabel(x, label, color, first, second) {
-  let width = widths.get(label);
-  if (width === undefined) { width = ctx.measureText(label).width; widths.set(label, width); }
+  const width = labelW[label];
   const gap = 6 * k;
   for (let attempt = 0; attempt < 2; attempt++) {
     const align = attempt === 0 ? first : second;
-    let left = align === START ? x + 3 * k : align === END ? x - width - 3 * k : x - width / 2;
-    left = Math.round(Math.max(0, Math.min(cw - width, left)));
+    // One rounded integer per branch: a fractional double merged from branches would be boxed.
+    let left = 0;
+    if (align === START) left = Math.round(Math.max(0, Math.min(cw - width, x + 3 * k))) | 0;
+    else if (align === END) left = Math.round(Math.max(0, Math.min(cw - width, x - width - 3 * k))) | 0;
+    else left = Math.round(Math.max(0, Math.min(cw - width, x - width / 2))) | 0;
     let free = true;
     for (let i = 0; i < occupied; i++) if (left < spans[i * 2 + 1] + gap && left + width + gap > spans[i * 2]) free = false;
     if (!free) continue;
     ctx.fillStyle = color;
-    ctx.fillText(label, left, Math.round(LABEL_Y * k));
+    ctx.fillText(LABEL_TEXT[label], left, labelY);
     if (occupied < 4) { spans[occupied * 2] = left; spans[occupied * 2 + 1] = left + width; occupied++; }
     return;
   }
@@ -397,50 +447,104 @@ document.fonts?.ready.then(setRailFont);
 // ---------------------------------------------------------------------------------------------
 // Frame loop: one rAF, stops when every tween has settled and nothing is dirty.
 let raf = 0;
-let lastText = 0;
 let textForce = true;
 
 function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
+// Eased value and target, picked by index: one store site that runs every step. A store that only
+// runs when a tween settles has no type feedback when the loop is optimised and deopts it, and a
+// double merged from two branches (`p >= 1 ? target : …`) is boxed.
+const PICK = new Float64Array(2);
 function frame(now) {
   raf = 0;
-  frameNow = now;
+  F[NOW] = now;
   if (modelDirty) derive();
   let moving = false;
-  for (const t of TWEEN_LIST) if (step(t, now)) moving = true;
+  for (let o = 0; o < T.length; o += 5) {
+    const target = T[o + 2];
+    if (T[o] === target || target !== target) continue;
+    const from = T[o + 1];
+    const p = (now - T[o + 3]) / TWEEN_MS;
+    PICK[0] = from + (target - from) * (1 - 2 ** (-10 * p));
+    PICK[1] = target;
+    T[o] = PICK[p >= 1 ? 1 : 0];
+    moving = true;
+  }
   if (moving) railDirty = true;
-  if (textForce || !moving || now - lastText >= TEXT_MS) {
+  if (textForce || !moving || now - F[LAST_TEXT] >= TEXT_MS) {
     writeText();
-    lastText = now;
+    F[LAST_TEXT] = now;
     textForce = false;
   }
   if (railDirty) drawRail();
   if (moving) kick();
 }
 
-function split(v) {
-  if (Number.isNaN(v)) return ['—', ''];
-  const s = v.toFixed(decimals);
-  const dot = s.indexOf('.');
-  return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
+// Readouts (big, A, B) are compared as the scaled integer they display (pp × 10^decimals), so a
+// string is built only when the shown text changes. -1 shows '—', -2 forces a write, -3 marks a
+// value outside the integer path (negative or huge), formatted by toFixed every time.
+const shown = new Int32Array(3);
+const shownValue = new Float64Array(3);   // the tween value `shown` was computed from
+const shownInt = new Int32Array(1);
+const shownPrefix = ['', '', ''];
+// Tween o's value as the integer v.toFixed(decimals) prints, without building the string:
+// Math.round agrees with toFixed except within float error of a .5 boundary, where toFixed itself
+// decides. Recomputed only when the value moved; takes the tween offset, not the value (a double
+// argument would be boxed per call).
+function scaled(o, slot) {
+  const v = T[o];
+  if (v === shownValue[slot]) return shown[slot];
+  shownValue[slot] = v;
+  if (v !== v) return -1;
+  if (!(v >= 0) || v >= 1e6) return -3;
+  const x = v * scale;
+  const n = Math.round(x);
+  const d = x - n;
+  return d > -0.4999 && d < 0.4999 ? n | 0 : Number(v.toFixed(decimals).replace('.', ''));
 }
 
 function writeText() {
-  const [i, f] = split(tweens.big.value);
-  text(el.int, i);
-  text(el.frac, f);
-  attr(el.big, 'data-empty', f === '' && i === '—' ? '' : null);
-  const a = tweens.a.value;
-  text(el.valA, Number.isNaN(a) ? '—' : a.toFixed(decimals));
-  const b = tweens.b.value;
-  text(el.valB, Number.isNaN(b) ? '—' : (view === 'results' ? '+' : '') + b.toFixed(decimals));
+  if (extrasDirty && view === 'play') renderExtras();
+  const n = scaled(BIG, 0);
+  if (n !== shown[0] || n === -3) {
+    shown[0] = n;
+    attr(el.big, 'data-empty', n === -1 ? '' : null);
+    if (n === -1) { shownInt[0] = -2; text(el.int, '—'); text(el.frac, ''); }
+    else if (n === -3) {
+      shownInt[0] = -2;
+      const s = T[BIG].toFixed(decimals);
+      const dot = s.indexOf('.');
+      text(el.int, dot < 0 ? s : s.slice(0, dot));
+      text(el.frac, dot < 0 ? '' : s.slice(dot));
+    } else {
+      const f = n % scale;
+      const i = (n - f) / scale;
+      if (i !== shownInt[0]) { shownInt[0] = i; text(el.int, i.toFixed(0)); }
+      text(el.frac, fracs[f]);
+    }
+  }
+  writeValue(1, el.valA, A, '');
+  writeValue(2, el.valB, B, view === 'results' ? '+' : '');
+}
+
+function writeValue(slot, node, o, prefix) {
+  const n = scaled(o, slot);
+  if (n === shown[slot] && n !== -3 && prefix === shownPrefix[slot]) return;
+  shown[slot] = n;
+  shownPrefix[slot] = prefix;
+  if (n === -1) text(node, '—');
+  else if (n === -3) text(node, prefix + T[o].toFixed(decimals));
+  else {
+    const f = n % scale;
+    text(node, prefix + ((n - f) / scale).toFixed(0) + fracs[f]);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Start-up (after every binding above exists: both calls report synchronously).
 settings(opt, next => {
   opt = next;
-  decimals = Math.max(0, Math.min(2, Math.round(Number(next.decimals)) || 0));
+  setDecimals(Math.max(0, Math.min(2, Math.round(Number(next.decimals)) || 0)));
   el.root.dataset.backing = ['none', 'scrim', 'panel'].includes(next.backing) ? next.backing : 'none';
   el.root.dataset.accent = next.accent === '18-lab' ? '18-lab' : 'map';
   layout();
@@ -449,7 +553,11 @@ settings(opt, next => {
   tint();
 });
 
-subscribe(Object.values(P), v => { values = v; modelDirty = true; kick(); }, {
+subscribe(POINTERS, values => {
+  for (let i = 0; i < POINTERS.length; i++) D[i] = values[POINTERS[i]];
+  modelDirty = true;
+  kick();
+}, {
   onStatus: state => {
     if (state === online) return;
     online = state;

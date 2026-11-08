@@ -639,9 +639,11 @@ function stagePage(id, params) {
   const [W, H] = cell ? [Number(cell[1]), Number(cell[2])] : [1920, 1080];
   const boxes = id.split(',').filter(Boolean).map(one => {
     const meta = overlayMeta(one);
-    const width = Number(params.get('w')) || meta.resolution[0];
-    const height = Number(params.get('h')) || meta.resolution[1];
+    // A placement entry may carry its own page size ([x, y, w, h]) for rulesets whose suggested
+    // form factor differs from the default `resolution` (e.g. a vertical strip beside a mania stage).
     const anchor = meta.placement[config.mode] ?? [0, 0];
+    const width = Number(params.get('w')) || Number(anchor[2]) || meta.resolution[0];
+    const height = Number(params.get('h')) || Number(anchor[3]) || meta.resolution[1];
     const x = params.has('x') ? Number(params.get('x')) : cell ? 0 : resolveAnchor(anchor[0], width, 'x');
     const y = params.has('y') ? Number(params.get('y')) : cell ? 0 : resolveAnchor(anchor[1], height, 'y');
     const cx = x + width / 2, cy = y + height / 2;

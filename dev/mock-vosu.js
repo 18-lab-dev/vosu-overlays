@@ -46,7 +46,7 @@ const STATE = { menu: { number: 5, name: 'selectPlay' }, play: { number: 2, name
 let config = {
   mode: arg('mode', 'osu'), state: arg('state', 'play'), client: arg('client', 'stable'),
   keys: Number(arg('keys', 4)), ext: arg('ext', '1') !== '0', freeze: arg('freeze', null), speed: Number(arg('speed', 1)),
-  start: Number(arg('start', 0)),
+  start: Number(arg('start', 0)), catchHits: arg('catchHits', 'vosu'),
 };
 let scenario;
 
@@ -219,6 +219,13 @@ function documentAt() {
   }
   const total = objects.length;
   const accuracy = accuracyOf(mode, hits);
+  if (mode === 'fruits' && config.catchHits !== 'legacy') {
+    // Real vosu v2 emits catch statistics raw: drops/droplets as tick hits, 100/50/katu zero,
+    // missed droplets not exposed. `catchHits=legacy` gives the tosu shape (300/100/50/katu).
+    hits.largeTickHits = hits[100];
+    hits.smallTickHits = hits[50];
+    hits[100] = hits[50] = hits.katu = 0;
+  }
   const progress = judged / total;
   const accFactor = Math.pow(accuracy / 100, mode === 'mania' ? 8 : 5);
   const missFactor = Math.pow(0.97, hits[0]);
@@ -513,6 +520,7 @@ function file(id, rest) {
 function reset(params) {
   for (const key of ['mode', 'state', 'client']) if (params.has(key)) config[key] = params.get(key);
   if (params.has('keys')) config.keys = Number(params.get('keys'));
+  if (params.has('catchHits')) config.catchHits = params.get('catchHits');
   if (params.has('ext')) config.ext = params.get('ext') !== '0';
   if (params.has('freeze')) config.freeze = params.get('freeze') || null;
   if (params.has('speed')) config.speed = Number(params.get('speed')) || 1;

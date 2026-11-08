@@ -28,7 +28,7 @@ const defaults = [];
 for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
   defaults.push(`mode=${mode}&state=menu&freeze=0`, `mode=${mode}&state=play&freeze=60000`, `mode=${mode}&state=results&freeze=0`);
 }
-defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=osu&state=offline', 'mode=osu&state=down');
+defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=fruits&state=results&catchHits=legacy&freeze=0', 'mode=osu&state=offline', 'mode=osu&state=down');
 const cases = (arg('cases') ? arg('cases').split(';') : defaults).filter(Boolean);
 const perf = arg('perf', 'mode=mania&state=play&keys=7&start=110000');
 
@@ -44,7 +44,7 @@ page.on('console', message => { if (message.type() === 'error') errors.push(mess
 
 const reset = async query => {
   // Baseline every unspecified dimension so cases do not inherit each other's toggles.
-  const full = new URLSearchParams({ mode: 'osu', state: 'play', client: 'stable', keys: '4', ext: '1', freeze: '', speed: '1', start: '0' });
+  const full = new URLSearchParams({ mode: 'osu', state: 'play', client: 'stable', keys: '4', ext: '1', freeze: '', speed: '1', start: '0', catchHits: 'vosu' });
   for (const [k, v] of new URLSearchParams(query)) full.set(k, v);
   await fetch(`${base}/__dev/scenario?${full}`);
 };

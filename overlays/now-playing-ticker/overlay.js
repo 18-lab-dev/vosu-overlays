@@ -1,28 +1,22 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Now playing ticker: during gameplay, one line of map info floated into a free band of
-// osu!'s layout, with a play-progress hairline, a rolling change between maps and a paused
-// marquee for lines that do not fit. Song select and results already show all of it: nothing there.
-import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
+// Now playing ticker: during gameplay, the map in one line (artist — title [diff], stars, mods,
+// mapper) with a play-progress hairline, a rolling change between maps and a paused marquee for
+// lines that do not fit. The page is the overlay's box: it re-flows to a single line, a two-line
+// stack or a side column from the box it is given. Song select and results already show all of
+// this, so nothing appears there.
+import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const LINE = 44;          // zone height; the text sits on its vertical centre
-const GAP = 24;           // clearance from osu!'s HUD and playfield
-const SIDE = 480;         // a side column is a column, not a band: cap its reach towards the stage
 const PLAYING = 2;
 const EASE = 'cubic-bezier(0.65, 0, 0.2, 1)';
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Default band per ruleset: the top strip between HP bar and score for the 4:3 rulesets, the
-// open field under the taiko lane, and beside the (full-height) mania stage.
-const AUTO = { osu: 'top', fruits: 'top', taiko: 'under', mania: 'side' };
+// `align: auto` per ruleset, matching the suggested placements: centred in the osu!/catch top
+// strip, right-aligned in the bottom-right corner under the taiko lane, against the mania stage.
+const AUTO_ALIGN = { osu: 'center', fruits: 'center', taiko: 'right', mania: 'right' };
 
 const P = {
   state: '/state/number',
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
-  client: '/client',
-  skin: '/settings/skin/name',
-  keys: '/beatmap/stats/cs/converted',
   artist: '/beatmap/artist',
   artistUnicode: '/beatmap/artistUnicode',
   title: '/beatmap/title',
@@ -37,17 +31,15 @@ const P = {
   last: '/beatmap/time/lastObject',
 };
 const META = [P.state, P.artist, P.artistUnicode, P.title, P.titleUnicode, P.version, P.mapper, P.checksum, P.stars, P.mods];
-const GEOMETRY = [P.state, P.playMode, P.settingsMode, P.client, P.keys, P.skin];
+const MODE = [P.state, P.playMode, P.settingsMode];
 const TIME = [P.state, P.live, P.first, P.last];
 const RATE_MODS = new Set(['DT', 'NC', 'HT', 'DC']);
 
 const $ = selector => document.querySelector(selector);
-const stage = $('#stage');
-const zone = $('#zone');
+const root = $('#root');
 const panel = $('#panel');
 const bg = $('.bg');
 const fill = $('.prog i');
-const brand = $('.brand');
 const roll = $('.roll');
 const vp = $('.vp');
 const track = $('.track');
@@ -56,13 +48,10 @@ const el = {
   stars: $('.stars'), starsNum: $('.stars .num'), mods: $('.mods'), mapper: $('.mapper'), mapperName: $('.mapper .name'),
 };
 
-fit(stage, WIDTH, HEIGHT);
-
 // ------------------------------------------------------------------ state
 const defaults = {
-  zone: 'auto', align: 'auto', offsetX: 0, offsetY: 0, scale: 1, backing: 'none', accent: 'map',
-  unicode: false, showStars: true, showMods: true, showMapper: true, overflow: 'marquee', maxWidth: 900, showBrand: true,
-  columnWidth: 0, columnStart: 0,
+  orientation: 'auto', align: 'auto', backing: 'none', accent: 'map',
+  unicode: false, showStars: true, showMods: true, showMapper: true, overflow: 'marquee',
 };
 let opts = { ...defaults };
 let link = 'connecting';
@@ -73,16 +62,15 @@ let visible = true;
 let rolling = false;
 let contentDirty = false;
 let progressDirty = false;
-let placeDirty = true;
-let placeKey = '';
-let skinKey = '';
-let skin = null;        // maniaSkin() result for skinKey
+let layoutDirty = true;
+let layout = 'line';
 let paletteKey = null;
 let wantPlaying = false;
-let wantProgress = 0;   // 0..1, quantized to device pixels of the line
+let wantProgress = 0;   // 0..1, quantized to device pixels of the rule
 let shownPlaying = false;
 let shownProgress = -1;
 let panelWidth = 0;
+let panelHeight = 0;
 let raf = 0;
 
 const schedule = () => { if (!raf) raf = requestAnimationFrame(frame); };
@@ -125,13 +113,13 @@ function refresh() {
   target = compose();
   contentDirty = true;
   schedule();
-  // The map tint is derived once per map, off the render path.
-  // Song select already carries the next map's checksum, so the tint is ready when play starts.
+  // The map tint is derived once per map, off the render path. Song select already carries the
+  // next map's checksum, so the tint is ready when play starts.
   const checksum = opts.accent === 'map' && link === 'live' ? str(values?.[P.checksum]) : '';
   if (checksum === paletteKey) return;
   paletteKey = checksum;
-  if (!checksum) { applyPalette(zone, null); return; }
-  mapPalette(checksum).then(palette => { if (paletteKey === checksum) applyPalette(zone, palette); });
+  if (!checksum) { applyPalette(root, null); return; }
+  mapPalette(checksum).then(palette => { if (paletteKey === checksum) applyPalette(root, palette); });
 }
 
 function updateProgress() {
@@ -141,7 +129,8 @@ function updateProgress() {
   if (playing) {
     const live = v[P.live], first = v[P.first], last = v[P.last];
     if (typeof live === 'number' && typeof first === 'number' && typeof last === 'number' && last > first) {
-      const steps = Math.max(240, Math.round(panelWidth * opts.scale * devicePixelRatio));
+      const length = layout === 'column' ? panelHeight : panelWidth;
+      const steps = Math.max(120, Math.round(length * devicePixelRatio));
       progress = Math.round(Math.min(1, Math.max(0, (live - first) / (last - first))) * steps) / steps;
     }
   }
@@ -152,98 +141,41 @@ function updateProgress() {
   schedule();
 }
 
-// ------------------------------------------------------------------ placement
-/** The band for the active ruleset: `{ x, w, cy, align }` in stage px. `reach` caps a side column. */
-function band(mode, zoneName, layout, reach) {
-  const { busy, hud } = layout;
-  const healthEnd = hud.health.x + hud.health.w;
-  const stageEnd = busy.x + busy.w;
-  if (zoneName === 'top') {
-    let x0 = healthEnd + GAP, x1 = hud.score.x - GAP;
-    if (mode === 'mania') {
-      // The stage is full height: keep the wider side of the strip it leaves.
-      const left = [x0, Math.min(x1, busy.x - GAP)], right = [Math.max(x0, stageEnd + GAP), x1];
-      [x0, x1] = left[1] - left[0] >= right[1] - right[0] ? left : right;
-      if (x1 - x0 < 320) return band(mode, 'side', layout, reach);
-    }
-    return { x: x0, w: x1 - x0, cy: hud.health.y + hud.health.h / 2, align: 'center' };
-  }
-  if (zoneName === 'under') {
-    if (mode === 'taiko') return { x: GAP, w: WIDTH - GAP * 2, cy: busy.y + busy.h + GAP + LINE / 2, align: 'left' };
-    if (mode === 'mania') {
-      const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - reach);
-      return { x: x0, w: x1 - x0, cy: HEIGHT - GAP - LINE / 2, align: 'right' };
-    }
-    // osu!: the strip under the playfield, above the hit-error meter.
-    const floor = hud.hitError ? hud.hitError.y : HEIGHT;
-    return { x: busy.x, w: busy.w, cy: (busy.y + busy.h + floor) / 2, align: 'center' };
-  }
-  // side: right of the playfield/stage, under score and accuracy.
-  const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - reach);
-  return { x: x0, w: x1 - x0, cy: hud.accuracy.y + hud.accuracy.h + GAP + LINE / 2, align: 'right' };
-}
-
-function place() {
+// ------------------------------------------------------------------ layout from the box
+/**
+ * Picks the arrangement for the page's box and scales type to it: a single line for a flat box,
+ * a two-line stack once the box is tall enough for it, a column for an upright box.
+ */
+function relayout() {
+  const w = innerWidth, h = innerHeight;
+  let next = opts.orientation === 'vertical' ? 'column' : opts.orientation === 'horizontal' ? 'line' : w / h < 1.4 ? 'column' : 'line';
+  if (next === 'line' && h >= 66) next = 'stack';
+  const scale = next === 'column' ? w / 320 : next === 'stack' ? h / 80 : h / 56;
+  layout = next;
+  attr(root, 'data-layout', next);
+  root.style.setProperty('--s', Math.min(2.4, Math.max(0.55, scale)).toFixed(3));
   const v = values || {};
   const mode = activeMode(v[P.state], v[P.playMode], v[P.settingsMode]) || 'osu';
-  const keys = mode === 'mania' && Number.isFinite(v[P.keys]) ? Math.min(18, Math.max(1, Math.round(v[P.keys]))) : 4;
-  const client = v[P.client] === 'lazer' ? 'lazer' : 'stable';
-  let zoneName = opts.zone === 'auto' ? AUTO[mode] : opts.zone;
-  if (zoneName === 'under' && mode === 'fruits') zoneName = 'top';   // the catcher lives under the playfield
-  if (zoneName === 'side' && mode === 'taiko') zoneName = 'under';   // the lane spans the full width
-  // Mania stage: the skin's own [Mania] section when vosu serves it, the settings as overrides,
-  // stable's defaults otherwise. With a guessed stage, a side column keeps a short reach.
-  const stage = { columnStart: 136, columnWidth: 30, columnSpacing: 0 };
-  let known = false;
-  if (mode === 'mania') {
-    const skinName = str(v[P.skin]);
-    const wanted = `${keys}|${skinName}`;
-    if (wanted !== skinKey) {
-      skinKey = wanted;
-      skin = null;
-      maniaSkin(keys, skinName).then(result => {
-        if (skinKey !== wanted || !result) return;
-        skin = result;
-        placeDirty = true;
-        schedule();
-      });
-    }
-    if (skin) { Object.assign(stage, { columnStart: skin.columnStart, columnWidth: skin.columnWidth, columnSpacing: skin.columnSpacing }); known = true; }
-    if (opts.columnStart > 0) { stage.columnStart = opts.columnStart; known = true; }
-    if (opts.columnWidth > 0) { stage.columnWidth = opts.columnWidth; known = true; }
-  }
-  const key = `${mode}|${keys}|${client}|${zoneName}|${opts.align}|${opts.offsetX}|${opts.offsetY}|${opts.scale}|${opts.maxWidth}|${opts.showBrand}|${known}|${JSON.stringify(stage)}`;
-  if (key === placeKey) return;
-  placeKey = key;
-  const layout = osuLayout(mode, { keys, client, ...stage });
-  const b = band(mode, zoneName, layout, known ? WIDTH : SIDE);
-  const align = opts.align === 'auto' ? b.align : opts.align;
-  const s = opts.scale;
-  const width = b.w / s;
-  const origin = align === 'left' ? 0 : align === 'right' ? width : width / 2;
-  attr(zone, 'data-align', align);
-  zone.style.width = `${width}px`;
-  zone.style.transformOrigin = `${origin}px ${LINE / 2}px`;
-  // Scale about the aligned edge of the band, centred on the band's line.
-  zone.style.transform = `translate(${b.x + opts.offsetX}px, ${b.cy - LINE / 2 + opts.offsetY}px) scale(${s})`;
-  panel.style.setProperty('--max-w', `${Math.min(opts.maxWidth / s, width)}px`);
-  // A narrow band (beside the stage or playfield) spends its width on the title, not the tag,
-  // and the narrowest one on the title before the mapper.
-  attr(panel, 'data-brand', opts.showBrand && width >= 560 ? 'on' : 'off');
-  attr(panel, 'data-fit', width < 440 ? 'tight' : 'wide');
+  attr(root, 'data-align', opts.align === 'auto' ? AUTO_ALIGN[mode] : opts.align);
+  // The rule changes axis with the layout: redraw it from scratch.
+  fill.style.transform = '';
+  shownProgress = -1;
+  progressDirty = true;
+  if (values) updateProgress();
+  marqueeReset();
 }
 
 // ------------------------------------------------------------------ render (rAF only)
 function frame() {
   raf = 0;
-  if (placeDirty) { placeDirty = false; place(); }
+  if (layoutDirty) { layoutDirty = false; relayout(); }
   if (contentDirty && !rolling) {
     contentDirty = false;
     const show = target.kind !== 'hidden';
     const wasVisible = visible;
     if (show !== visible) {
       visible = show;
-      attr(zone, 'data-show', show ? 'on' : 'off');
+      attr(root, 'data-show', show ? 'on' : 'off');
       if (!show) marqueeReset();
     }
     if (show) {
@@ -256,7 +188,7 @@ function frame() {
     if (wantPlaying !== shownPlaying) { shownPlaying = wantPlaying; panel.classList.toggle('playing', wantPlaying); }
     if (wantPlaying && wantProgress !== shownProgress) {
       shownProgress = wantProgress;
-      fill.style.transform = `scaleX(${wantProgress})`;
+      fill.style.transform = `${layout === 'column' ? 'scaleY' : 'scaleX'}(${wantProgress})`;
     }
   }
 }
@@ -300,7 +232,7 @@ function apply(content) {
 
 /** Map change on screen: the old line rolls up and out, the new one rolls up and in. */
 function rollTo(instant) {
-  // Coming back from song select the zone fades in as a whole; no roll needed.
+  // Coming back from song select the page fades in as a whole; no roll needed.
   if (reduced || instant || !shown) {
     const first = !shown;
     apply(target);
@@ -336,19 +268,16 @@ let marquee = null;
 function flip(width) {
   const previous = panelWidth;
   panelWidth = width;
-  if (!previous || reduced || !visible || Math.abs(width - previous) < 0.5) return;
+  if (!previous || reduced || !visible || opts.backing === 'none' || Math.abs(width - previous) < 0.5) return;
   flipping?.cancel();
   flipping = bg.animate([{ transform: `scaleX(${previous / width})` }, { transform: 'none' }], { duration: 240, easing: EASE });
-  const align = zone.getAttribute('data-align');
-  const shift = align === 'left' ? 0 : align === 'center' ? (width - previous) / 2 : width - previous;
-  if (shift && opts.showBrand) brand.animate([{ transform: `translateX(${shift}px)` }, { transform: 'none' }], { duration: 240, easing: EASE });
 }
 
 function marqueeReset() {
   clearTimeout(marqueeTimer);
   marquee?.cancel();
   marquee = null;
-  const over = opts.overflow === 'marquee' && trackWidth - vpWidth > 1;
+  const over = layout !== 'column' && opts.overflow === 'marquee' && trackWidth - vpWidth > 1;
   attr(vp, 'data-edge', over ? 'r' : '');
   if (over && visible && !reduced) marqueeTimer = setTimeout(marqueeOut, 2800);
 }
@@ -381,8 +310,10 @@ function marqueeBack() {
 const sizes = new ResizeObserver(entries => {
   let textResized = false;
   for (const entry of entries) {
-    const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+    const box = entry.borderBoxSize?.[0];
+    const width = box?.inlineSize ?? entry.contentRect.width;
     if (entry.target === panel) {
+      panelHeight = box?.blockSize ?? entry.contentRect.height;
       flip(width);
     } else {
       if (entry.target === vp) vpWidth = width;
@@ -395,37 +326,30 @@ const sizes = new ResizeObserver(entries => {
 sizes.observe(panel);
 sizes.observe(vp);
 sizes.observe(track);
+// Hosts (OBS source size, vosulay width/height, the replay renderer's cell) resize the page.
+addEventListener('resize', () => { layoutDirty = true; schedule(); });
 
 // ------------------------------------------------------------------ inputs
 settings(defaults, next => {
-  const number = (value, min, max, fallback) => (Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback);
   opts = {
     ...next,
-    zone: pick(next.zone, ['auto', 'top', 'under', 'side'], 'auto'),
+    orientation: pick(next.orientation, ['auto', 'horizontal', 'vertical'], 'auto'),
     align: pick(next.align, ['auto', 'left', 'center', 'right'], 'auto'),
     backing: pick(next.backing, ['none', 'scrim', 'panel'], 'none'),
     accent: pick(next.accent, ['map', '18-lab'], 'map'),
     overflow: pick(next.overflow, ['marquee', 'truncate'], 'marquee'),
-    offsetX: Math.round(number(next.offsetX, -1920, 1920, 0)),
-    offsetY: Math.round(number(next.offsetY, -1080, 1080, 0)),
-    scale: number(next.scale, 0.5, 2, 1),
-    maxWidth: Math.round(number(next.maxWidth, 240, 1872, defaults.maxWidth)),
-    // 0 = from the skin's skin.ini (or stable's defaults when vosu cannot serve it).
-    columnWidth: number(next.columnWidth, 0, 200, 0),
-    columnStart: number(next.columnStart, 0, 600, 0),
   };
   attr(panel, 'data-overflow', opts.overflow);
   attr(panel, 'data-backing', opts.backing);
-  placeDirty = true;
+  layoutDirty = true;
   paletteKey = null;
-  marqueeReset();
   if (values) refresh();
   schedule();
 });
 
 const subscription = subscribe(Object.values(P), (next, changed) => {
   values = next;
-  if (GEOMETRY.some(pointer => changed.has(pointer))) { placeDirty = true; schedule(); }
+  if (opts.align === 'auto' && MODE.some(pointer => changed.has(pointer))) { layoutDirty = true; schedule(); }
   if (META.some(pointer => changed.has(pointer))) refresh();
   if (TIME.some(pointer => changed.has(pointer))) updateProgress();
 }, {

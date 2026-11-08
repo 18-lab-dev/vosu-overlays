@@ -7,49 +7,50 @@
    paint an opaque backdrop behind the frame. */
 html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-#stage { position: relative; }
 
-/* One line of text placed in a free band of osu!'s layout (left/top/width set from osuLayout). */
-#zone {
+/* The page is the overlay's box; its layout re-flows to whatever box the host gives it.
+   --s scales every size from the box (set in overlay.js on resize). */
+#root {
+  --s: 1;
+  --px: calc(var(--s) * 1px);
   --tint: var(--map-accent, var(--accent));
   --ink: rgb(235 232 225 / .8);
   --ink-quiet: rgb(235 232 225 / .5);
   --hair: rgb(235 232 225 / .3);
   --shadow: 0 1px 2px rgb(0 0 0 / .65);
-  position: absolute; left: 0; top: 0; width: 640px; height: 44px;
+  position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  contain: layout style;
+  contain: strict;
   transition: opacity 200ms var(--ease-draft);
 }
-#zone[data-align="left"] { justify-content: flex-start; }
-#zone[data-align="right"] { justify-content: flex-end; }
-#zone[data-show="off"] { opacity: 0; }
+#root[data-align="left"] { justify-content: flex-start; }
+#root[data-align="right"] { justify-content: flex-end; }
+#root[data-show="off"] { opacity: 0; }
+#root[data-layout="column"] { align-items: flex-start; }
 
 #panel {
   position: relative;
   display: flex; align-items: center;
-  height: 44px; min-width: 0;
-  max-width: min(var(--max-w, 760px), 100%);
-  padding: 0 0 4px;
+  min-width: 0; max-width: 100%; max-height: 100%;
+  padding: 0 0 calc(var(--px) * 5);
   color: var(--fg);
-  font: 500 19px/1 var(--font-body);
+  font: 500 calc(var(--px) * 19)/1 var(--font-body);
   white-space: nowrap;
   text-shadow: var(--shadow);
   user-select: none;
 }
-#panel:not([data-backing="none"]) { padding: 2px 14px 4px; }
+#panel:not([data-backing="none"]) { padding: calc(var(--px) * 6) calc(var(--px) * 14) calc(var(--px) * 8); }
 
 /* Backing layer: transparent by default; a soft fading scrim or the 18-LAB panel on request.
-   It is its own layer so a width change can be eased with transform alone. */
+   Its own layer, so a width change can be eased with transform alone. */
 .bg { position: absolute; inset: 0; transform-origin: 50% 0; }
-#zone[data-align="left"] .bg { transform-origin: 0 0; }
-#zone[data-align="right"] .bg { transform-origin: 100% 0; }
+#root[data-align="left"] .bg { transform-origin: 0 0; }
+#root[data-align="right"] .bg { transform-origin: 100% 0; }
 #panel[data-backing="scrim"] .bg {
-  inset: -6px -28px;
   background: rgb(8 9 10 / .55);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
   -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
   mask-composite: intersect;
 }
 #panel[data-backing="panel"] .bg {
@@ -60,7 +61,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 }
 #panel[data-backing="panel"]:not([data-kind="map"]) .bg { border-top-color: var(--rule-strong); }
 
-/* Play progress: a hairline under the line, filled in the map tint. */
+/* Play progress: a hairline under the line (a rule down the aligned edge in the column). */
 .prog {
   position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
   background: rgb(235 232 225 / .2);
@@ -68,36 +69,23 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   opacity: 0;
   transition: opacity 200ms var(--ease-draft);
 }
-#panel[data-backing="scrim"] .prog { left: 28px; right: 28px; bottom: 6px; }
+#panel:not([data-backing="none"]) .prog { left: 14px; right: 14px; bottom: 4px; }
 #panel[data-backing="panel"] .prog { left: -1px; right: -1px; bottom: -1px; box-shadow: none; }
 #panel.playing .prog { opacity: 1; }
-.prog i {
-  display: block; height: 100%;
-  background: var(--tint);
-  transform-origin: 0 0; transform: scaleX(0);
-}
-
-.brand {
-  position: relative; flex: none;
-  margin-right: var(--space-3); padding-right: var(--space-3);
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em;
-  color: var(--ink);
-}
-.brand b { font-weight: 500; color: var(--tint); }
-.brand::after, .seg::before {
-  content: ""; position: absolute; top: 50%; width: 1px; height: 16px; margin-top: -8px;
-  background: var(--hair);
-}
-.brand::after { right: 0; }
-#panel[data-brand="off"] .brand { display: none; }
+.prog i { display: block; width: 100%; height: 100%; background: var(--tint); transform-origin: 0 0; transform: scaleX(0); }
+#root[data-layout="column"] .prog { left: 0; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+#root[data-layout="column"][data-align="right"] .prog { left: auto; right: 0; }
+#root[data-layout="column"] #panel:not([data-backing="none"]) .prog { top: 6px; bottom: 6px; left: 6px; }
+#root[data-layout="column"][data-align="right"] #panel:not([data-backing="none"]) .prog { left: auto; right: 6px; }
+#root[data-layout="column"] .prog i { transform: scaleY(0); }
 
 .roll { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+.meta { display: flex; align-items: center; flex: none; }
 
 /* Title viewport: clips the marquee track (or ellipsizes it in truncate mode). */
-.vp { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: 30px; }
+.vp { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: calc(var(--px) * 30); }
 .track { display: block; width: max-content; }
 #panel[data-overflow="truncate"] .track { width: auto; overflow: hidden; text-overflow: ellipsis; }
-#panel[data-fit="tight"] .mapper { display: none; }
 .vp[data-edge="r"] {
   -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
@@ -121,48 +109,83 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .seg {
   position: relative; flex: none;
   display: flex; align-items: center;
-  margin-left: var(--space-3); padding-left: var(--space-3);
+  margin-left: calc(var(--px) * 12); padding-left: calc(var(--px) * 12);
 }
-.seg::before { left: 0; }
-
-.stars svg { width: 12px; height: 12px; margin: 0 5px 1px 0; fill: var(--tint); filter: drop-shadow(0 1px 1px rgb(0 0 0 / .6)); }
+.seg::before {
+  content: ""; position: absolute; left: 0; top: 50%;
+  width: 1px; height: calc(var(--px) * 16); margin-top: calc(var(--px) * -8);
+  background: var(--hair);
+}
+.stars svg {
+  width: calc(var(--px) * 12); height: calc(var(--px) * 12); margin: 0 calc(var(--px) * 5) calc(var(--px) * 1) 0;
+  fill: var(--tint); stroke: rgb(0 0 0 / .45); stroke-width: .6px; paint-order: stroke;
+}
 .stars .num {
   min-width: 3.1ch;
-  font: 600 24px/1 var(--font-display);
+  font: 600 calc(var(--px) * 24)/1 var(--font-display);
   font-variant-numeric: tabular-nums;
   color: var(--fg);
 }
-.stars svg { width: 12px; height: 12px; margin: 0 5px 1px 0; fill: var(--tint); stroke: rgb(0 0 0 / .45); stroke-width: .6px; paint-order: stroke; }
-.mods { gap: var(--space-1); }
+.mods { gap: calc(var(--px) * 4); }
 .mod {
-  padding: 3px 4px 2px;
+  padding: calc(var(--px) * 3) calc(var(--px) * 4) calc(var(--px) * 2);
   border: 1px solid var(--hair); border-radius: var(--radius);
-  font: 500 12px/1 var(--font-mono); letter-spacing: .06em;
+  font: 500 calc(var(--px) * 12)/1 var(--font-mono); letter-spacing: .06em;
   font-variant-numeric: tabular-nums;
   color: var(--fg);
   background: rgb(8 9 10 / .35);
 }
 .mod span { margin-left: .4em; color: var(--ink); }
-
 .by {
-  margin-right: 6px;
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  margin-right: calc(var(--px) * 6);
+  font: 500 calc(var(--px) * 12)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
   color: var(--ink-quiet);
 }
-.mapper .name { font-size: 18px; font-weight: 500; color: var(--ink); }
+.mapper .name { font-size: calc(var(--px) * 18); font-weight: 500; color: var(--ink); }
 
 .status {
-  display: flex; align-items: center; gap: var(--space-2);
-  font: 500 12px/30px var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  display: flex; align-items: center; gap: calc(var(--px) * 8);
+  font: 500 calc(var(--px) * 12)/calc(var(--px) * 30) var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
   color: var(--ink);
 }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: var(--shadow); }
+.dot { width: calc(var(--px) * 7); height: calc(var(--px) * 7); border-radius: 50%; background: var(--muted); box-shadow: var(--shadow); }
 #panel[data-status="offline"] .dot { background: var(--danger); }
+
+/* Stack: title line above a meta line (narrow ticker, e.g. a mania top band). */
+#root[data-layout="stack"] .roll { flex-direction: column; align-items: flex-start; gap: calc(var(--px) * 4); }
+#root[data-layout="stack"][data-align="center"] .roll { align-items: center; }
+#root[data-layout="stack"][data-align="right"] .roll { align-items: flex-end; }
+#root[data-layout="stack"] .vp { max-width: 100%; }
+#root[data-layout="stack"] .meta .seg:not([hidden]) ~ .seg:not([hidden]) { margin-left: calc(var(--px) * 10); padding-left: calc(var(--px) * 10); }
+#root[data-layout="stack"] .meta .seg { margin-left: 0; padding-left: 0; }
+#root[data-layout="stack"] .meta .seg::before { display: none; }
+#root[data-layout="stack"] .meta .seg:not([hidden]) ~ .seg:not([hidden])::before { display: block; }
+
+/* Column: a side column; lines wrap instead of scrolling, the progress rule runs down the edge. */
+#root[data-layout="column"] #panel { white-space: normal; padding-left: calc(var(--px) * 14); }
+#root[data-layout="column"][data-align="right"] #panel { padding-left: 0; padding-right: calc(var(--px) * 14); text-align: right; }
+#root[data-layout="column"] .roll { flex-direction: column; align-items: flex-start; gap: calc(var(--px) * 10); }
+#root[data-layout="column"][data-align="right"] .roll { align-items: flex-end; }
+#root[data-layout="column"] .vp { overflow: visible; line-height: 1.2; }
+#root[data-layout="column"] .track { display: flex; flex-direction: column; gap: calc(var(--px) * 4); width: auto; }
+#root[data-layout="column"][data-align="right"] .track { align-items: flex-end; }
+#root[data-layout="column"] .sep { display: none; }
+#root[data-layout="column"] .title {
+  font-size: calc(var(--px) * 22);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+#root[data-layout="column"] .ver { margin-left: 0; }
+#root[data-layout="column"] .meta { flex-direction: column; align-items: inherit; gap: calc(var(--px) * 8); }
+#root[data-layout="column"] .meta { align-items: flex-start; }
+#root[data-layout="column"][data-align="right"] .meta { align-items: flex-end; }
+#root[data-layout="column"] .seg { margin-left: 0; padding-left: 0; }
+#root[data-layout="column"] .seg::before { display: none; }
+#root[data-layout="column"] .mods { flex-wrap: wrap; }
 
 /* Content kinds: transport status, no data, map. */
 #panel[data-kind="status"] .vp,
-#panel[data-kind="status"] .seg,
-#panel[data-kind="empty"] .seg,
+#panel[data-kind="status"] .meta,
+#panel[data-kind="empty"] .meta,
 #panel[data-kind="empty"] .artist,
 #panel[data-kind="empty"] .sep,
 #panel[data-kind="empty"] .ver,

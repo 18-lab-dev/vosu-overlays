@@ -16,9 +16,9 @@
  {"uniqueID":"colorKat","type":"color","title":"osu!taiko kat colour","description":"Rim (kat) drum keys.","value":"#7fa6cf"},
  {"uniqueID":"colorFruits","type":"color","title":"osu!catch colour","description":"Dash (and move keys on osu!lazer).","value":"#6fbf8e"},
  {"uniqueID":"colorMania","type":"color","title":"osu!mania colour","description":"All mania columns.","value":"#ebe8e1"},
- {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Skin ColumnStart (osu!stable, 480-line canvas; default 136). Places the stage for the stage zone. Lazer centres the stage.","value":136},
- {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Skin ColumnWidth (default 30).","value":30},
- {"uniqueID":"hitPosition","type":"number","title":"Mania hit position","description":"Skin HitPosition (480-line canvas; default 402). The caps sit on this line in the stage zone.","value":402},
+ {"uniqueID":"columnStart","type":"number","title":"Mania column start (override)","description":"0 = read from the current skin's skin.ini through vosu. Otherwise skin ColumnStart (osu!stable, 480-line canvas; stable default 136); places the stage for the stage zone. Lazer centres the stage.","value":0},
+ {"uniqueID":"columnWidth","type":"number","title":"Mania column width (override)","description":"0 = from the skin. Otherwise skin ColumnWidth for every column (stable default 30).","value":0},
+ {"uniqueID":"hitPosition","type":"number","title":"Mania hit position (override)","description":"0 = from the skin. Otherwise skin HitPosition (480-line canvas; stable default 402). The caps sit on this line in the stage zone.","value":0},
  {"uniqueID":"backing","type":"options","title":"Backing","description":"none: floats on the game (dark lane beds, a soft shade under the numbers). scrim: adds a soft shade that fades out around it. panel: a classic 18-LAB panel.","options":["none","scrim","panel"],"value":"none"},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

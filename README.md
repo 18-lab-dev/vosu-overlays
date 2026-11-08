@@ -85,39 +85,41 @@ as ranks or clear guarantees.
 
 Self-contained 18-LAB overlays in `overlays/`, each served by vosu from its static root (copy the folder there, or install the packaged ZIP) at `http://127.0.0.1:24050/<id>/`. They are candidates for publication; none is released. Fields marked *vosu* are vosu-only and absent on tosu; each overlay says so on screen instead of inventing values.
 
-| Overlay | Rulesets | Size | Shows |
-| --- | --- | --- | --- |
-| `now-playing` | all | 600×320 | Map card: background, status, stars (live in play), mod-adjusted AR/CS/OD/HP, BPM, rate-adjusted length, objects, mods, progress |
-| `now-playing-ticker` | all | 1920×52 | One-line map bar with progress hairline and paused marquee |
-| `stream-scene` | all | 1920×1080 | Full streamer scene: transparent gameplay and webcam slots, now playing, live play strip, results band, player card, session |
-| `stream-interstitial` | all | 1920×1080 | Starting soon / be right back / ending scene with countdown, queued map and session |
-| `hit-error` | osu, taiko, mania | 1920×1080 | Hit error bar: window ladder, fading ticks, moving average, UR, mean, early/late, mania press/release rows |
-| `hit-error-arc` | osu, taiko, mania | 400×360 | Hit error dial with needle, UR centre and recent-hit histogram |
-| `timing-drift` | osu, taiko, mania | 640×300 | Rolling mean and UR across the attempt |
-| `key-overlay` | all | 480×640 | Scrolling key-press tape with counts and KPS (*vosu* `keys.all`) |
-| `key-counter` | all | 640×200 | Key caps, counts, balance and KPS sparkline (*vosu* `keys.all`) |
-| `pp-counter` | all | 424×236 | Live pp, if-FC and max achievable, accuracy→pp ladder in song select |
-| `strain-graph` | all | 720×232 | Map strain with playhead, kiai and breaks, combined or per skill |
-| `combo-hud` | all | 1920×1080 | HUD replacement: combo bump/break, accuracy and rank, score, HP, progress ring |
-| `results-card` | all | 760×448 | Results splash with judgement breakdown and hit-error histogram |
-| `leaderboard` | all | 420×720 | Live leaderboard with sliding reorder and gap to the next rank |
-| `profile-card` | all | 640×360 | Player card with rank, pp, accuracy, level and session deltas |
-| `session-tracker` | all | 320×440 | Pass/fail/retry strip, best pp, grade tally, pp and rank movement |
-| `aim-scatter` | osu | 1920×1080 | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
-| `tap-meter` | osu | 360×308 | Stream BPM, consistency, alternation and finger balance (*vosu* `keys.all`) |
-| `skill-radar` | osu | 408×388 | Aim/speed/accuracy/flashlight pp, live vs FC, over the map's skill profile |
-| `taiko-drum` | taiko | 576×288 | Four-zone drum, hand balance, alternation, KPS (*vosu* `keys.all`) |
-| `taiko-pace` | taiko | 400×280 | OK and miss budget for a target accuracy, max achievable accuracy |
-| `taiko-lanes` | taiko | 480×360 | Color/rhythm/stamina strain lanes with the leading skill |
-| `catcher-trail` | catch | 640×640 | Catcher position seismograph with dash, travel and turns (*vosu* `catcher`) |
-| `catcher-heatmap` | catch | 640×208 | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
-| `fruit-ledger` | catch | 520×219 | Fruits/drops/droplets caught and missed, combo status, max accuracy |
-| `column-timing` | mania | 500×460 | Per-column bias and UR with the weakest column called out (*vosu* `ENABLE_MANIA_KEY_HIT_ERRORS`) |
-| `judgement-ratio` | mania | 1100×380 | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS |
-| `ln-timing` | mania | 440×304 | Long-note press vs release distributions |
-| `kps-graph` | mania | 480×276 | KPS over the attempt against the map's density |
+Every overlay is a transparent 1920×1080 source laid over the full-screen osu! window. It places itself in the empty parts of osu!'s layout for the active ruleset (`osuLayout()` in the shared client; the mania stage comes from the player's own `skin.ini` through vosu's `/files/skin/`), floats without an opaque panel by default, and never shows beatmap background art: its accent can instead follow the map's Material 3 tonal-spot colour (`mapPalette()`). Overlays show during gameplay; in song select and on results they show only what osu! does not already show there. Every overlay has zone, nudge, scale, backing (`none`/`scrim`/`panel`) and accent (`map`/`18-lab`) settings.
 
-Mode-specific overlays render nothing outside their ruleset, so an OBS source never leaves an empty frame on screen.
+| Overlay | Rulesets | Shows |
+| --- | --- | --- |
+| `now-playing` | all | Map identity, live stars, mod-adjusted stats, BPM, rate-adjusted length, progress (gameplay only) |
+| `now-playing-ticker` | all | One-line map bar with progress hairline in the strip between HP bar and score (gameplay only) |
+| `stream-scene` | all | Streamer layer over full-screen osu!: webcam frame in a free band, handle, live play strip; session ledger in song select/results |
+| `stream-interstitial` | all | Starting soon / be right back / ending scene (0.1.0; a full scene, not an overlay over gameplay) |
+| `hit-error` | osu, taiko, mania | Hit error bar beside the playfield/stage or under the lane; judgement windows in song select; final distribution on stable results |
+| `hit-error-arc` | osu, taiko, mania | Hit error dial with needle, UR and histogram; final strip on stable results |
+| `timing-drift` | osu, taiko, mania | Rolling mean and UR across the attempt |
+| `key-overlay` | all | Scrolling key-press tape with counts and KPS; per-key summary on results (*vosu* `keys.all`) |
+| `key-counter` | all | Key caps, counts and KPS sparkline; per-key summary on results (*vosu* `keys.all`) |
+| `pp-counter` | all | Live pp, if-FC and max achievable; accuracy→pp ladder in song select; if-FC gap on results |
+| `strain-graph` | all | Map strain with playhead, kiai and breaks; full preview in song select |
+| `combo-hud` | all | HUD replacement in osu!'s own HUD spots (for streams that hide the in-game HUD) |
+| `results-card` | all | Results-only strip: UR, timing histogram, pp and if-FC |
+| `leaderboard` | all | Rival readout (above/below with score gaps) or a full board where osu!'s sits; final standing on results |
+| `profile-card` | all | Player tag during your own plays: rank, pp, session deltas |
+| `session-tracker` | all | Session ledger in song select; minimal attempt strip in play; session line on results |
+| `aim-scatter` | osu | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
+| `tap-meter` | osu | Stream BPM, consistency, alternation and finger balance (*vosu* `keys.all`) |
+| `skill-radar` | osu | Aim/speed/accuracy/flashlight pp, live vs FC, over the map's skill profile |
+| `taiko-drum` | taiko | Four-zone drum, hand balance, alternation, KPS (*vosu* `keys.all`) |
+| `taiko-pace` | taiko | OK and miss budget for a target accuracy, max achievable accuracy |
+| `taiko-lanes` | taiko | Color/rhythm/stamina strain lanes with the leading skill; map lanes in song select |
+| `catcher-trail` | catch | Catcher position seismograph with dash, travel and turns (*vosu* `catcher`) |
+| `catcher-heatmap` | catch | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
+| `fruit-ledger` | catch | Fruits/drops/droplets caught and missed, combo status; map composition in song select |
+| `column-timing` | mania | Per-column bias and UR with the weakest column called out (*vosu* `ENABLE_MANIA_KEY_HIT_ERRORS`) |
+| `judgement-ratio` | mania | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS |
+| `ln-timing` | mania | Long-note press vs release distributions |
+| `kps-graph` | mania | KPS over the attempt against the map's density; density preview in song select |
+
+Mode-specific overlays render nothing outside their ruleset. Default placements are chosen per overlay, so several overlays that target the same free band can overlap until their zone settings are adjusted.
 
 ## Developing official overlays
 

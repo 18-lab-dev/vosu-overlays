@@ -9,8 +9,8 @@
  {"uniqueID":"showTotal","type":"checkbox","title":"Show total taps","description":"Sum of all key counts for the attempt.","value":true},
  {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: the caps float on the game. scrim: a soft dark fade behind them for very bright backgrounds. panel: an 18-LAB panel.","value":"none"},
  {"uniqueID":"accent","type":"options","title":"Accent colour","options":["map","18-lab"],"description":"map: lit keys and the live KPS take the current map's colour (from its background, which is never shown). 18-lab: amber. Taiko drum keys keep don amber / kat blue.","value":"map"},
- {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Your skin's mania ColumnStart (osu!stable default 136), so the keys sit beside the stage.","value":136},
- {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Your skin's mania ColumnWidth (default 30).","value":30},
+ {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Override for the mania stage's left edge (skin ColumnStart). 0 = read from the current skin's skin.ini through vosu (osu!stable default 136 when unavailable).","value":0},
+ {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Override for the mania column width (skin ColumnWidth). 0 = from the skin (default 30).","value":0},
  {"uniqueID":"matchColumns","type":"checkbox","title":"Mania caps match column width","description":"Size the mania caps to the stage's column pitch so the row mirrors the stage.","value":false},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

@@ -2,7 +2,7 @@
 // Key overlay: one scrolling tape lane per logical key (vosu `keys.all`), key caps with counts,
 // live and peak keys per second. Bars are placed in gameplay time from pressedAt/releasedAt.
 // It floats in the empty regions of osu!'s own layout (osuLayout) for the ruleset being played.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const SW = 1920;
 const SH = 1080;
@@ -26,12 +26,12 @@ const DEFAULTS = {
   zone: 'auto', direction: 'auto', offsetX: 0, offsetY: 0, scale: 1, length: 360,
   speed: 600, laneWidth: 40, showCounts: true, showKps: true, smokeLane: false,
   accent: 'map', colorOsu: '#ff963f', colorDon: '#ef6a4f', colorKat: '#7fa6cf', colorFruits: '#6fbf8e', colorMania: '#ebe8e1',
-  columnStart: 136, columnWidth: 30, hitPosition: 402, backing: 'none', showBrand: true,
+  columnStart: 0, columnWidth: 0, hitPosition: 0, backing: 'none', showBrand: true,
 };
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client',
-  keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate', checksum: '/beatmap/checksum',
+  keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate', checksum: '/beatmap/checksum', skin: '/settings/skin/name',
   modsRate: '/play/mods/rate', paused: '/game/paused', cs: '/beatmap/stats/cs/converted',
   osuK1: '/settings/keybinds/osu/k1', osuK2: '/settings/keybinds/osu/k2', osuSmoke: '/settings/keybinds/osu/smokeKey',
   taikoOL: '/settings/keybinds/taiko/outerLeft', taikoIL: '/settings/keybinds/taiko/innerLeft',
@@ -56,6 +56,8 @@ let cfg = { ...DEFAULTS };
 let values = null;
 let status = 'connecting';
 let palette = null;     // map tonal-spot roles, or null
+let maniaGeometry = null; // current skin's mania stage for the current key count (maniaSkin), or null
+let maniaKey = '';
 
 // ------------------------------------------------------------------ text helpers
 const shown = new WeakMap();
@@ -312,8 +314,15 @@ function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
  * caps on the hit-position line so presses leave where notes are judged.
  */
 function computeGeometry(mode, n) {
+  // Mania stage: the current skin's skin.ini through vosu; non-zero settings override it.
+  const skin = mode === 'mania' ? maniaGeometry : null;
+  const hitPosition = cfg.hitPosition > 0 ? cfg.hitPosition : skin?.hitPosition ?? 402;
   const layout = osuLayout(mode, {
-    keys: n, columnWidth: cfg.columnWidth, columnStart: cfg.columnStart, client: values?.[P.client] === 'lazer' ? 'lazer' : 'stable',
+    keys: n,
+    columnWidth: cfg.columnWidth > 0 ? cfg.columnWidth : skin?.columnWidth ?? 30,
+    columnSpacing: cfg.columnWidth > 0 ? 0 : skin?.columnSpacing ?? 0,
+    columnStart: cfg.columnStart > 0 ? cfg.columnStart : skin?.columnStart ?? 136,
+    client: values?.[P.client] === 'lazer' ? 'lazer' : 'stable',
   });
   const { busy, hud, unit } = layout;
   const zone = cfg.zone === 'auto'
@@ -321,17 +330,30 @@ function computeGeometry(mode, n) {
     : cfg.zone;
   const up = cfg.direction === 'auto' ? mode === 'mania' : cfg.direction === 'up';
   const s = clamp(Number(cfg.scale) || 1, 0.5, 2);
-  const tape = Math.round(clamp(cfg.length, 120, 900));
+  let tape = Math.round(clamp(cfg.length, 120, 900));
   const pad = cfg.backing === 'panel' ? 8 + 1 : 0; // padding + border
   let w = Math.round(clamp(cfg.laneWidth, 12, 96));
 
-  // Room the lanes may take. The stage zone keeps to the left of the stage, where stable draws no
-  // HUD (its mania HP bar, and many skins' panels, sit to the right); lanes shrink to fit.
-  const stageLeft = busy.x - 2 * MARGIN;
-  const stageRight = SW - (busy.x + busy.w) - 2 * MARGIN;
-  const leftSide = stageLeft >= 140 || stageLeft >= stageRight;
-  const across = (up && zone === 'stage' ? (leftSide ? stageLeft : stageRight) : 520) / s - RULER - pad * 2;
-  w = Math.max(12, Math.min(w, Math.floor((across - (n - 1) * GAP) / n)));
+  // Free width of the zone, so nothing reaches into the playfield/stage. The stage zone keeps to the
+  // left of the stage, where stable draws no HUD (its mania HP bar, and many skins' panels, sit to
+  // the right).
+  const sideLeft = busy.x - 2 * MARGIN;
+  const sideRight = SW - (busy.x + busy.w) - 2 * MARGIN;
+  const leftSide = sideLeft >= 140 || sideLeft >= sideRight;
+  const wide = SW / 2 - 2 * MARGIN; // taiko: the lane spans the screen, its sides are the whole band
+  const avail = zone === 'stage' ? (leftSide ? sideLeft : sideRight)
+    : zone === 'left' ? (sideLeft > 0 ? sideLeft : wide)
+    : zone === 'right' ? (sideRight > 0 ? sideRight : wide)
+    : Math.min(busy.w, SW) - 2 * MARGIN;
+  if (up) {
+    const across = avail / s - RULER - pad * 2;
+    w = Math.max(12, Math.min(w, Math.floor((across - (n - 1) * GAP) / n)));
+  } else {
+    tape = Math.max(120, Math.min(tape, Math.floor(avail / s - CAP_W - COL_GAP - pad * 2)));
+  }
+  // An upright tape with few keys widens so the readout row above it fits its width.
+  const readMin = cfg.showKps ? 172 - RULER : 0;
+  if (up && n * w + (n - 1) * GAP < readMin) w = Math.ceil((readMin - (n - 1) * GAP) / n);
   const lanesSpan = n * w + (n - 1) * GAP;
   const cssW = up ? RULER + lanesSpan : tape;
   const cssH = up ? tape : lanesSpan + RULER;
@@ -343,7 +365,7 @@ function computeGeometry(mode, n) {
   if (zone === 'stage') {
     // Beside the stage, right-aligned against its left edge (its right edge only when the left is too narrow).
     x = leftSide ? busy.x - MARGIN - width : busy.x + busy.w + MARGIN;
-    const capsTop = cfg.hitPosition * unit; // skin HitPosition, 480-line canvas
+    const capsTop = hitPosition * unit; // skin HitPosition, 480-line canvas
     y = up ? capsTop - (READ_H + ROW_GAP + tape + ROW_GAP + pad) * s : capsTop - height;
   } else if (zone === 'right') {
     x = SW - MARGIN - width;
@@ -423,7 +445,7 @@ function syncLayout() {
   const mode = currentMode;
   if (!mode) return;
   const spec = laneSpec(mode);
-  const sig = [mode, values?.[P.client], JSON.stringify(cfg), palette?.accent, ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
+  const sig = [mode, values?.[P.client], JSON.stringify(cfg), palette?.accent, JSON.stringify(maniaGeometry), ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
   if (sig === signature) return;
   const modeChanged = !signature.startsWith(`${mode}|`);
   const wasShown = signature !== '' && block.getAttribute('data-show') === '1';
@@ -501,6 +523,39 @@ function followPalette() {
   });
 }
 
+/** Re-reads the skin's mania stage when the key count or skin changes (off the hot path). */
+function followManiaSkin() {
+  const keys = keyCount();
+  const skin = typeof values?.[P.skin] === 'string' ? values[P.skin] : '';
+  const key = `${skin}|${keys}`;
+  if (key === maniaKey) return;
+  maniaKey = key;
+  maniaSkin(keys, skin).then(geometry => {
+    if (maniaKey !== key) return;
+    maniaGeometry = geometry;
+    syncLayout();
+    updateVisibility();
+    kick();
+  });
+}
+
+// Pointers whose change can alter lanes, labels or placement; key frames alone only can through
+// their length (mania key count) or catch move keys getting their first press.
+const LAYOUT_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.cs, P.skin, P.osuK1, P.osuK2, P.osuSmoke,
+  P.taikoOL, P.taikoIL, P.taikoIR, P.taikoOR, P.catchK1, P.catchK2, P.catchDash];
+let keysLength = -1;
+let catchMoves = false;
+function layoutMayChange(changed) {
+  let result = false;
+  for (let i = 0; i < LAYOUT_POINTERS.length; i++) if (changed.has(LAYOUT_POINTERS[i])) { result = true; break; }
+  const list = values[P.keys];
+  const length = Array.isArray(list) ? list.length : -1;
+  if (length !== keysLength) { keysLength = length; result = true; }
+  const moves = Boolean(tracks[0]?.ever || tracks[1]?.ever);
+  if (moves !== catchMoves) { catchMoves = moves; result = true; }
+  return result;
+}
+
 function onFrame(v, changed) {
   values = v;
   const now = performance.now();
@@ -551,7 +606,10 @@ function onFrame(v, changed) {
   }
   if (changed.has(P.checksum)) followPalette();
   currentMode = activeMode(state, v[P.playMode], v[P.settingsMode]) ?? 'osu';
-  syncLayout();
+  if (layoutMayChange(changed)) {
+    if (currentMode === 'mania') followManiaSkin();
+    syncLayout();
+  }
   updateVisibility();
   dirty = true;
   kick();

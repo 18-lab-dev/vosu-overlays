@@ -4,7 +4,7 @@
 // chart-recorder strip: time runs upward like the mania editor, so the map's strain density falls
 // toward the now line from above and the trace you played trails below it. Results hold the whole
 // run; song select shows the map's density and note rate, which osu! does not.
-import { subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const BIN = 50;          // map ms per histogram bin
 const ORIGIN = -10000;   // map time of bin 0, covers lead-in
@@ -14,7 +14,7 @@ const GUTTER = 22;       // px kept free at the overview's top for scale labels 
 const BLOCK_W = 210;     // style.css: axis 44 + gap 6 + chart 160
 const HEAD_H = 116;      // style.css: head 20 + readouts 6 + 80 + 10
 const STAGE_GAP = 28;    // px between the block and the stage when aligned to it
-const HP_CLEAR = 56;     // stable draws its HP bar against the stage's right edge
+const HP_CLEAR = 104;    // stable skins draw the HP bar against the stage's right edge
 const SELECT = new Set([4, 5, 12, 13]);   // song select (edit, play, match setup, multi)
 const RESULTS = new Set([7, 14, 18]);     // results (solo, vs, team)
 
@@ -22,7 +22,7 @@ const POINTERS = [
   '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source', '/client',
   '/keys/all', '/beatmap/time/live', '/beatmap/time/rate', '/play/mods/rate',
   '/beatmap/time/firstObject', '/beatmap/time/lastObject', '/beatmap/time/mp3Length',
-  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total',
+  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total', '/settings/skin/name',
   '/performance/graph/series', '/performance/graph/xaxis',
 ];
 
@@ -74,7 +74,7 @@ const C = {
   line: `rgb(${FG} / .97)`,
   ghost: `rgb(${FG} / .7)`,
   avg: `rgb(${FG} / .62)`,
-  strainFill: '', strainEdge: '', peak: '', hl: '', halo: '',
+  strainFill: '', strainEdge: '', strainFillStrong: '', strainEdgeStrong: '', peak: '', hl: '', halo: '',
 };
 let palette = null;
 /** Highlight (peak, live head) follows the map's tonal spot; density takes its secondary role. */
@@ -83,6 +83,8 @@ function recolor() {
   const soft = rgb(palette?.secondary ?? SIGNAL, SIGNAL);
   C.strainFill = `rgb(${soft} / .2)`;
   C.strainEdge = `rgb(${soft} / .62)`;
+  C.strainFillStrong = `rgb(${soft} / .34)`;
+  C.strainEdgeStrong = `rgb(${soft} / .95)`;
   C.peak = `rgb(${hl} / .9)`;
   C.hl = `rgb(${hl})`;
   C.halo = `rgb(${hl} / .25)`;
@@ -95,7 +97,7 @@ const MONO = '500 12px "IBM Plex Mono", ui-monospace, monospace';
 
 // ---------------------------------------------------------------- settings (applied at the end of the module)
 const DEFAULTS = {
-  window: 20, height: 560, strain: true, side: 'left', align: 'centre', columnStart: 136, columnWidth: 30,
+  window: 20, height: 560, strain: true, side: 'left', align: 'stage', columnStart: 0, columnWidth: 0,
   x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', brand: true,
 };
 let opt = DEFAULTS;
@@ -127,10 +129,25 @@ function applySettings(next) {
 const SELECT_ZONE = { x: 540, y: 190, w: 620, h: 740 };
 const RESULTS_ZONE = { x: 1010, y: 14, w: 880, h: 110 };
 let placeKey = '';
+// The current skin's stage (maniaSkin via vosu's skin.ini); settings override it when non-zero.
+let skinGeo = null, skinFor = '', skinGen = 0;
+function loadSkin(keys) {
+  const skin = values['/settings/skin/name'] ?? '';
+  const key = `${keys}|${skin}`;
+  if (key === skinFor) return;
+  skinFor = key;
+  maniaSkin(keys, skin).then(geo => {
+    if (skinFor !== key) return;
+    skinGeo = geo;
+    skinGen++;
+    place();
+  });
+}
 function place() {
   const keys = columns() ?? 4;
   const client = values['/client'] === 'lazer' ? 'lazer' : 'stable';
-  const key = `${view}|${keys}|${client}|${length}|${optKey}`;
+  loadSkin(keys);
+  const key = `${view}|${keys}|${client}|${length}|${skinGen}|${optKey}`;
   if (key === placeKey) return;
   placeKey = key;
   if (view === 'summary') {
@@ -146,10 +163,13 @@ function place() {
     return;
   }
   block.style.setProperty('--chart-h', `${length}px`);
+  const widthOverride = clamp(opt.columnWidth, 0, 400, 0);
+  const startOverride = clamp(opt.columnStart, 0, 1000, 0);
   const layout = osuLayout('mania', {
     keys, client,
-    columnWidth: clamp(opt.columnWidth, 10, 200, 30),
-    columnStart: clamp(opt.columnStart, 0, 600, 136),
+    columnWidth: widthOverride > 0 ? widthOverride : skinGeo?.columnWidth ?? 30,
+    columnSpacing: widthOverride > 0 ? 0 : skinGeo?.columnSpacing ?? 0,
+    columnStart: startOverride > 0 ? startOverride : skinGeo?.columnStart ?? 136,
   });
   const s = clamp(opt.scale, 0.5, 2, 1);
   const w = BLOCK_W * s;
@@ -463,8 +483,8 @@ function drawBase() {
   ctx.stroke();
 }
 
-/** Strain area for map times [t0, t1] mapped by x = (t - t0) * k. */
-function drawStrain(t0, t1, k) {
+/** Strain area for map times [t0, t1] mapped by x = (t - t0) * k; `strong` when it is the subject. */
+function drawStrain(t0, t1, k, strong) {
   if (!opt.strain || !sn || smax <= 0) return;
   const top = (ch - 1 - chartTop) * 0.92;
   const i = Math.max(0, strainIndex(t0) - 1);
@@ -476,7 +496,7 @@ function drawStrain(t0, t1, k) {
   for (let j = i; j < end; j++) ctx.lineTo((sx[j] - t0) * k, base - (sy[j] / smax) * top);
   ctx.lineTo((sx[end - 1] - t0) * k, base);
   ctx.closePath();
-  ctx.fillStyle = C.strainFill;
+  ctx.fillStyle = strong ? C.strainFillStrong : C.strainFill;
   ctx.fill();
   ctx.beginPath();
   for (let j = i; j < end; j++) {
@@ -484,7 +504,7 @@ function drawStrain(t0, t1, k) {
     if (j === i) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.lineWidth = 1;
-  ctx.strokeStyle = C.strainEdge;
+  ctx.strokeStyle = strong ? C.strainEdgeStrong : C.strainEdge;
   ctx.stroke();
 }
 
@@ -682,7 +702,7 @@ function renderStill() {
   if (t1 > t0) {
     // Time runs upward over the whole map; the top GUTTER px hold the KPS scale.
     const k = (cw - GUTTER) / (t1 - t0);
-    drawStrain(t0, t1, k);
+    drawStrain(t0, t1, k, !run);
     if (run) {
       drawGridH(0, cw - GUTTER);
       const avg = average(Infinity);
@@ -836,7 +856,7 @@ subscribe(POINTERS, (next, changed) => {
   if (view === 'live' && changed.has('/keys/all')) takeKeys(now);
   if (changed.has('/beatmap/checksum')) { loadPalette(); dirty = axisDirty = true; }
   const keyCount = Array.isArray(values['/keys/all']) ? values['/keys/all'].length : -1;
-  if (keyCount !== lastKeyCount || changed.has('/beatmap/stats/cs/converted') || changed.has('/client')) { lastKeyCount = keyCount; place(); dirty = true; }
+  if (keyCount !== lastKeyCount || changed.has('/beatmap/stats/cs/converted') || changed.has('/client') || changed.has('/settings/skin/name')) { lastKeyCount = keyCount; place(); dirty = true; }
   if (changed.has('/beatmap/time/mp3Length') || changed.has('/beatmap/stats/objects/total') || changed.has('/beatmap/time/lastObject') || changed.has('/play/source')) dirty = axisDirty = true;
   if (view === 'live' || dirty) kick();
 }, {

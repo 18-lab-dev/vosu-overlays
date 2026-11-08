@@ -3,7 +3,7 @@
 // player can see whether they slide early or late (and loosen up) as the map goes on.
 // Floats in a free region of osu!'s own layout (osuLayout) instead of taking screen space.
 import {
-  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette,
+  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette,
 } from './vosu-overlay.js';
 
 const STAGE_W = 1920;
@@ -29,7 +29,10 @@ const P_LIVE = '/beatmap/time/live';
 const P_FIRST = '/beatmap/time/firstObject';
 const P_LAST = '/beatmap/time/lastObject';
 const P_CHECKSUM = '/beatmap/checksum';
-const POINTERS = [P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_GREAT, P_LIVE, P_FIRST, P_LAST, P_CHECKSUM];
+const P_KEYS = '/beatmap/stats/cs/converted'; // osu!mania key count
+const P_SKIN = '/settings/skin/name';
+const P_CLIENT = '/client';
+const POINTERS = [P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_GREAT, P_LIVE, P_FIRST, P_LAST, P_CHECKSUM, P_KEYS, P_SKIN, P_CLIENT];
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
@@ -491,9 +494,44 @@ function draw(withCurve, livePhase) {
 let zone = 'auto', offsetX = 0, offsetY = 0;
 let placedKey = '';
 
+// osu!mania stage: the skin's [Mania] section via vosu (maniaSkin), unless the user overrides it.
+let maniaKeys = 4, maniaClient = 'stable', maniaStage = null, maniaSkinFor = '';
+let columnStartOverride = 0, columnWidthOverride = 0;
+let maniaRequest = 0;
+
+function loadManiaSkin(values) {
+  const keys = Math.round(Number(values[P_KEYS]));
+  maniaKeys = keys >= 1 && keys <= 18 ? keys : 4;
+  maniaClient = values[P_CLIENT] === 'lazer' ? 'lazer' : 'stable';
+  const skin = typeof values[P_SKIN] === 'string' ? values[P_SKIN] : '';
+  const want = `${maniaKeys}|${skin}`;
+  if (want === maniaSkinFor) return;
+  maniaSkinFor = want;
+  const request = ++maniaRequest;
+  maniaSkin(maniaKeys, skin).then(result => {
+    if (request !== maniaRequest) return;
+    maniaStage = result;
+    placedKey = '';
+    textDirty = true;
+    invalidate();
+  }, () => {});
+}
+
+function maniaLayout() {
+  const options = { keys: maniaKeys, client: maniaClient };
+  if (maniaStage) {
+    options.columnStart = maniaStage.columnStart;
+    options.columnWidth = maniaStage.columnWidth;
+    options.columnSpacing = maniaStage.columnSpacing;
+  }
+  if (columnStartOverride > 0) options.columnStart = columnStartOverride;
+  if (columnWidthOverride > 0) options.columnWidth = columnWidthOverride;
+  return osuLayout('mania', options);
+}
+
 function placeBlock(mode, nextArrange) {
   const ruleset = mode === 'taiko' || mode === 'mania' ? mode : 'osu';
-  const key = `${ruleset}${nextArrange}${zone}${offsetX},${offsetY},${userScale},${chartH},${showUr}`;
+  const key = `${ruleset}${nextArrange}${zone}${offsetX},${offsetY},${userScale},${chartH},${showUr},${maniaKeys}${maniaClient}`;
   if (key === placedKey) return;
   placedKey = key;
   if (nextArrange !== arrange) {
@@ -501,7 +539,7 @@ function placeBlock(mode, nextArrange) {
     block.dataset.arrange = arrange;
     setLanes();
   }
-  const layout = osuLayout(ruleset);
+  const layout = ruleset === 'mania' ? maniaLayout() : osuLayout(ruleset);
   const { busy, hud } = layout;
   const strip = arrange === 'strip';
   const w = (strip ? STRIP_W : BLOCK_W) * userScale;
@@ -516,7 +554,9 @@ function placeBlock(mode, nextArrange) {
     x = side === 'left' ? 160 : layout.width - 160 - w;
     y = busy.y + busy.h + 56;
   } else if (ruleset === 'mania') {
-    x = side === 'left' ? 64 : layout.width - 64 - w;
+    // Toward the screen edge, but never closer than 48 px to the stage (stable's HP bar sits
+    // against its right side, low down; the cluster is vertically centred above it).
+    x = side === 'left' ? Math.min(64, busy.x - 48 - w) : Math.max(layout.width - 64 - w, busy.x + busy.w + 48);
     y = (layout.height - h) / 2;
   } else if (side === 'left') {
     x = busy.x - 40 - w;
@@ -670,7 +710,7 @@ const clamp = (value, min, max, fallback) => (Number.isFinite(value) ? Math.min(
 
 settings({
   zone: 'auto', offsetX: 0, offsetY: 0, scale: 1, window: 50, height: 150, showUr: true,
-  showOnResults: true, backing: 'none', accent: 'map', showBrand: true,
+  showOnResults: true, backing: 'none', accent: 'map', showBrand: true, columnStart: 0, columnWidth: 0,
 }, s => {
   const nextWindow = Math.round(clamp(s.window, 10, 500, 50));
   chartH = Math.round(clamp(s.height, 96, 200, 150));
@@ -680,6 +720,8 @@ settings({
   offsetY = Math.round(clamp(s.offsetY, -1080, 1080, 0));
   const nextScale = Math.round(clamp(s.scale, 0.6, 1.6, 1) * 100) / 100;
   onResults = s.showOnResults;
+  columnStartOverride = clamp(s.columnStart, 0, 1000, 0);
+  columnWidthOverride = clamp(s.columnWidth, 0, 400, 0);
   block.dataset.ur = String(showUr);
   block.dataset.backing = ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   el.brand.hidden = !s.showBrand;
@@ -714,6 +756,7 @@ sub = subscribe(POINTERS, (values, changed) => {
   if (changed.size === 1 && changed.has(P_LIVE)) return; // clock ticks only stamp hits
   if (changed.has(P_ERRORS)) ingest(values);
   if (changed.has(P_CHECKSUM)) loadPalette(values[P_CHECKSUM]);
+  if (changed.has(P_KEYS) || changed.has(P_SKIN) || changed.has(P_CLIENT)) loadManiaSkin(values);
   textDirty = true;
   invalidate();
 }, {

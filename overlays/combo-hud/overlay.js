@@ -3,7 +3,7 @@
 // score, HP and map progress float in osu!'s own HUD spots (or one stack/strip in a free band).
 // Gameplay only: song select and results already show all of this, so the page stays empty there.
 import {
-  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette,
+  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette,
 } from './vosu-overlay.js';
 
 const WIDTH = 1920;
@@ -15,6 +15,7 @@ const EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
 const AMBER = '#ff963f';
 const HP_WIDTH = 440;            // HP readout width at size 1 in HUD spots (label + 360 px gauge + value)
 const COMBO_HEIGHT = 113;        // combo readout height at size 1 in HUD spots
+const STAGE_HP_CLEAR = 176;      // gap right of the mania stage, past stable's HP bar and its skin art
 
 const P = {
   state: '/state/number', client: '/client', playMode: '/play/mode/number', settingsMode: '/settings/mode/number',
@@ -22,6 +23,7 @@ const P = {
   combo: '/play/combo/current', peak: '/play/combo/max', hp: '/play/healthBar/normal', rank: '/play/rank/current',
   rate: '/play/mods/rate', live: '/beatmap/time/live', first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject',
   mapMax: '/beatmap/stats/maxCombo', keys: '/beatmap/stats/cs/converted', checksum: '/beatmap/checksum',
+  skin: '/settings/skin/name',
 };
 
 const SOURCES = { replay: 'Replay', spectator: 'Spectating', watching: 'Watching', autoplay: 'Autoplay' };
@@ -36,7 +38,7 @@ const CHIP_TEXT = { connecting: 'Connecting to vosu', offline: 'vosu offline', i
 
 const DEFAULTS = {
   layout: 'osu! HUD spots', zone: 'auto', offsetX: 0, offsetY: 0, size: 1,
-  columnWidth: 30, columnStart: 136, separator: 'comma', backing: 'none', accent: 'map',
+  columnWidth: 0, columnStart: 0, separator: 'comma', backing: 'none', accent: 'map',
   showCombo: true, showAccuracy: true, showRank: true, showScore: true, showHealth: true, showProgress: true, showBrand: true,
 };
 
@@ -104,6 +106,21 @@ let placeDirty = true;
 let lastLive = null;
 let checksum = '';
 let mapAccent = null;
+let stageSkin = null;            // maniaSkin() result for the current skin + key count (null = defaults)
+let stageSkinKey = '';
+
+// The mania stage from the player's skin.ini (via vosu), re-read on key-count or skin change.
+function loadStageSkin(keys, skin) {
+  const key = `${keys}|${skin}`;
+  if (key === stageSkinKey) return;
+  stageSkinKey = key;
+  maniaSkin(keys, skin).then(result => {
+    if (stageSkinKey !== key) return;
+    stageSkin = result;
+    placeDirty = true;
+    schedule();
+  });
+}
 
 const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const str = value => (typeof value === 'string' ? value : '');
@@ -145,6 +162,7 @@ function onFrame(v) {
     want.mode = mode; want.client = client; want.keys = keys;
     placeDirty = true; dirty = true;
   }
+  if (mode === 'mania') loadStageSkin(keys, str(v[P.skin]));
   const sum = str(v[P.checksum]);
   if (sum && sum !== checksum) loadPalette(sum);
 
@@ -199,7 +217,14 @@ function place() {
   placeDirty = false;
   const layoutName = LAYOUTS[cfg.layout] ?? 'hud';
   const { mode, keys, client } = want;
-  const L = osuLayout(mode, { keys, columnWidth: cfg.columnWidth, columnStart: cfg.columnStart, client, width: WIDTH, height: HEIGHT });
+  // Mania stage: skin.ini through vosu by default; the column settings override it when non-zero.
+  const fromSkin = cfg.columnWidth <= 0 && stageSkin;
+  const L = osuLayout(mode, {
+    keys, client, width: WIDTH, height: HEIGHT,
+    columnWidth: cfg.columnWidth > 0 ? cfg.columnWidth : stageSkin?.columnWidth ?? 30,
+    columnSpacing: fromSkin ? stageSkin.columnSpacing : 0,
+    columnStart: cfg.columnStart > 0 ? cfg.columnStart : stageSkin?.columnStart ?? 136,
+  });
   const { busy, hud } = L;
   const ox = cfg.offsetX;
   const oy = cfg.offsetY;
@@ -219,9 +244,9 @@ function place() {
     let combo;
     if (hud.combo) combo = { left: hud.combo.x + 8, bottom: HEIGHT - hud.combo.y - hud.combo.h + 12 };
     // Mania draws its combo inside the stage: use the wider band beside it instead.
-    // 64 px clears stable's own HP bar, which hugs the stage's right edge.
-    else if (busy.x >= WIDTH - busy.x - busy.w) combo = { right: WIDTH - busy.x + 64, bottom: 32 };
-    else combo = { left: busy.x + busy.w + 64, bottom: 32 };
+    // Stable hangs its HP bar (often with skin art) off the stage's right edge: keep well clear.
+    else if (busy.x >= WIDTH - busy.x - busy.w - STAGE_HP_CLEAR) combo = { right: WIDTH - busy.x + 56, bottom: 32 };
+    else combo = { left: busy.x + busy.w + STAGE_HP_CLEAR, bottom: 32 };
     const align = combo.right !== undefined ? 'end' : 'start';
     anchor(el.comboCell, nudge(combo), align);
     anchor(el.status, nudge(combo));
@@ -252,10 +277,10 @@ function place() {
     else if (zone === 'right') { box = { right: 40, bottom: 40 }; align = 'end'; } else box = { left: 40, bottom: 40 };
   } else if (mode === 'mania') {
     const leftRoom = busy.x;
-    const rightRoom = WIDTH - busy.x - busy.w;
+    const rightRoom = WIDTH - busy.x - busy.w - STAGE_HP_CLEAR;
     const side = zone === 'auto' ? (rightRoom >= leftRoom ? 'right' : 'left') : zone;
-    if (side === 'right') box = { left: busy.x + busy.w + 64, bottom: 40 };
-    else { box = { right: WIDTH - busy.x + 64, bottom: 40 }; align = 'end'; }
+    if (side === 'right') box = { left: busy.x + busy.w + STAGE_HP_CLEAR, bottom: 40 };
+    else { box = { right: WIDTH - busy.x + 56, bottom: 40 }; align = 'end'; }
   } else if (layoutName === 'strip' && zone === 'auto') {
     // The band under the 4:3 playfield.
     box = { centerX: busy.x + busy.w / 2, bottom: 6 };
@@ -483,8 +508,8 @@ settings(DEFAULTS, next => {
     zone: ['auto', 'left', 'right'].includes(next.zone) ? next.zone : 'auto',
     offsetX: clamp(next.offsetX, -1920, 1920),
     offsetY: clamp(next.offsetY, -1080, 1080),
-    columnWidth: clamp(next.columnWidth, 10, 120),
-    columnStart: clamp(next.columnStart, 0, 600),
+    columnWidth: next.columnWidth > 0 ? clamp(next.columnWidth, 10, 120) : 0,
+    columnStart: next.columnStart > 0 ? clamp(next.columnStart, 1, 600) : 0,
   };
   stage.dataset.backing = ['scrim', 'panel'].includes(cfg.backing) ? cfg.backing : 'none';
   stage.dataset.accent = cfg.accent === '18-lab' ? '18-lab' : 'map';

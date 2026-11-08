@@ -23,7 +23,7 @@ body {
   left: 0;
   top: 0;
   box-sizing: content-box;
-  width: 216px;
+  width: 208px;
   isolation: isolate;
   contain: layout style;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.65);
@@ -132,7 +132,7 @@ body {
 
 /* ---------------------------------------------------------------- chart */
 .chart { margin-top: 6px; }
-#radar { display: block; width: 216px; height: 196px; }
+#radar { display: block; width: 208px; height: 196px; }
 .cluster[data-style="bars"] #radar { display: none; }
 .cluster[data-style="bars"] .chart { margin-top: 10px; }
 

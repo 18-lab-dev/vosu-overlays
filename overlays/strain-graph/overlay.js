@@ -4,11 +4,13 @@
 // Frames are requested only when the playhead crosses a device pixel or a readout changes.
 // The widget floats in a free region of osu!'s layout (osuLayout): horizontal beside the
 // osu!/catch playfield and below the taiko lane, vertical (time running up) beside mania.
-import { subscribe, settings, fit, formatDuration, osuLayout, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, formatDuration, osuLayout, maniaSkin, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const STAGE_W = 1920;
 const STAGE_H = 1080;
 const MARGIN = 32;
+const HP_BAR_GAP = 112; // stable draws the mania HP bar against the stage's right edge
+const STAGE_GAP = 48;
 const P = {
   state: '/state/number',
   playMode: '/play/mode/number',
@@ -23,6 +25,10 @@ const P = {
   trackRate: '/beatmap/time/rate',
   series: '/performance/graph/series',
   xaxis: '/performance/graph/xaxis',
+  // Mania stage geometry: key count (mania CS), client (lazer centres the stage), skin.
+  keys: '/beatmap/stats/cs/converted',
+  client: '/client',
+  skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
@@ -74,7 +80,7 @@ const skillColor = slot => (slot === 0 ? INK.tint : [C.accent, C.signal, C.ok, C
 
 // ---------------------------------------------------------------- state
 const opts = { zone: 'auto', offsetX: 0, offsetY: 0, scale: 1, graphHeight: 56, view: 'combined', showTime: true, showMarks: true, showInSelect: true, backing: 'none', accent: 'map', showBrand: true };
-const view = { phase: null, mode: null, live: NaN, rate: 1, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+const view = { phase: null, mode: null, keys: 4, client: 'stable', skin: '', live: NaN, rate: 1, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
 const graph = { skills: [], end: 0, section: 400, key: '' };
 // Device-pixel geometry. u runs along time (0..L), v across it (0 = peak side, T = baseline).
 const size = { w: 0, h: 0, cssW: 0, cssH: 0, cssL: 0, ratio: 1, lw: 1, L: 0, T: 0 };
@@ -88,6 +94,7 @@ let hatch = null;
 let surface = new Float32Array(0); // silhouette v per u column, for the playhead needle
 let latest = null;
 let palette = null;
+let maniaGeo = null; // maniaSkin() result for the current skin and key count, or null
 let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, placeDirty = true, fadeIn = false;
 let ticks = [];
 let legendW = 0;
@@ -190,6 +197,18 @@ function visibility() {
   return 'off';
 }
 
+// skin.ini is read once per skin (maniaSkin caches it); a key-count change re-parses its section.
+function loadManiaSkin() {
+  const { keys, skin, client } = view;
+  if (client === 'lazer') { maniaGeo = null; return; } // lazer centres the stage itself
+  maniaSkin(keys, skin).then(result => {
+    if (keys !== view.keys || skin !== view.skin) return;
+    maniaGeo = result;
+    placeDirty = true;
+    request();
+  });
+}
+
 function loadPalette(checksum) {
   if (opts.accent !== 'map' || !checksum) { palette = null; applyColors(); return; }
   mapPalette(checksum).then(result => {
@@ -213,6 +232,14 @@ function onData(values, changed) {
   if (phase !== view.phase) { view.phase = phase; metaDirty = frameDirty = placeDirty = want = true; }
   const mode = activeMode(values[P.state], values[P.playMode], values[P.selectMode]);
   if (mode !== view.mode) { view.mode = mode; placeDirty = want = true; }
+  const keys = Math.round(positive(values[P.keys])) || 4;
+  const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
+  const skin = typeof values[P.skin] === 'string' ? values[P.skin] : '';
+  if (keys !== view.keys || client !== view.client || skin !== view.skin) {
+    view.keys = keys; view.client = client; view.skin = skin;
+    loadManiaSkin();
+    placeDirty = want = true;
+  }
   const rate = positive(values[P.rate]) || positive(values[P.trackRate]) || 1;
   if (rate !== view.rate) { view.rate = rate; modelDirty = true; }
   if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.mp3) || changed.has(P.checksum)) modelDirty = true;
@@ -247,7 +274,7 @@ function onStatus(state) {
 function place() {
   placeDirty = false;
   const mode = view.mode || 'osu';
-  const layout = osuLayout(mode, { width: STAGE_W, height: STAGE_H });
+  const layout = osuLayout(mode, { width: STAGE_W, height: STAGE_H, keys: view.keys, client: view.client, ...(mode === 'mania' && maniaGeo ? maniaGeo : {}) });
   const { busy, hud } = layout;
   const zone = opts.zone;
   let orient = 'h', side = 'right', len, anchor, origin;
@@ -258,12 +285,20 @@ function place() {
     anchor = { left: 550, bottom: STAGE_H - 910 };
     origin = 'center bottom';
   } else if (mode === 'mania') {
-    // Screen edge of the free region beside the stage: clear of any skin's stage and HP bar.
+    // Vertical strip beside the stage (skin.ini geometry when vosu serves it): right of the
+    // stage past the HP bar, or left of it; the screen edge when the stage leaves no room.
     orient = 'v';
     side = zone === 'left' ? 'left' : 'right';
     len = 600;
-    anchor = side === 'left' ? { left: MARGIN, top: 200 } : { right: MARGIN, top: 200 };
-    origin = `${side} top`;
+    const width = 42 + opts.graphHeight;
+    if (side === 'right') {
+      const left = busy.x + busy.w + HP_BAR_GAP;
+      anchor = left + width <= STAGE_W - MARGIN ? { left, top: 200 } : { right: MARGIN, top: 200 };
+    } else {
+      const right = busy.x - STAGE_GAP;
+      anchor = right - width >= MARGIN ? { right: STAGE_W - right, top: 200 } : { left: MARGIN, top: 200 };
+    }
+    origin = `${side === 'left' ? 'right' : 'left'} top`;
   } else if (mode === 'taiko') {
     len = 1152;
     const top = busy.y + busy.h + 40;
@@ -554,7 +589,9 @@ function writeMeta() {
 function writeLegend() {
   legendDirty = false;
   legend.replaceChildren();
-  if (opts.view !== 'per-skill' || graph.skills.length < 2) return;
+  const show = opts.view === 'per-skill' && graph.skills.length > 1;
+  setData(widget, 'legend', show ? 'on' : 'off');
+  if (!show) return;
   for (const skill of graph.skills) {
     const item = document.createElement('span');
     const swatch = document.createElement('i');

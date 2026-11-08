@@ -8,7 +8,7 @@
 // per-column mean (bias) and UR and call out the column with the highest UR and the most
 // biased column. The `columns` zone instead lays one thin strip under each real stage column.
 
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920;
 const H = 1080;
@@ -44,6 +44,7 @@ const P = {
   holds: '/beatmap/stats/objects/holds',
   checksum: '/beatmap/checksum',
   client: '/client',
+  skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
@@ -104,17 +105,24 @@ let status = 'connecting';
 let values = {};
 let opts = {
   tickLifetime: 6, release: 'auto', numbers: true, zone: 'right', x: 0, y: 0, scale: 1,
-  backing: 'none', accent: 'map', columnWidth: 30, columnStart: 136, brand: true,
+  backing: 'none', accent: 'map', columnWidth: 0, columnStart: 0, brand: true,
 };
 let palette = null;
 let paletteFor = '';
 let place = '';               // last applied placement signature
 let band = false;             // columns zone
 let summary = false;          // results: per-column table only
-let where = { band: false, unit: 2.25, columnWidth: 30, scale: 1 };
+let where = { band: false, columns: [], left: 0, scale: 1 };
+let skin = null;              // maniaSkin() for skinKeys columns, or null (no skin.ini served)
+let skinKeys = 0;
+let skinWant = '';
 let columns = 0;
-let colW = 64;
+let colW = 64;                // narrowest column (CSS px); drives number precision and tick inset
 let gap = 4;
+// Column geometry inside the strip canvases (CSS px from the canvas's left edge).
+const colLeft = new Float64Array(MAX_COLS);
+const colSize = new Float64Array(MAX_COLS);
+let stripW = 0;
 let ratio = 0;
 let view = '';                // hidden | waiting | extension | strips
 let showRelease = false;
@@ -288,7 +296,7 @@ class Strip {
   }
 
   layout() {
-    const cssW = columns * colW + (columns - 1) * gap;
+    const cssW = stripW;
     const cssH = band ? (this.s.kind ? 0 : BAND_H) : STRIP_H[this.s.kind];
     this.canvas.style.width = `${cssW}px`;
     this.canvas.style.height = `${cssH}px`;
@@ -299,9 +307,9 @@ class Strip {
     // The columns zone has no gaps (strips sit under the real columns), so inset each well.
     const inner = band ? Math.round(3 * ratio) : 0;
     for (let c = 0; c < columns; c++) {
-      const x0 = Math.round(c * (colW + gap) * ratio);
+      const x0 = Math.round(colLeft[c] * ratio);
       this.xs[c] = x0 + inner;
-      this.ws[c] = Math.round((c * (colW + gap) + colW) * ratio) - x0 - 2 * inner;
+      this.ws[c] = Math.round((colLeft[c] + colSize[c]) * ratio) - x0 - 2 * inner;
     }
     const pad = Math.round(4 * ratio);
     this.mid = Math.round(h / 2);
@@ -496,7 +504,7 @@ subscribe(Object.values(P), (v, changed) => {
   if (changed.has(P.keyHitErrors)) onKeyHitErrors(values[P.keyHitErrors]);
   if (changed.has(P.checksum)) loadPalette();
   if (changed.has(P.state) || changed.has(P.playMode) || changed.has(P.settingsMode) || changed.has(P.keys)
-    || changed.has(P.holds) || changed.has(P.keyHitErrors) || changed.has(P.client)) layoutDirty = true;
+    || changed.has(P.holds) || changed.has(P.keyHitErrors) || changed.has(P.client) || changed.has(P.skin)) layoutDirty = true;
   wake();
 }, {
   onStatus(next) {
@@ -570,19 +578,41 @@ function makeCells(row, n) {
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
+/** Loads the current skin's [Mania] section for `n` keys (cached per skin by maniaSkin). */
+function requestSkin(n) {
+  const name = values[P.skin] ?? '';
+  const key = `${n}|${name}`;
+  if (key === skinWant) return;
+  skinWant = key;
+  maniaSkin(n, name).then(result => {
+    if (skinWant !== key) return;
+    skin = result;
+    skinKeys = n;
+    layoutDirty = true;
+    wake();
+  });
+}
+
 /**
  * Positions the dock in osu!mania's free space. Side zones float the block beside the stage
- * (screen edge, or against the stage using the skin's ColumnStart/ColumnWidth); the columns zone
- * lays one thin strip under each real column, which needs those two settings to match the skin.
- * Results use the one band stable's results screen leaves free: the right of its top header.
+ * (screen edge, or against the stage); the columns zone lays one thin strip under each real
+ * column. The stage comes from the skin's skin.ini via vosu (ColumnStart/ColumnWidth/
+ * ColumnSpacing); the Column start/width settings override it, and stable's defaults apply
+ * when neither is available. Results use the one band stable's results screen leaves free.
  */
 function placeDock(n, results) {
   const zone = results ? 'results'
     : ['right', 'left', 'stage-right', 'stage-left', 'columns'].includes(opts.zone) ? opts.zone : 'right';
   const lazer = values[P.client] === 'lazer';
-  const columnWidth = clamp(Number(opts.columnWidth) || 30, 10, 200);
+  const fromSkin = skin && skinKeys === n ? skin : null;
+  const widthOverride = clamp(Number(opts.columnWidth) || 0, 0, 200);
+  const startOverride = clamp(Number(opts.columnStart) || 0, 0, 640);
   const stage = osuLayout('mania', {
-    keys: n, columnWidth, columnStart: clamp(Number(opts.columnStart) || 0, 0, 640), client: lazer ? 'lazer' : 'stable',
+    keys: n,
+    columnWidth: widthOverride || fromSkin?.columnWidth || 30,
+    columnSpacing: widthOverride ? 0 : fromSkin?.columnSpacing || 0,
+    columnStart: startOverride || (fromSkin ? fromSkin.columnStart : 136),
+    client: lazer ? 'lazer' : 'stable',
   });
   const scale = results ? 1 : clamp(Number(opts.scale) || 1, 0.5, 2);
   const x = Number(opts.x) || 0, y = Number(opts.y) || 0;
@@ -595,7 +625,7 @@ function placeDock(n, results) {
   else if (zone === 'stage-left') left = stage.busy.x - MARGIN + x;
   else { left = stage.busy.x + x; top = H - BAND_H - 4 + y; }
   const columnsZone = zone === 'columns';
-  const signature = `${zone}|${left}|${top}|${scale}|${columnsZone ? stage.busy.w : ''}`;
+  const signature = `${zone}|${left}|${top}|${scale}`;
   if (signature !== place) {
     place = signature;
     setClass(dock, 'is-right', right);
@@ -605,7 +635,7 @@ function placeDock(n, results) {
     dock.style.top = `${top}px`;
     dock.style.transform = !columnsZone && scale !== 1 ? `scale(${scale})` : '';
   }
-  return { band: columnsZone, unit: stage.unit, columnWidth, scale: columnsZone ? 1 : scale };
+  return { band: columnsZone, columns: stage.columns, left: stage.busy.x, scale: columnsZone ? 1 : scale };
 }
 
 let geometry = '';
@@ -635,6 +665,7 @@ function applyLayout() {
   setClass(panel, 'is-hidden', next === 'hidden');
 
   const n = mode === 'mania' ? columnCount() : columns || 4;
+  if (mode === 'mania') requestSkin(n);
   // A fading-out panel stays where it is; the chip still needs a place.
   if (next !== 'hidden' || chipState) where = placeDock(n, results && next !== 'hidden');
   if (next !== 'hidden') {
@@ -665,9 +696,17 @@ function applyLayout() {
   const nextBand = where.band;
   const nextGap = nextBand ? 0 : n > 10 ? 2 : 4;
   const area = results ? RESULTS_AREA : AREA;
-  const nextColW = nextBand
-    ? where.columnWidth * where.unit
-    : clamp(Math.floor((area - (n - 1) * nextGap) / n), n > 10 && !results ? 16 : 30, 64);
+  // Columns zone: the real (possibly uneven, spaced) stage columns; elsewhere an even block.
+  let nextColW = clamp(Math.floor((area - (n - 1) * nextGap) / n), n > 10 && !results ? 16 : 30, 64);
+  let layoutKey = '';
+  if (nextBand) {
+    nextColW = Infinity;
+    for (let c = 0; c < n; c++) {
+      const col = where.columns[c];
+      if (col.w < nextColW) nextColW = col.w;
+      layoutKey += `${col.x - where.left},${col.w};`;
+    }
+  }
   const wantRelease = !nextBand && !results && (opts.release === 'always'
     || (opts.release === 'auto' && (Number(values[P.holds]) > 0 || kinds[1].count.some(Boolean))));
   const numbers = results || (Boolean(opts.numbers) && nextColW >= 30);
@@ -678,13 +717,18 @@ function applyLayout() {
   if (wantRelease !== showRelease) { showRelease = wantRelease; strips[1].dirty = true; }
 
   const nextRatio = (window.devicePixelRatio || 1) * (Math.min(innerWidth / W, innerHeight / H) || 1) * where.scale;
-  const signature = `${n}|${nextBand}|${nextColW}|${nextGap}|${nextRatio}`;
+  const signature = `${n}|${nextBand}|${nextColW}|${nextGap}|${nextRatio}|${layoutKey}`;
   if (signature === geometry) return;
   geometry = signature;
   ratio = nextRatio;
   band = nextBand;
   gap = nextGap;
   colW = nextColW;
+  for (let c = 0; c < n; c++) {
+    colLeft[c] = band ? where.columns[c].x - where.left : c * (colW + gap);
+    colSize[c] = band ? where.columns[c].w : colW;
+  }
+  stripW = colLeft[n - 1] + colSize[n - 1];
   panel.style.setProperty('--n', n);
   panel.style.setProperty('--col', `${colW}px`);
   panel.style.setProperty('--gap', `${gap}px`);

@@ -11,6 +11,8 @@
  {"uniqueID":"stripX","type":"number","title":"Play strip nudge X / px","value":0},
  {"uniqueID":"stripY","type":"number","title":"Play strip nudge Y / px","value":0},
  {"uniqueID":"scale","type":"number","title":"Text scale","description":"Scale for the play strip and session ledger; clamped to 0.6–1.6.","value":1},
+ {"uniqueID":"columnStart","type":"number","title":"Mania ColumnStart","description":"osu!mania stage left edge in skin units (skin.ini ColumnStart). 0 = read from your current skin through vosu (stable's 136 when unavailable). Only used to keep content clear of the stage.","value":0},
+ {"uniqueID":"columnWidth","type":"number","title":"Mania ColumnWidth","description":"osu!mania column width in skin units (skin.ini ColumnWidth). 0 = read from your current skin through vosu (stable's 30 when unavailable).","value":0},
  {"uniqueID":"showSession","type":"checkbox","title":"Show session ledger","description":"In song select and on results: plays and playtime this session, pp gained and global rank moved since this source loaded. Sits in the free centre column of song select and the right of the results header.","value":true},
  {"uniqueID":"showResultsPp","type":"checkbox","title":"Show pp on results (stable)","description":"osu!stable's results screen has no pp; this adds the result's pp and if-FC pp to the ledger. Not shown on lazer, which displays pp itself.","value":true},
  {"uniqueID":"ledgerX","type":"number","title":"Ledger nudge X / px","value":0},

@@ -3,7 +3,7 @@
 // accuracy, grade tally and profile pp / rank movement, counted in the page from state
 // transitions (vosu's /session/playCount is always 0 and /session/playTime is osu!'s game
 // clock, so neither measures a streaming session).
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920;
 const H = 1080;
@@ -22,7 +22,7 @@ const POINTERS = [
   '/play/accuracy', '/play/rank/current', '/play/pp/current',
   '/resultsScreen/score', '/resultsScreen/accuracy', '/resultsScreen/rank', '/resultsScreen/pp/current',
   '/beatmap/title', '/beatmap/version', '/beatmap/checksum', '/beatmap/stats/cs/converted',
-  '/play/mode/number', '/settings/mode/number', '/client',
+  '/play/mode/number', '/settings/mode/number', '/client', '/settings/skin/name',
   '/profile/id', '/profile/mode/number', '/profile/pp', '/profile/globalRank',
 ];
 
@@ -230,12 +230,24 @@ function onFrame(v) {
   const mode = activeMode(state, v['/play/mode/number'], v['/settings/mode/number']);
   const keys = Math.round(num(v['/beatmap/stats/cs/converted'])) || 4;
   const client = v['/client'] === 'lazer' ? 'lazer' : 'stable';
-  if (mode !== view.mode || client !== view.client || (mode === 'mania' && keys !== view.keys)) {
+  const skin = typeof v['/settings/skin/name'] === 'string' ? v['/settings/skin/name'] : '';
+  if (mode !== view.mode || client !== view.client || (mode === 'mania' && (keys !== view.keys || skin !== view.skin))) {
     view.mode = mode;
     view.keys = keys;
     view.client = client;
+    view.skin = skin;
+    view.stage = null;
     placeDirty = true;
     dirty();
+    // The skin's real mania stage (skin.ini through vosu); null keeps osu!stable's defaults.
+    if (mode === 'mania') {
+      maniaSkin(keys, skin).then(stage => {
+        if (view.mode !== 'mania' || view.keys !== keys || view.skin !== skin) return;
+        view.stage = stage;
+        placeDirty = true;
+        dirty();
+      });
+    }
   }
   const checksum = v['/beatmap/checksum'];
   if (checksum !== view.checksum) { view.checksum = checksum; tint(); }
@@ -330,13 +342,12 @@ const gradeEls = Object.fromEntries(Object.keys(model.grades).map(g => [g, { cou
 // the results header strip (x 1000–1900, y 8–130). Gameplay uses osuLayout() per ruleset.
 const SELECT_CENTRE_X = 850;
 const SELECT_CENTRE_Y = 560;
-const SELECT_BOTTOM = 930;
 const RESULT_RIGHT = 1900;
 const RESULT_TOP = 54;
 const LEDGER_W = 320;
 const MINI_W = 216;
 const EDGE = 24;
-const view = { mode: null, keys: 4, client: 'stable', checksum: undefined };
+const view = { mode: null, keys: 4, client: 'stable', skin: '', stage: null, checksum: undefined };
 let placeDirty = true;
 
 const scaleOf = () => Math.min(1.6, Math.max(0.6, Number(cfg.scale) || 1));
@@ -357,12 +368,11 @@ function place() {
   const ledgerLeft = Math.round(SELECT_CENTRE_X - LEDGER_W / 2 + cfg.selectX);
   // Centred in the column whatever rows are enabled (no layout read: the box shifts itself up by half).
   put(el.ledger, { left: ledgerLeft, top: Math.round(SELECT_CENTRE_Y + cfg.selectY) }, '50% 0', 'translateY(-50%)');
-  put(el.chip, { left: ledgerLeft, bottom: Math.round(H - SELECT_BOTTOM - cfg.selectY) }, '0 100%');
   put(el.result, { right: Math.round(W - RESULT_RIGHT - cfg.resultX), top: Math.round(RESULT_TOP + cfg.resultY) }, '100% 0');
 
   // Gameplay: beside the playfield (osu!/catch side bands, mania beside the stage, taiko below the lane).
   const mode = view.mode || 'osu';
-  const { busy } = osuLayout(mode, { keys: view.keys, client: view.client });
+  const { busy } = osuLayout(mode, { keys: view.keys, client: view.client, ...(mode === 'mania' && view.stage ? view.stage : {}) });
   const width = MINI_W * s;
   // Clear the stable skip button / lazer key counter in the bottom corners.
   const bottom = (view.client === 'lazer' ? 200 : 140) - cfg.playY;
@@ -371,8 +381,15 @@ function place() {
   let side = cfg.side === 'left' ? 'left' : 'right';
   if (side === 'left' && leftRoom < width + EDGE * 2 && rightRoom >= width + EDGE * 2) side = 'right';
   if (side === 'right' && rightRoom < width + EDGE * 2 && leftRoom >= width + EDGE * 2) side = 'left';
-  if (side === 'right') put(el.mini, { right: EDGE - cfg.playX, bottom }, '100% 100%');
-  else put(el.mini, { left: EDGE + cfg.playX, bottom }, '0 100%');
+  // The connection chip shares the gameplay corner: with vosu down the screen is unknown, and
+  // this corner is free during play in every ruleset.
+  if (side === 'right') {
+    put(el.mini, { right: EDGE - cfg.playX, bottom }, '100% 100%');
+    put(el.chip, { right: EDGE - cfg.playX, bottom }, '100% 100%');
+  } else {
+    put(el.mini, { left: EDGE + cfg.playX, bottom }, '0 100%');
+    put(el.chip, { left: EDGE + cfg.playX, bottom }, '0 100%');
+  }
   klass(el.mini, 'end', side === 'right');
   tapes.forEach(t => { t.ratio = 0; });
   resizeTapes();

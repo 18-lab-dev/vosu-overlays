@@ -2,7 +2,7 @@
 // Now playing: the map's identity, live star rating/BPM, mod-adjusted settings and progress,
 // floated into the free space beside osu!'s playfield during gameplay. Song select and results
 // already show all of this, so the overlay stays empty there.
-import { subscribe, settings, fit, activeMode, formatDuration, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -11,7 +11,7 @@ const STRIP_TAIKO = 440; // below the taiko lane there is room for a title on on
 const MARGIN = 40; // gap to the screen edge or the playfield/stage
 
 const P = {
-  state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client',
+  state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client', skin: '/settings/skin/name',
   title: '/beatmap/title', titleUnicode: '/beatmap/titleUnicode', artist: '/beatmap/artist', artistUnicode: '/beatmap/artistUnicode',
   version: '/beatmap/version', mapper: '/beatmap/mapper', checksum: '/beatmap/checksum', isConvert: '/beatmap/isConvert',
   first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject', mp3: '/beatmap/time/mp3Length', clockRate: '/beatmap/time/rate',
@@ -73,7 +73,7 @@ function cellText(cell, part, value) {
 // ------------------------------------------------------------------ state
 let opts = {
   layout: 'full', unicode: false, showStats: true, zone: 'auto', x: 0, y: 0, scale: 1,
-  backing: 'none', accent: 'map', showBrand: true, columnStart: 136, columnWidth: 30,
+  backing: 'none', accent: 'map', showBrand: true, columnStart: 0, columnWidth: 0,
 };
 let values = {};
 let live;
@@ -88,6 +88,9 @@ const ctx = { show: false, parsed: false, rate: 1, start: 0, length: 0 };
 let shownChecksum;
 let shownMode;
 let placed = '';
+// The current skin's [Mania] geometry for the key count being played (null: not readable).
+let skinFor = '';
+let skinGeometry = null;
 let paletteFor = '';
 let barScale = -1;
 let shownSecond = -1;
@@ -157,6 +160,7 @@ function renderAll() {
 
   // Placement: re-laid out on ruleset, key count, client and placement settings only.
   const keys = mode === 'mania' && ctx.parsed ? Math.round(num(values[P.csC]) ?? 4) : 4;
+  if (mode === 'mania') loadSkin(keys, str(values[P.skin]));
   place(mode || 'osu', keys, values[P.client] === 'lazer' ? 'lazer' : 'stable');
 
   // Tiny status line in the zone; nothing at all in menus, song select and results.
@@ -215,11 +219,30 @@ function rate() {
   return num(values[P.modsRate]) || num(values[P.clockRate]) || 1;
 }
 
+/** Fetches the skin's mania columns off the hot path; placement is redone when they arrive. */
+function loadSkin(keys, skin) {
+  const key = `${keys}|${skin}`;
+  if (key === skinFor) return;
+  skinFor = key;
+  skinGeometry = null;
+  maniaSkin(keys, skin).then(geometry => {
+    if (skinFor !== key) return;
+    skinGeometry = geometry;
+    placed = '';
+    dirty = true;
+    schedule();
+  });
+}
+
 function place(mode, keys, client) {
-  const key = `${mode}|${keys}|${client}`;
+  // Mania stage: the skin's ColumnStart/ColumnWidth/ColumnSpacing unless the settings override them.
+  const colStart = num(opts.columnStart) > 0 ? opts.columnStart : skinGeometry?.columnStart ?? 136;
+  const colWidth = num(opts.columnWidth) > 0 ? opts.columnWidth : skinGeometry?.columnWidth ?? 30;
+  const colSpacing = num(opts.columnWidth) > 0 ? 0 : skinGeometry?.columnSpacing ?? 0;
+  const key = `${mode}|${keys}|${client}|${mode === 'mania' ? `${colStart}|${colWidth}|${colSpacing}` : ''}`;
   if (key === placed) return;
   placed = key;
-  const layout = osuLayout(mode, { keys, client, columnWidth: num(opts.columnWidth) || 30, columnStart: num(opts.columnStart) ?? 136 });
+  const layout = osuLayout(mode, { keys, client, columnStart: colStart, columnWidth: colWidth, columnSpacing: colSpacing });
   const { busy, hud } = layout;
   const scale = clamp(num(opts.scale) || 1, 0.5, 2);
   const zone = opts.zone === 'left' || opts.zone === 'right' ? opts.zone : AUTO_ZONE[mode];
@@ -231,9 +254,9 @@ function place(mode, keys, client) {
     y = busy.y + busy.h + 44;
     room = WIDTH;
   } else if (mode === 'mania') {
-    y = hud.health.y + hud.health.h + 48;
-    if (zone === 'left') { align = 'end'; x = busy.x - MARGIN; room = busy.x - 2 * MARGIN; }
-    else { align = 'start'; x = busy.x + busy.w + 96; room = WIDTH - x - MARGIN; }
+    if (zone === 'left') { align = 'end'; x = busy.x - MARGIN; y = hud.health.y + hud.health.h + 48; room = busy.x - 2 * MARGIN; }
+    // Right of the stage the strip can reach under score/accuracy, so start below them.
+    else { align = 'start'; x = busy.x + busy.w + 96; y = hud.accuracy.y + hud.accuracy.h + 32; room = WIDTH - x - MARGIN; }
   } else if (zone === 'left') {
     align = 'start'; x = MARGIN; y = hud.health.y + hud.health.h + 40; room = busy.x - 2 * MARGIN;
   } else {

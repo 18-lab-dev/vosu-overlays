@@ -5,7 +5,7 @@
 // results screen with the attempt's peak/average KPS and history (osu! shows neither); hidden in
 // song select and menus. Everything that changes per tap is drawn on one canvas with per-tile
 // dirty redraws; data handlers only record state and one rAF pass renders, then sleeps.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const RESULTS = 7;
 const BUCKET_MS = 250;          // history resolution
@@ -28,7 +28,7 @@ const P = {
   state: '/state/number', playMode: '/play/mode/number', menuMode: '/settings/mode/number',
   client: '/client', all: '/keys/all', k1: '/keys/k1', k2: '/keys/k2', m1: '/keys/m1', m2: '/keys/m2',
   bindOsu: '/settings/keybinds/osu', bindTaiko: '/settings/keybinds/taiko', bindFruits: '/settings/keybinds/fruits',
-  cs: '/beatmap/stats/cs/converted', checksum: '/beatmap/checksum',
+  cs: '/beatmap/stats/cs/converted', checksum: '/beatmap/checksum', skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
@@ -165,6 +165,7 @@ function onFrame(values) {
       const cs = Math.round(num(values[P.cs]));
       columns = lastColumns || (cs >= 1 && cs <= 18 ? cs : 4);
     }
+    loadSkin(columns, values[P.skin]);
   }
   const smoke = mode === 'osu' && !!src && src.length > 2 && num(src[2].count) > 0;
   const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
@@ -262,7 +263,7 @@ function setTint(palette) {
 // ---------------------------------------------------------------- placement
 const opts = {
   zone: 'auto', x: 0, y: 0, scale: 1, orientation: 'horizontal', cap: 72, spark: true, total: true,
-  backing: 'none', accent: 'map', brand: true, columnStart: 136, columnWidth: 30, matchColumns: false,
+  backing: 'none', accent: 'map', brand: true, columnStart: 0, columnWidth: 0, matchColumns: false,
 };
 const geo = { k: 1, w: 0, h: 0, stat: { x: 0, y: 0 } };
 const caps = [];   // drawn caps: {src, label, sub, kind, x, y, w, h, p, f, d*}
@@ -277,7 +278,8 @@ function resolveZone(mode, keys) {
   // Results: osu! fills the screen with its ranking panel; the right part of the top header strip is free.
   if (view.phase === 'results') return { x: 1000, y: 8, w: 900, h: 122, alignX: 1, anchorY: 'centre', at: 69 };
   const m = mode || 'osu';
-  const layout = osuLayout(m, { keys: keys || 4, columnWidth: opts.columnWidth, columnStart: opts.columnStart, client: view.client });
+  const stage = maniaStage(keys || 4);
+  const layout = osuLayout(m, { keys: keys || 4, ...stage, client: view.client });
   const { busy, hud: h, width: W, height: H, unit } = layout;
   const zone = opts.zone === 'auto' ? (m === 'taiko' ? 'bottom' : 'right') : opts.zone;
   const low = Math.round(H * 0.86);   // side bands: cluster bottom, clear of lazer's bottom-right key counter
@@ -290,7 +292,8 @@ function resolveZone(mode, keys) {
     return { x: MARGIN, y: top, w: W - 2 * MARGIN, h: H - top - MARGIN, alignX: zone === 'right' ? 1 : zone === 'left' || zone === 'bottom' ? 0 : 0.5, anchorY: 'top', at: top };
   }
   if (m === 'mania') {
-    const receptors = Math.round(H * 0.875);   // caps row centred on the receptor line
+    // Caps row ends just above the hit line (skin HitPosition), level with the receptors.
+    const receptors = Math.min(H - MARGIN, Math.round(stage.hitPosition * unit) - 24) - opts.cap / 2;
     if (zone === 'left') {
       const x1 = busy.x - MARGIN;
       return { x: MARGIN, y: 0, w: x1 - MARGIN, h: H, alignX: 1, anchorY: 'capsCentre', at: receptors };
@@ -311,6 +314,31 @@ function resolveZone(mode, keys) {
   return { x: x0, y: 0, w: W - MARGIN - x0, h: H, alignX: 1, anchorY: 'bottom', at: low };
 }
 
+/** Mania stage geometry: the skin's [Mania] section, with the column settings as overrides (0 = skin). */
+function maniaStage(keys) {
+  const skin = skinGeo.keys === keys ? skinGeo.value : null;
+  return {
+    columnStart: opts.columnStart || skin?.columnStart || 136,
+    columnWidth: opts.columnWidth || skin?.columnWidth || 30,
+    columnSpacing: opts.columnWidth ? 0 : skin?.columnSpacing || 0,
+    hitPosition: skin?.hitPosition || 402,
+  };
+}
+
+// Current skin's mania section, re-read on key-count or skin change (off the hot path).
+const skinGeo = { wantKeys: 0, wantName: null, keys: 0, value: null };
+function loadSkin(keys, name) {
+  const skin = typeof name === 'string' ? name : '';
+  if (keys === skinGeo.wantKeys && skin === skinGeo.wantName) return;
+  skinGeo.wantKeys = keys; skinGeo.wantName = skin;
+  maniaSkin(keys, skin).then(value => {
+    if (skinGeo.wantKeys !== keys || skinGeo.wantName !== skin) return;
+    skinGeo.keys = keys; skinGeo.value = value;
+    dirty.layout = true;
+    wake();
+  }).catch(() => {});
+}
+
 function buildLayout() {
   const n = view.caps.length;
   const mode = view.mode;
@@ -318,8 +346,9 @@ function buildLayout() {
   const unit = 1080 / 480;
   let capW = opts.cap, capH = opts.cap, gap = GAP;
   if (mode === 'mania' && opts.matchColumns) {
-    // One cap per stage column at the stage's own pitch (skin ColumnWidth).
-    const pitch = opts.columnWidth * unit;
+    // One cap per stage column at the stage's own average pitch.
+    const cols = osuLayout('mania', { keys: n || 1, ...maniaStage(n || 1) }).columns || [];
+    const pitch = cols.length ? (cols.at(-1).x + cols.at(-1).w - cols[0].x) / cols.length : 30 * unit;
     gap = Math.max(2, Math.round(pitch * 0.08));
     capW = Math.round(pitch - gap);
   }
@@ -702,7 +731,7 @@ const sub = subscribe(Object.values(P), onFrame, { onStatus });
 
 const DEFAULTS = {
   zone: 'auto', x: 0, y: 0, scale: 1, orientation: 'horizontal', capSize: 72, showSparkline: true, showTotal: true,
-  backing: 'none', accent: 'map', showBrand: true, columnStart: 136, columnWidth: 30, matchColumns: false,
+  backing: 'none', accent: 'map', showBrand: true, columnStart: 0, columnWidth: 0, matchColumns: false,
 };
 settings(DEFAULTS, s => {
   opts.zone = ['auto', 'left', 'right', 'top', 'bottom'].includes(s.zone) ? s.zone : 'auto';
@@ -716,8 +745,9 @@ settings(DEFAULTS, s => {
   opts.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   opts.accent = s.accent === '18-lab' ? '18-lab' : 'map';
   opts.brand = !!s.showBrand;
-  opts.columnStart = Math.max(0, Math.min(400, s.columnStart));
-  opts.columnWidth = Math.max(10, Math.min(120, s.columnWidth));
+  // 0 (or empty) = take the stage from the current skin's skin.ini.
+  opts.columnStart = s.columnStart > 0 ? Math.min(600, s.columnStart) : 0;
+  opts.columnWidth = s.columnWidth > 0 ? Math.max(10, Math.min(200, s.columnWidth)) : 0;
   opts.matchColumns = !!s.matchColumns;
   hud.dataset.backing = opts.backing;
   hud.dataset.accent = opts.accent;

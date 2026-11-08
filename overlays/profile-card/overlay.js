@@ -2,7 +2,7 @@
 // Player tag: who is playing, their global rank and pp, and what this session has changed.
 // It floats in a free corner of osu!'s layout during the player's own attempts only: song select
 // already shows the user panel and results already show the ranking change, so it stays away there.
-import { subscribe, settings, fit, osuLayout, mapPalette, applyPalette, activeMode, MODES } from './vosu-overlay.js';
+import { subscribe, settings, fit, osuLayout, maniaSkin, mapPalette, applyPalette, activeMode, MODES } from './vosu-overlay.js';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -22,6 +22,7 @@ const P = {
   playMode: '/play/mode/number',
   selectedMode: '/settings/mode/number',
   keys: '/beatmap/stats/cs/converted',
+  skin: '/settings/skin/name',
   checksum: '/beatmap/checksum',
   name: '/profile/name',
   id: '/profile/id',
@@ -126,10 +127,31 @@ function loadPalette() {
   });
 }
 
+/** The skin's mania stage (columnStart/widths/spacing from skin.ini), read once per skin and key count. */
+let stage = null;
+let stageFor = '';
+function loadStage() {
+  const v = values ?? {};
+  const mania = activeMode(v[P.state], v[P.playMode], v[P.selectedMode]) === 'mania';
+  const keys = finite(v[P.keys]) ? Math.round(v[P.keys]) : 4;
+  const skin = typeof v[P.skin] === 'string' ? v[P.skin] : '';
+  const key = mania ? `${keys}|${skin}` : '';
+  if (key === stageFor) return;
+  stageFor = key;
+  stage = null;
+  if (!mania) return;
+  maniaSkin(keys, skin).then(result => {
+    if (stageFor !== key) return;
+    stage = result;
+    invalidate();
+  });
+}
+
 subscribe(Object.values(P), current => {
   values = current;
   track();
   loadPalette();
+  loadStage();
   invalidate();
 }, {
   onStatus: state => {
@@ -183,10 +205,11 @@ let placedFor = '';
 function place(mode, keys, client) {
   const corner = CORNERS.has(opts.zone) ? opts.zone : DEFAULTS.zone;
   const scale = Math.min(2, Math.max(0.5, opts.scale || 1));
-  const key = `${mode}|${keys}|${client}|${corner}|${opts.offsetX}|${opts.offsetY}|${scale}`;
+  const key = `${mode}|${keys}|${client}|${corner}|${opts.offsetX}|${opts.offsetY}|${scale}|${stage ? stageFor : ''}`;
   if (key === placedFor) return;
   placedFor = key;
-  const layout = osuLayout(mode ?? 'osu', { keys, client });
+  // Default stable geometry until the skin's stage is known (or when vosu serves no skin.ini).
+  const layout = osuLayout(mode ?? 'osu', { keys, client, ...(mode === 'mania' && stage ? stage : {}) });
   const [v, h] = corner.split('-');
   const cornerX = h === 'right' ? WIDTH : 0;
   const cornerY = v === 'bottom' ? HEIGHT : 0;

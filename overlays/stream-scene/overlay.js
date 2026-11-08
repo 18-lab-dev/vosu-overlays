@@ -4,7 +4,7 @@
 // the active ruleset/screen (osuLayout), never over the playfield, stage, lane or HUD.
 // Only narrow scalar leaves are subscribed (no hit-error arrays); per frame during play the work is
 // one progress transform plus a handful of string compares.
-import { subscribe, settings, fit, formatDuration, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920, H = 1080, M = 24;
 const CAM_W = { small: 320, medium: 384, large: 480 };
@@ -26,13 +26,13 @@ const P = {
   ur: '/play/unstableRate', miss: '/play/hits/0', mods: '/play/mods/array', rate: '/play/mods/rate',
   rPp: '/resultsScreen/pp/current', rFc: '/resultsScreen/pp/fc', rMode: '/resultsScreen/mode/number',
   name: '/profile/name', pRank: '/profile/globalRank', pPp: '/profile/pp', pMode: '/profile/mode/name',
-  sTime: '/session/playTime', sPlays: '/session/playCount',
+  sTime: '/session/playTime', sPlays: '/session/playCount', skin: '/settings/skin/name',
 };
 
 // Dirty groups: data handlers only OR these in; rendering happens once per animation frame.
 const STATUS = 1, PLACE = 2, NP = 4, PROGRESS = 8, PLAY = 16, RESULT = 32, SESSION = 64, ALL = 127;
 const GROUP = {
-  [P.state]: ALL, [P.playMode]: ALL, [P.selMode]: ALL, [P.rMode]: ALL, [P.client]: PLACE | RESULT, [P.keys]: PLACE,
+  [P.state]: ALL, [P.playMode]: ALL, [P.selMode]: ALL, [P.rMode]: ALL, [P.client]: PLACE | RESULT, [P.keys]: PLACE, [P.skin]: PLACE,
   [P.title]: NP, [P.version]: NP, [P.checksum]: NP,
   [P.live]: PROGRESS, [P.first]: PROGRESS, [P.last]: PROGRESS, [P.clockRate]: PROGRESS,
   [P.ppNow]: PLAY, [P.ppFc]: PLAY, [P.acc]: PLAY, [P.combo]: PLAY, [P.ur]: PLAY, [P.miss]: PLAY,
@@ -136,15 +136,37 @@ function bandLimits(band, hud) {
   }
   return { top, bottom };
 }
+// osu!stable draws the mania HP bar against the stage's right edge; keep its width clear too.
+const MANIA_HP = 80;
 function sideBand(layout, side) {
-  const right = layout.busy.x + layout.busy.w;
-  return side === 'left' ? { x: 0, w: layout.busy.x } : { x: right, w: W - right };
+  const right = layout.busy.x + layout.busy.w + (layout.columns ? MANIA_HP : 0);
+  return side === 'left' ? { x: 0, w: layout.busy.x } : { x: right, w: Math.max(0, W - right) };
 }
-/** Content of width `want` in a band: centred when the band is narrow, else on its outer screen edge. */
+/** Content of width `want` in a band, on the band's outer screen edge (shrunk to fit the band). */
 function inBand(band, side, want) {
   const w = Math.max(160, Math.min(want, band.w - 2 * M));
-  const x = band.w - 2 * M < want * 1.5 ? band.x + Math.round((band.w - w) / 2) : side === 'left' ? M : W - M - w;
-  return { x, w };
+  return { x: side === 'left' ? M : W - M - w, w };
+}
+
+/** Mania stage geometry from the current skin's skin.ini (loaded per key count + skin, off the hot path). */
+let skinGeo = { key: '', value: null };
+function maniaGeometry(keys) {
+  const skin = str(v(P.skin));
+  const key = `${keys}|${skin}`;
+  if (skinGeo.key !== key) {
+    skinGeo = { key, value: null };
+    maniaSkin(keys, skin).then(value => {
+      if (skinGeo.key !== key) return;
+      skinGeo.value = value;
+      placed = '';
+      mark(PLACE);
+    });
+  }
+  // Settings override the skin: 0 = take it from skin.ini (or stable's defaults without one).
+  const geo = { ...(skinGeo.value ?? {}) };
+  if (num(opts.columnStart) > 0) geo.columnStart = opts.columnStart;
+  if (num(opts.columnWidth) > 0) { geo.columnWidth = opts.columnWidth; geo.columnSpacing = 0; }
+  return geo;
 }
 
 function place() {
@@ -154,7 +176,8 @@ function place() {
   const other = side === 'left' ? 'right' : 'left';
   const camMode = MODES.includes(opts.camLayout) ? opts.camLayout : mode ?? 'osu';
   const stripMode = mode ?? 'osu';
-  const key = `${camMode}|${stripMode}|${keys}|${client}|${phase}|${side}|${opts.camSize}|${opts.camX}|${opts.camY}|${opts.stripX}|${opts.stripY}|${opts.scale}|${opts.ledgerX}|${opts.ledgerY}`;
+  const geo = camMode === 'mania' || stripMode === 'mania' ? maniaGeometry(keys) : {};
+  const key = `${camMode}|${stripMode}|${keys}|${client}|${phase}|${side}|${JSON.stringify(geo)}|${opts.camSize}|${opts.camX}|${opts.camY}|${opts.stripX}|${opts.stripY}|${opts.scale}|${opts.ledgerX}|${opts.ledgerY}`;
   if (key === placed) return;
   placed = key;
   const want = CAM_W[opts.camSize] ?? CAM_W.medium;
@@ -162,7 +185,7 @@ function place() {
 
   // Webcam: taiko → bottom corner of the band under the lane (tag above the frame);
   // osu!/catch/mania → top of the side band, below the score/accuracy or HP bar.
-  const camLayout = osuLayout(camMode, { keys, client });
+  const camLayout = osuLayout(camMode, { keys, client, ...geo });
   let cam;
   if (camMode === 'taiko') {
     const w = Math.min(want, 640);
@@ -185,7 +208,7 @@ function place() {
   // Play strip: taiko → a row under the lane on the side away from the webcam; osu!/catch → the
   // bottom of the opposite side band (left band ends above the combo counter); mania → under the
   // webcam's band, bottom-anchored beside the stage.
-  const stripLayout = osuLayout(stripMode, { keys, client });
+  const stripLayout = osuLayout(stripMode, { keys, client, ...geo });
   const scale = clamp(num(opts.scale) ?? 1, 0.6, 1.6);
   const s = el.strip.style;
   let strip;
@@ -270,7 +293,7 @@ const v = pointer => (link === 'live' ? values[pointer] : undefined);
 
 settings({
   side: 'auto', camLayout: 'follow ruleset', camSize: 'medium', camX: 0, camY: 0, stripX: 0, stripY: 0,
-  ledgerX: 0, ledgerY: 0, scale: 1, handle: '', social: '', accent: 'map', backing: 'scrim',
+  ledgerX: 0, ledgerY: 0, scale: 1, columnStart: 0, columnWidth: 0, handle: '', social: '', accent: 'map', backing: 'scrim',
   showCam: true, showCaption: true, showStrip: true, showNowPlaying: true, showSession: true, showResultsPp: true,
   showBrand: true, showGuides: false,
 }, next => {

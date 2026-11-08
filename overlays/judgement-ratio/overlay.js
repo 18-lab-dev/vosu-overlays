@@ -2,11 +2,12 @@
 // osu!mania judgement counter floating beside the stage: MAX…MISS counts, proportional bar,
 // MAX:300 ratio, accuracy, combo and key presses per second from /keys/all count deltas.
 // Results keep only what osu!'s ranking screen lacks (the ratio and the attempt's peak KPS).
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const EDGE = 48; // px between the cluster and the screen edge of its band
+const STAGE_CLEARANCE = 96; // px kept free beside the stage for skin HP bars and stage art
 const STATE_PLAY = 2;
 const STATE_RESULTS = 7;
 const KPS_WINDOW = 1000; // ms of wall clock
@@ -28,6 +29,7 @@ const P = {
   keys: '/keys/all',
   keyCount: '/beatmap/stats/cs/converted',
   checksum: '/beatmap/checksum',
+  skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
@@ -80,6 +82,9 @@ let pending = 0;
 // Placement inputs; the band is recomputed only when one of them changes.
 let placedFor = '';
 let paletteFor = '';
+// The current skin's mania stage (skin.ini through vosu) for the key count in play; null = defaults.
+let skinFor = '';
+let skinGeometry = null;
 
 function resetKps() {
   ringHead = 0;
@@ -139,22 +144,47 @@ function schedule() {
 }
 
 // ------------------------------------------------------------------ placement + tint
-/** Puts the cluster in osu!'s free band on the chosen side of the mania stage, at the band's screen edge. */
+/** Reads the skin's [Mania] section for this key count once per skin/key-count change, off the hot path. */
+function loadSkin(keyCount, skinName) {
+  const key = `${keyCount}|${skinName ?? ''}`;
+  if (key === skinFor) return;
+  skinFor = key;
+  skinGeometry = null;
+  maniaSkin(keyCount, skinName ?? '').then(geometry => {
+    if (skinFor !== key) return;
+    skinGeometry = geometry;
+    placedFor = '';
+    schedule();
+  });
+}
+
+/**
+ * Puts the cluster in osu!'s free band on the chosen side of the mania stage, held at the band's
+ * screen edge. The stage comes from the skin (or the columnStart/columnWidth overrides); when the
+ * chosen band is too narrow for the cluster, the other side is used if it fits.
+ */
 function place(keyCount, client) {
-  const key = `${options.side}|${keyCount}|${client}|${options.x}|${options.y}|${options.scale}`;
+  const key = `${options.side}|${keyCount}|${client}|${options.x}|${options.y}|${options.scale}|${options.backing}|${options.columnStart}|${options.columnWidth}`;
   if (key === placedFor) return;
   placedFor = key;
-  const layout = osuLayout('mania', { keys: keyCount, client: client === 'lazer' ? 'lazer' : 'stable' });
-  const left = options.side === 'left';
-  const band = layout.free.find(r => (left ? r.x === 0 : r.x > 0)) || { y: 0, h: HEIGHT };
+  const geometry = { keys: keyCount, client: client === 'lazer' ? 'lazer' : 'stable' };
+  if (skinGeometry) Object.assign(geometry, { columnStart: skinGeometry.columnStart, columnWidth: skinGeometry.columnWidth, columnSpacing: skinGeometry.columnSpacing });
+  if (options.columnStart > 0) geometry.columnStart = options.columnStart;
+  if (options.columnWidth > 0) { geometry.columnWidth = options.columnWidth; geometry.columnSpacing = 0; }
+  const layout = osuLayout('mania', geometry);
   const scale = Math.min(2, Math.max(0.5, options.scale || 1));
+  const need = (options.backing === 'panel' ? 268 : 240) * scale + EDGE + STAGE_CLEARANCE;
+  const bandOn = side => layout.free.find(r => (side === 'left' ? r.x === 0 : r.x > 0));
+  const other = options.side === 'left' ? 'right' : 'left';
+  const side = (bandOn(options.side)?.w ?? 0) >= need || (bandOn(other)?.w ?? 0) < need ? options.side : other;
+  const band = bandOn(side) || { y: 0, h: HEIGHT };
   stage.style.setProperty('--edge', `${EDGE}px`);
   stage.style.setProperty('--cy', `${Math.round(band.y + band.h / 2)}px`);
   stage.style.setProperty('--nx', `${Math.round(options.x)}px`);
   stage.style.setProperty('--ny', `${Math.round(options.y)}px`);
   stage.style.setProperty('--scale', String(scale));
-  setAttr(hud, 'side', left ? 'left' : 'right');
-  setAttr(chip, 'side', left ? 'left' : 'right');
+  setAttr(hud, 'side', side);
+  setAttr(chip, 'side', side);
 }
 
 function loadPalette() {
@@ -226,6 +256,7 @@ function render() {
   const keyCount = state === STATE_PLAY && Array.isArray(keys) && keys.length
     ? keys.length
     : Number.isInteger(cs) && cs > 0 && cs <= 18 ? cs : 4;
+  loadSkin(keyCount, v[P.skin]);
   place(keyCount, v[P.client]);
 
   counts.fill(0);
@@ -368,7 +399,7 @@ new ResizeObserver(entries => {
 }).observe(canvas);
 
 // ------------------------------------------------------------------ settings + data
-settings({ side: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showRatio: true, showKps: true, showBrand: true }, s => {
+settings({ side: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showRatio: true, showKps: true, showBrand: true, columnStart: 0, columnWidth: 0 }, s => {
   options = s;
   options.side = s.side === 'left' ? 'left' : 'right';
   setAttr(hud, 'backing', ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none');
@@ -384,5 +415,5 @@ settings({ side: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', 
 subscribe([
   P.state, P.client, P.playMode, P.settingsMode, P.resultsMode, P.source,
   ...PLAY_HITS, P.accuracy, P.combo, P.keys,
-  ...RESULT_HITS, P.keyCount, P.checksum,
+  ...RESULT_HITS, P.keyCount, P.checksum, P.skin,
 ], onFrame, { onStatus });

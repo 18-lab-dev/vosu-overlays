@@ -13,6 +13,6 @@
  {"uniqueID":"overflow","type":"options","title":"Long lines","options":["marquee","truncate"],"description":"marquee scrolls a line that does not fit its band, pausing at both ends; truncate ends it with an ellipsis. Lines that fit never move.","value":"marquee"},
  {"uniqueID":"maxWidth","type":"number","title":"Maximum width / px","description":"Widest the line may grow; it is also limited to its band. Clamped to 240–1872 px.","value":900},
  {"uniqueID":"showBrand","type":"checkbox","title":"18—LAB tag","value":true},
- {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Your skin's ColumnWidth (osu!stable default 30). Used to keep the line clear of the mania stage.","value":30},
- {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Your skin's ColumnStart (osu!stable default 136): where the stage's left edge sits.","value":136}
+ {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Override for the skin's ColumnWidth. 0 reads it from the current skin's skin.ini through vosu (osu!stable's default 30 when unavailable). Keeps the line clear of the mania stage.","value":0},
+ {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Override for the skin's ColumnStart, the stage's left edge. 0 reads it from the skin (osu!stable's default 136 when unavailable).","value":0}
 ]

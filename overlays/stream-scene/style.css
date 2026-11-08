@@ -102,6 +102,7 @@ p { margin: 0; }
 .r-pp .v { font-size: 56px; color: var(--hl); }
 .r-pp .v small { color: var(--fg-dim); }
 .mods { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; font: 600 30px/.9 var(--font-display); color: var(--label); }
+.progress[hidden] + .readouts { margin-top: 12px; }
 .mods span {
   font: 600 18px/1 var(--font-display); letter-spacing: .06em; color: var(--fg);
   padding: 4px 6px 3px; border: 1px solid rgb(235 232 225 / .4); border-radius: var(--radius);

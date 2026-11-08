@@ -2,7 +2,7 @@
 // Now playing ticker: during gameplay, one line of map info floated into a free band of
 // osu!'s layout, with a play-progress hairline, a rolling change between maps and a paused
 // marquee for lines that do not fit. Song select and results already show all of it: nothing there.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -21,6 +21,7 @@ const P = {
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
   client: '/client',
+  skin: '/settings/skin/name',
   keys: '/beatmap/stats/cs/converted',
   artist: '/beatmap/artist',
   artistUnicode: '/beatmap/artistUnicode',
@@ -36,7 +37,7 @@ const P = {
   last: '/beatmap/time/lastObject',
 };
 const META = [P.state, P.artist, P.artistUnicode, P.title, P.titleUnicode, P.version, P.mapper, P.checksum, P.stars, P.mods];
-const GEOMETRY = [P.state, P.playMode, P.settingsMode, P.client, P.keys];
+const GEOMETRY = [P.state, P.playMode, P.settingsMode, P.client, P.keys, P.skin];
 const TIME = [P.state, P.live, P.first, P.last];
 const RATE_MODS = new Set(['DT', 'NC', 'HT', 'DC']);
 
@@ -61,7 +62,7 @@ fit(stage, WIDTH, HEIGHT);
 const defaults = {
   zone: 'auto', align: 'auto', offsetX: 0, offsetY: 0, scale: 1, backing: 'none', accent: 'map',
   unicode: false, showStars: true, showMods: true, showMapper: true, overflow: 'marquee', maxWidth: 900, showBrand: true,
-  columnWidth: 30, columnStart: 136,
+  columnWidth: 0, columnStart: 0,
 };
 let opts = { ...defaults };
 let link = 'connecting';
@@ -74,6 +75,8 @@ let contentDirty = false;
 let progressDirty = false;
 let placeDirty = true;
 let placeKey = '';
+let skinKey = '';
+let skin = null;        // maniaSkin() result for skinKey
 let paletteKey = null;
 let wantPlaying = false;
 let wantProgress = 0;   // 0..1, quantized to device pixels of the line
@@ -150,8 +153,8 @@ function updateProgress() {
 }
 
 // ------------------------------------------------------------------ placement
-/** The band for the active ruleset: `{ x, w, cy, align }` in stage px. */
-function band(mode, zoneName, layout) {
+/** The band for the active ruleset: `{ x, w, cy, align }` in stage px. `reach` caps a side column. */
+function band(mode, zoneName, layout, reach) {
   const { busy, hud } = layout;
   const healthEnd = hud.health.x + hud.health.w;
   const stageEnd = busy.x + busy.w;
@@ -161,14 +164,14 @@ function band(mode, zoneName, layout) {
       // The stage is full height: keep the wider side of the strip it leaves.
       const left = [x0, Math.min(x1, busy.x - GAP)], right = [Math.max(x0, stageEnd + GAP), x1];
       [x0, x1] = left[1] - left[0] >= right[1] - right[0] ? left : right;
-      if (x1 - x0 < 320) return band(mode, 'side', layout);
+      if (x1 - x0 < 320) return band(mode, 'side', layout, reach);
     }
     return { x: x0, w: x1 - x0, cy: hud.health.y + hud.health.h / 2, align: 'center' };
   }
   if (zoneName === 'under') {
     if (mode === 'taiko') return { x: GAP, w: WIDTH - GAP * 2, cy: busy.y + busy.h + GAP + LINE / 2, align: 'left' };
     if (mode === 'mania') {
-      const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - SIDE);
+      const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - reach);
       return { x: x0, w: x1 - x0, cy: HEIGHT - GAP - LINE / 2, align: 'right' };
     }
     // osu!: the strip under the playfield, above the hit-error meter.
@@ -176,7 +179,7 @@ function band(mode, zoneName, layout) {
     return { x: busy.x, w: busy.w, cy: (busy.y + busy.h + floor) / 2, align: 'center' };
   }
   // side: right of the playfield/stage, under score and accuracy.
-  const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - SIDE);
+  const x1 = WIDTH - GAP, x0 = Math.max(stageEnd + GAP, x1 - reach);
   return { x: x0, w: x1 - x0, cy: hud.accuracy.y + hud.accuracy.h + GAP + LINE / 2, align: 'right' };
 }
 
@@ -188,11 +191,32 @@ function place() {
   let zoneName = opts.zone === 'auto' ? AUTO[mode] : opts.zone;
   if (zoneName === 'under' && mode === 'fruits') zoneName = 'top';   // the catcher lives under the playfield
   if (zoneName === 'side' && mode === 'taiko') zoneName = 'under';   // the lane spans the full width
-  const key = `${mode}|${keys}|${client}|${zoneName}|${opts.align}|${opts.offsetX}|${opts.offsetY}|${opts.scale}|${opts.maxWidth}|${opts.columnWidth}|${opts.columnStart}|${opts.showBrand}`;
+  // Mania stage: the skin's own [Mania] section when vosu serves it, the settings as overrides,
+  // stable's defaults otherwise. With a guessed stage, a side column keeps a short reach.
+  const stage = { columnStart: 136, columnWidth: 30, columnSpacing: 0 };
+  let known = false;
+  if (mode === 'mania') {
+    const skinName = str(v[P.skin]);
+    const wanted = `${keys}|${skinName}`;
+    if (wanted !== skinKey) {
+      skinKey = wanted;
+      skin = null;
+      maniaSkin(keys, skinName).then(result => {
+        if (skinKey !== wanted || !result) return;
+        skin = result;
+        placeDirty = true;
+        schedule();
+      });
+    }
+    if (skin) { Object.assign(stage, { columnStart: skin.columnStart, columnWidth: skin.columnWidth, columnSpacing: skin.columnSpacing }); known = true; }
+    if (opts.columnStart > 0) { stage.columnStart = opts.columnStart; known = true; }
+    if (opts.columnWidth > 0) { stage.columnWidth = opts.columnWidth; known = true; }
+  }
+  const key = `${mode}|${keys}|${client}|${zoneName}|${opts.align}|${opts.offsetX}|${opts.offsetY}|${opts.scale}|${opts.maxWidth}|${opts.showBrand}|${known}|${JSON.stringify(stage)}`;
   if (key === placeKey) return;
   placeKey = key;
-  const layout = osuLayout(mode, { keys, client, columnWidth: opts.columnWidth, columnStart: opts.columnStart });
-  const b = band(mode, zoneName, layout);
+  const layout = osuLayout(mode, { keys, client, ...stage });
+  const b = band(mode, zoneName, layout, known ? WIDTH : SIDE);
   const align = opts.align === 'auto' ? b.align : opts.align;
   const s = opts.scale;
   const width = b.w / s;
@@ -386,8 +410,9 @@ settings(defaults, next => {
     offsetY: Math.round(number(next.offsetY, -1080, 1080, 0)),
     scale: number(next.scale, 0.5, 2, 1),
     maxWidth: Math.round(number(next.maxWidth, 240, 1872, defaults.maxWidth)),
-    columnWidth: number(next.columnWidth, 10, 200, 30),
-    columnStart: number(next.columnStart, 0, 600, 136),
+    // 0 = from the skin's skin.ini (or stable's defaults when vosu cannot serve it).
+    columnWidth: number(next.columnWidth, 0, 200, 0),
+    columnStart: number(next.columnStart, 0, 600, 0),
   };
   attr(panel, 'data-overflow', opts.overflow);
   attr(panel, 'data-backing', opts.backing);

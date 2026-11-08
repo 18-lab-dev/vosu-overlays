@@ -16,7 +16,7 @@
  {"uniqueID":"releaseRow","type":"options","title":"osu!mania release row","description":"Separate row for long-note releases (vosu pressHitErrors/releaseHitErrors). auto shows it when the map has hold notes.","options":["auto","always","off"],"value":"auto"},
  {"uniqueID":"results","type":"options","title":"Results screen","description":"Keep the attempt's final distribution, UR and mean in the free top-right of the results header. osu!stable's results screen has no timing statistics; lazer has its own.","options":["osu!stable only","always","never"],"value":"osu!stable only"},
  {"uniqueID":"songSelect","type":"checkbox","title":"Song select window preview","description":"Show the selected map's rate-adjusted judgement windows in ms (osu! shows only the OD number) in the free centre column of song select.","value":true},
- {"uniqueID":"columnStart","type":"number","title":"Mania ColumnStart","description":"Your skin's mania ColumnStart (osu!stable default 136) so the bar sits beside the stage. Lazer centres the stage and ignores it.","value":136},
- {"uniqueID":"columnWidth","type":"number","title":"Mania ColumnWidth","description":"Your skin's mania ColumnWidth (default 30).","value":30},
+ {"uniqueID":"columnStart","type":"number","title":"Mania ColumnStart override","description":"Leave 0 to read the stage position from your skin's skin.ini through vosu. Set your skin's ColumnStart (stable default 136) when vosu can't serve it (tosu, lazer built-in skins). Lazer centres the stage.","value":0},
+ {"uniqueID":"columnWidth","type":"number","title":"Mania ColumnWidth override","description":"Leave 0 to read column widths from your skin. Otherwise one width for every column (default 30).","value":0},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Shown in the panel header when Backing is panel.","value":true}
 ]

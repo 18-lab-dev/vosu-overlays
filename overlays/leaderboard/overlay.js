@@ -5,7 +5,7 @@
 //  - board: a full replacement placed where osu!stable draws its scoreboard, for users who hide it.
 // Rows sit absolutely positioned and move between slots on a transform transition, so an
 // overtake slides the passed player past you without layout work.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920;
 const H = 1080;
@@ -15,13 +15,14 @@ const MARGIN = 32;
 const MAX_ROWS = 16;
 const PRUNE_MS = 800;
 const DELTA_MS = 2400;
-// Slot geometry in CSS px at scale 1; style.css carries the same numbers.
-const RIVAL = { row: 28, me: 52 };
-const BOARD = { head: 32, row: 48, skip: 16 };
-const COMPACT = { head: 32, row: 34, skip: 12 };
+// Footprints in CSS px at scale 1; style.css carries the same numbers.
+const RIVAL = { width: 272, row: 28, me: 52 };
+const BOARD = { width: 280, head: 32, row: 48, skip: 16 };
+const COMPACT = { width: 336, head: 32, row: 34, skip: 12 };
 const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number',
   checksum: '/beatmap/checksum', board: '/leaderboard', name: '/play/playerName', score: '/play/score',
+  client: '/client', skin: '/settings/skin/name', keys: '/beatmap/stats/cs/converted',
 };
 const DEFAULTS = {
   style: 'rival', zone: 'auto', offsetX: 0, offsetY: 0, scale: 1, backing: 'none', accent: 'map',
@@ -186,6 +187,8 @@ let wasOffline = false;
 let values = {};
 let checksum;
 let palette = null;
+let skinFor = '';
+let maniaStage = null;
 // Results may arrive after vosu has cleared the gameplay scoreboard: keep the last standings.
 let heldList = null;
 let heldName;
@@ -231,6 +234,11 @@ subscribe(Object.values(P), next => {
     checksum = next[P.checksum];
     loadPalette(checksum);
   }
+  const skin = `${next[P.keys]}|${next[P.skin]}`;
+  if (skin !== skinFor) {
+    skinFor = skin;
+    loadManiaStage(skin, next[P.keys], next[P.skin]);
+  }
   schedule();
 }, {
   onStatus: next => {
@@ -248,6 +256,15 @@ async function loadPalette(sum) {
   applyPalette(root, palette);
 }
 
+/** The skin's mania stage (stable skin.ini via vosu), so mania placement keeps clear of it. */
+async function loadManiaStage(key, keys, skin) {
+  const result = Number.isInteger(keys) && keys > 0 ? await maniaSkin(keys, typeof skin === 'string' ? skin : '') : null;
+  if (key !== skinFor) return;
+  maniaStage = result;
+  placedFor = '';
+  schedule();
+}
+
 function schedule() {
   if (!frame) frame = requestAnimationFrame(render);
 }
@@ -255,17 +272,23 @@ function schedule() {
 /**
  * Places the cluster in osu!'s free space for the ruleset. Rival defaults to the right (beside the
  * playfield, under score/accuracy, clear of the key counter); board defaults to the left, where
- * osu!stable draws its own scoreboard. Taiko uses the open area under the lane. On results the
- * final standing goes to the free right part of osu!'s header strip.
+ * osu!stable draws its own scoreboard. Taiko uses the open area under the lane; mania keeps clear
+ * of the skin's stage. On results the final standing goes to the free right part of osu!'s
+ * header strip.
  */
 function place(final) {
-  const key = `${mode}|${style}|${final}|${cfg.zone}|${cfg.offsetX}|${cfg.offsetY}|${cfg.scale}|${cfg.compact}`;
+  const keys = values[P.keys];
+  const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
+  const key = `${mode}|${style}|${final}|${cfg.zone}|${cfg.offsetX}|${cfg.offsetY}|${cfg.scale}|${cfg.compact}|${keys}|${client}|${maniaStage !== null}`;
   if (key === placedFor) return;
   placedFor = key;
   root.classList.toggle('final', final);
-  const layout = osuLayout(mode || 'osu');
+  const layout = osuLayout(mode || 'osu', mode === 'mania' && Number.isInteger(keys) && keys > 0
+    ? { keys, client, ...(client === 'stable' && maniaStage ? maniaStage : {}) }
+    : {});
   const side = final ? 'right' : cfg.zone === 'left' || cfg.zone === 'right' ? cfg.zone : style === 'board' ? 'left' : 'right';
   const scale = Math.max(0.5, Math.min(2, Number(cfg.scale) || 1));
+  const width = (style === 'rival' || final ? RIVAL : geo).width * scale;
   const laneBottom = layout.busy.y + layout.busy.h;
   let y;
   if (final) y = 12;
@@ -280,13 +303,16 @@ function place(final) {
   s.transform = scale === 1 ? '' : `scale(${scale})`;
   root.classList.toggle('right', side === 'right');
   if (side === 'left') {
-    s.left = `${MARGIN + dx}px`;
+    // Mania: end at least 24 px before the stage when the skin leaves room.
+    const x = mode === 'mania' && !final ? Math.max(8, Math.min(MARGIN, layout.busy.x - 24 - width)) : MARGIN;
+    s.left = `${x + dx}px`;
     s.right = 'auto';
     s.transformOrigin = '0 0';
   } else {
     // osu!'s key counter sits on the right edge; end just left of its column so even the panel
-    // backing stays clear of the playfield.
-    const edge = final ? W - 24 : mode === 'osu' ? layout.hud.keys.x - 8 : W - MARGIN;
+    // backing stays clear of the playfield. Mania: start at least 24 px after the stage.
+    let edge = final ? W - 24 : mode === 'osu' ? layout.hud.keys.x - 8 : W - MARGIN;
+    if (mode === 'mania' && !final) edge = Math.min(W - 8, Math.max(edge, layout.busy.x + layout.busy.w + 24 + width));
     s.left = 'auto';
     s.right = `${W - edge - dx}px`;
     s.transformOrigin = '100% 0';

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // LN timing: osu!mania press vs release hit errors as two mirrored distributions, floated in the
 // empty space beside the mania stage.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const SCREEN_W = 1920;
 const SCREEN_H = 1080;
@@ -14,7 +14,9 @@ const MAX_LANES = 18;
 // Cluster footprint in screen px at scale 1 (style.css: .cluster width; tallest view's height).
 const CLUSTER_W = 468;
 const CLUSTER_H = 360;
-const EDGE = 40; // gap kept to the screen edge and to the stage
+// Gaps measured to the cluster box, whose 14 px padding adds to the visible gap.
+const EDGE = 24;      // gap kept to the screen edge
+const STAGE_GAP = 56; // gap kept to the stage edge (clears HP bars skins hang beside it)
 // Results strip (style.css: [data-view="results"]) and the free right part of osu!stable's
 // results header band it sits in, left of which the title/mapper text runs.
 const STRIP_W = 760;
@@ -34,6 +36,7 @@ const P = {
   press: '/play/pressHitErrors',
   release: '/play/releaseHitErrors',
   laneRelease: '/play/keyHitErrors/release',
+  skin: '/settings/skin/name',
 };
 
 const $ = id => document.getElementById(id);
@@ -129,7 +132,7 @@ const lanes = Array.from({ length: MAX_LANES }, () => new Lane());
 // ---------------------------------------------------------------- state
 
 const DEFAULTS = {
-  zone: 'right', offsetX: 0, offsetY: 0, scale: 1, columnWidth: 30, columnStart: 136,
+  zone: 'right', offsetX: 0, offsetY: 0, scale: 1, columnWidth: 0, columnStart: 0,
   backing: 'none', accent: 'map', bins: 31, perColumn: true, showBrand: true, showOnResults: true,
 };
 const conf = { ...DEFAULTS };
@@ -144,6 +147,8 @@ let lanesPresent = false;
 let placementKey = '';
 let clusterScale = 1;
 let checksum = '';
+let skinKey = '';
+let stageSkin = null; // maniaSkin() result for the current skin and key count
 
 // Displayed (eased) bar heights and mean markers; targets are recomputed when data changes.
 const shown = { press: new Float32Array(MAX_BINS), release: new Float32Array(MAX_BINS) };
@@ -216,8 +221,27 @@ function loadPalette(force) {
 // ---------------------------------------------------------------- placement
 
 /**
- * Gameplay: the free region beside the stage (osuLayout), against the outer screen edge so skins
- * that move or widen the stage still leave it clear; shrinks only if the region is narrow.
+ * The current skin's stage for this key count (skin.ini via vosu), fetched once per skin/keys and
+ * off the hot path; null on lazer built-in skins, tosu or with file access off (defaults apply).
+ */
+function loadSkin(v) {
+  const keys = Math.round(Number(v?.[P.keys])) || 4;
+  const key = `${keys}|${v?.[P.skin] ?? ''}`;
+  if (key === skinKey) return;
+  skinKey = key;
+  maniaSkin(keys, v?.[P.skin] ?? '').then(skin => {
+    if (key !== skinKey) return;
+    stageSkin = skin;
+    placementKey = '';
+    dirtyData = true;
+    schedule();
+  });
+}
+
+/**
+ * Gameplay: beside the stage (osuLayout with the skin's columns), a stage-gap off its edge, a
+ * little above centre so it clears the score block and HP bars that hang low beside the stage;
+ * shrinks only if the free region is narrower than the cluster.
  * Results: a one-row strip in the right part of osu!stable's results header band, the only area
  * the ranking screen leaves free.
  */
@@ -235,16 +259,18 @@ function place(v) {
     x = RESULTS_BAND.x + RESULTS_BAND.w - 10 - STRIP_W * s + conf.offsetX;
     y = RESULTS_BAND.y + conf.offsetY;
   } else {
+    // Settings override the skin; 0 (default) means "from skin.ini", else osu!'s defaults.
     const layout = osuLayout('mania', {
-      keys, client, columnWidth: conf.columnWidth > 0 ? conf.columnWidth : 30,
-      columnStart: conf.columnStart >= 0 ? conf.columnStart : 136, width: SCREEN_W, height: SCREEN_H,
+      keys, client, width: SCREEN_W, height: SCREEN_H,
+      columnStart: conf.columnStart > 0 ? conf.columnStart : stageSkin?.columnStart ?? 136,
+      columnWidth: conf.columnWidth > 0 ? conf.columnWidth : stageSkin?.columnWidth ?? 30,
+      columnSpacing: conf.columnWidth > 0 ? 0 : stageSkin?.columnSpacing ?? 0,
     });
     const { busy } = layout;
     const left = conf.zone === 'left';
     const region = layout.free.find(r => (left ? r.x + r.w <= busy.x : r.x >= busy.x + busy.w)) || layout.free[0];
-    s = Math.max(0.35, Math.min(user, (region.w - 2 * EDGE) / CLUSTER_W, (region.h - EDGE) / CLUSTER_H));
-    x = (left ? region.x + EDGE : region.x + region.w - EDGE - CLUSTER_W * s) + conf.offsetX;
-    // A little above centre: clear of the score/accuracy block and of HP bars skins hang low.
+    s = Math.max(0.35, Math.min(user, (region.w - STAGE_GAP - EDGE) / CLUSTER_W, (region.h - EDGE) / CLUSTER_H));
+    x = (left ? busy.x - STAGE_GAP - CLUSTER_W * s : busy.x + busy.w + STAGE_GAP) + conf.offsetX;
     y = region.y + Math.max(0, region.h - CLUSTER_H * s) * 0.3 + conf.offsetY;
   }
   cluster.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${s})`;
@@ -328,6 +354,7 @@ function update() {
     else if (next === 'offline') el.chip.dataset.tone = status;
     dirtyHist = true; dirtyLanes = true;
   }
+  if (v && view !== 'hidden') loadSkin(v);
   place(v);
   if (!v || view === 'offline' || view === 'idle' || view === 'hidden') return;
   loadPalette(false);

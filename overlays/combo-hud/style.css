@@ -106,7 +106,7 @@ body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: 
 .rail__break { background: var(--j-miss); opacity: 0; }
 
 .cluster--combo[data-align="end"] { align-items: flex-end; }
-.cluster--combo[data-align="end"] .cluster__top { flex-direction: row-reverse; }
+.cluster--combo[data-align="end"] .cluster__top { justify-content: flex-end; }
 .cluster--combo[data-align="end"] :is(.combo__value, .combo__ghost) { transform-origin: 100% 82%; }
 .cluster--combo[data-align="end"] .combo__ghost { left: auto; right: 0; }
 

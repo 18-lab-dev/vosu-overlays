@@ -7,7 +7,7 @@ import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalet
 const SKILLS = ['aim', 'speed', 'accuracy', 'flashlight'];
 const AXES = ['AIM', 'SPD', 'ACC', 'FL'];
 const FL = 3;
-const COLUMN_W = 216;
+const COLUMN_W = 208;
 const LAYOUT = osuLayout('osu');
 // Hit objects overhang the 512×384 playfield by their radius (≈ 82 px at CS 4, 1080p); keep clear.
 const OVERHANG = 88;
@@ -308,7 +308,7 @@ function place() {
     left = busy.x - OVERHANG - outer * s;
     top = hud.accuracy.y + hud.accuracy.h + 36;
   } else {
-    left = Math.min(busy.x + busy.w + OVERHANG, hud.keys.x - 8 - outer * s);
+    left = Math.min(busy.x + busy.w + OVERHANG, hud.keys.x - 16 - outer * s);
     top = hud.accuracy.y + hud.accuracy.h + 36;
   }
   const px = value => `${Math.round(value)}px`;

@@ -2,6 +2,8 @@
  {"uniqueID":"zone","type":"options","title":"Placement","options":["auto","left","right"],"description":"Which free region of osu!'s layout to use. auto: osu! the band right of the playfield (left of the key counter), osu!taiko under the lane on the left, osu!mania beside the stage on the right. left/right pick the other side. On results the strip sits in the right part of the header.","value":"auto"},
  {"uniqueID":"offsetX","type":"number","title":"Nudge X / px","description":"Moves the overlay horizontally from its placement (1920×1080 pixels), for skins that put things elsewhere.","value":0},
  {"uniqueID":"offsetY","type":"number","title":"Nudge Y / px","description":"Moves the overlay vertically from its placement (1920×1080 pixels).","value":0},
+ {"uniqueID":"columnStart","type":"number","title":"osu!mania ColumnStart","description":"Overrides the skin's [Mania] ColumnStart (480-line skin units) used to keep clear of the stage. 0 = read from the current skin through vosu.","value":0},
+ {"uniqueID":"columnWidth","type":"number","title":"osu!mania ColumnWidth","description":"Overrides the skin's [Mania] ColumnWidth (one value for every column, skin units). 0 = read from the current skin through vosu.","value":0},
  {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.6–1.6.","value":1},
  {"uniqueID":"window","type":"number","title":"Rolling window / hits","description":"How many recent hits each point of the mean and UR traces averages. Smaller reacts faster but is noisier. Clamped to 10–500.","value":50},
  {"uniqueID":"height","type":"number","title":"Chart height / px","description":"Height of the gameplay chart. Clamped to 96–200 px.","value":150},

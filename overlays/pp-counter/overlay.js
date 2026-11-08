@@ -4,7 +4,7 @@
 // the non-zero pp components; song select gets the accuracy→pp ladder (osu! never shows pp there);
 // results add what the results screen lacks. Data handlers only record values; one rAF loop
 // renders and stops once settled.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920;
 const H = 1080;
@@ -16,7 +16,7 @@ const AMBER = '#ff963f';
 
 const P = {
   state: '/state/number', client: '/client', playMode: '/play/mode/number', setMode: '/settings/mode/number',
-  source: '/play/source', failed: '/play/failed', checksum: '/beatmap/checksum', cs: '/beatmap/stats/cs/converted',
+  source: '/play/source', failed: '/play/failed', checksum: '/beatmap/checksum', cs: '/beatmap/stats/cs/converted', skin: '/settings/skin/name',
   cur: '/play/pp/current', fc: '/play/pp/fc', max: '/play/pp/maxAchievable',
   rPp: '/resultsScreen/pp/current', rFc: '/resultsScreen/pp/fc',
 };
@@ -123,17 +123,39 @@ function step(t, now) {
 // Placement: the cluster sits in a free region of osu!'s layout for the active ruleset.
 // auto = top-right under score/accuracy (clear of the mod icons) for osu!/catch/mania; below the
 // lane on the right for taiko. Recomputed only when its inputs change.
-const placed = { mode: '', keys: 0, client: '', kind: '', zone: '', selectZone: '', x: 0, y: 0, scale: 0 };
+const placed = { mode: '', keys: 0, client: '', kind: '', zone: '', selectZone: '', x: 0, y: 0, scale: 0, stage: null };
 let lastMode = 'osu';
+// The current skin's mania stage (skin.ini via vosu), so left/right zones fit beside the real
+// stage; null (lazer built-in skins, tosu, file access off) keeps osu!stable's defaults.
+let stage = null;
+let stageKeys = 0;
+let stageSkin = null;
+
+function loadStage(keys) {
+  const skin = typeof values[P.skin] === 'string' ? values[P.skin] : '';
+  if (keys === stageKeys && skin === stageSkin) return;
+  stageKeys = keys;
+  stageSkin = skin;
+  stage = null;
+  maniaSkin(keys, skin).then(geometry => {
+    if (stageKeys !== keys || stageSkin !== skin) return;
+    stage = geometry;
+    modelDirty = true;
+    kick();
+  });
+}
 
 function place(mode, kind) {
   const keys = Math.max(1, Math.min(18, Math.round(num(P.cs)) || 4));
   const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
-  if (placed.mode === mode && placed.keys === keys && placed.client === client && placed.kind === kind && placed.zone === opt.zone
+  if (mode === 'mania') loadStage(keys);
+  if (placed.mode === mode && placed.keys === keys && placed.client === client && placed.kind === kind && placed.zone === opt.zone && placed.stage === stage
     && placed.selectZone === opt.selectZone && placed.x === opt.offsetX && placed.y === opt.offsetY && placed.scale === opt.scale) return;
-  Object.assign(placed, { mode, keys, client, kind, zone: opt.zone, selectZone: opt.selectZone, x: opt.offsetX, y: opt.offsetY, scale: opt.scale });
+  Object.assign(placed, { mode, keys, client, kind, stage, zone: opt.zone, selectZone: opt.selectZone, x: opt.offsetX, y: opt.offsetY, scale: opt.scale });
 
-  const L = osuLayout(mode, { keys, client, width: W, height: H });
+  const L = osuLayout(mode, mode === 'mania' && stage
+    ? { keys, client, columnStart: stage.columnStart, columnWidth: stage.columnWidth, columnSpacing: stage.columnSpacing, width: W, height: H }
+    : { keys, client, width: W, height: H });
   const { busy, hud } = L;
   let h = 'right', v = 'top', x = MARGIN, y = 0, maxW = W;
   const zone = kind === 'results' ? 'results'

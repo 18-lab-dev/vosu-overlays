@@ -2,7 +2,7 @@
 // Hit error bar: judgement-window ladder, fading per-hit ticks, a moving-average marker and a
 // live distribution, with an optional osu!mania press/release split. It floats in the space osu!
 // leaves empty for the ruleset (osuLayout) and holds the attempt on stable's results screen.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette, applyPalette, MODE_LABELS } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, maniaSkin, mapPalette, applyPalette, MODE_LABELS } from './vosu-overlay.js';
 
 const RESULTS = 7;
 const SONG_SELECT = 5;
@@ -13,6 +13,7 @@ const P = {
   client: '/client',
   checksum: '/beatmap/checksum',
   keys: '/beatmap/stats/cs/converted',
+  skin: '/settings/skin/name',
   windows: '/beatmap/stats/hitWindow',
   holds: '/beatmap/stats/objects/holds',
   all: '/play/hitErrorArray',
@@ -38,8 +39,8 @@ const DEFAULTS = {
   releaseRow: 'auto',
   results: 'osu!stable only',
   songSelect: true,
-  columnStart: 136,
-  columnWidth: 30,
+  columnStart: 0,
+  columnWidth: 0,
   showBrand: true,
 };
 
@@ -115,6 +116,8 @@ const view = {
 };
 let placed = '';
 let checksum = '';
+let skin = null; // maniaSkin() result for the current skin and key count
+let skinKey = '';
 const geo = { bands: [], range: 100, fallback: true, key: '' };
 
 function createRow(el, hasHist, neutral) {
@@ -307,7 +310,21 @@ function loadPalette() {
   });
 }
 
-const VIEW_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.keys, P.windows, P.holds, P.release];
+/** Reads the mania stage geometry of the player's skin; re-places the bar when it arrives. */
+function loadSkin() {
+  const key = `${view.keys}|${values[P.skin] ?? ''}`;
+  skinKey = key;
+  skin = null; // another key count's columns would misplace the stage until the new read lands
+  maniaSkin(view.keys, values[P.skin] ?? '').then(result => {
+    if (skinKey !== key) return;
+    skin = result;
+    viewDirty = true;
+    placed = '';
+    invalidate();
+  });
+}
+
+const VIEW_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.keys, P.skin, P.windows, P.holds, P.release];
 
 subscribe(Object.values(P), (_, changed) => {
   values = _;
@@ -318,6 +335,7 @@ subscribe(Object.values(P), (_, changed) => {
     const before = view.mode;
     evaluateView();
     if (before !== view.mode || changed.has(P.windows)) computeGeometry();
+    if (view.mode === 'mania' && `${view.keys}|${values[P.skin] ?? ''}` !== skinKey) loadSkin();
   }
   if (changed.has(P.checksum) && values[P.checksum] !== checksum) {
     checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : '';
@@ -374,16 +392,29 @@ function place() {
   } else if (view.idle && view.show === 'panel') {
     zone = 'select'; len = 480; align = 'center'; from = 'bottom'; ax = 850; ay = 870;
   } else {
+    // mania: the player's skin.ini stage (through vosu) unless the settings override it.
+    const width = cfg.columnWidth > 0 ? clamp(cfg.columnWidth, 5, 200) : skin?.columnWidth ?? 30;
     const lay = osuLayout(mode, {
-      keys: view.keys, columnWidth: clamp(cfg.columnWidth, 5, 200), columnStart: clamp(cfg.columnStart, 0, 1000),
+      keys: view.keys, columnWidth: width, columnSpacing: skin?.columnSpacing ?? 0,
+      columnStart: cfg.columnStart > 0 ? clamp(cfg.columnStart, 0, 1000) : skin?.columnStart ?? 136,
       client: view.lazer ? 'lazer' : 'stable',
     });
     const b = lay.busy;
     zone = cfg.zone === 'auto' ? AUTO_ZONE[mode] : cfg.zone === 'osu! bar' ? 'bar' : cfg.zone;
     if (mode === 'taiko' && (zone === 'left' || zone === 'right')) zone = 'below';
     if (zone === 'below' && mode !== 'taiko') zone = mode === 'mania' ? 'left' : 'bar';
-    // mania: line the bar up with the judgement line (stable default HitPosition 402 of 480).
-    const top = mode === 'mania' ? Math.round(lay.unit * 402) - 92 : Math.round(SCREEN_H * 0.7);
+    // Side zones: osu! under the key counter; mania with the ladder on the skin's judgement line
+    // (HitPosition, stable default 402 of 480), kept on screen when the block is tall.
+    let top = Math.round(SCREEN_H * 0.7);
+    if (mode === 'mania') {
+      const pad = cfg.backing === 'panel' ? 9 : 14;
+      const readouts = cfg.showUr || cfg.showMean ? 36 : 0;
+      const cross = view.hist ? 64 : BASE;
+      const meta = view.split ? 16 : 0;
+      const trackY = pad + readouts + meta + cross - BASE + LANE;
+      const height = pad * 2 + readouts + meta + cross + 16 + (view.split ? 8 + 16 + 40 : 0);
+      top = clamp(Math.round(lay.unit * (skin?.hitPosition ?? 402)) - trackY, MARGIN, SCREEN_H - MARGIN - height);
+    }
     let avail;
     if (zone === 'left') {
       align = 'end'; from = 'top'; ax = b.x - 8; ay = top; avail = Math.min(360, ax - MARGIN);

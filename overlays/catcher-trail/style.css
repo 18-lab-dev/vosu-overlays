@@ -27,9 +27,12 @@ body { color: var(--fg); font: 400 14px/1.25 var(--font-body); -webkit-font-smoo
 
 /* Backing: none (default) floats on the game; scrim fades out with no edge; panel is the 18-LAB panel. */
 [data-backing="scrim"] .cluster::before {
-  content: ""; position: absolute; inset: -36px -28px; z-index: -1;
-  background: radial-gradient(closest-side, rgb(5 6 7 / .62), rgb(5 6 7 / .42) 55%, rgb(5 6 7 / 0));
+  content: ""; position: absolute; inset: -44px -60px; z-index: -1;
+  background: radial-gradient(farthest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .52) 50%, rgb(5 6 7 / .3) 76%, rgb(5 6 7 / 0));
 }
+/* The fade stops at the playfield edge; it only spreads outward. */
+[data-zone="left"][data-backing="scrim"] .cluster::before { right: -12px; }
+[data-zone="right"][data-backing="scrim"] .cluster::before { left: -12px; }
 [data-backing="panel"] .cluster {
   background: rgb(17 18 20 / .86);
   border-color: var(--rule-strong); border-top: 2px solid var(--ct-accent);

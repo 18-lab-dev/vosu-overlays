@@ -107,8 +107,10 @@ small { font: 500 12px/0 var(--font-mono); letter-spacing: .02em; color: var(--f
 .big.empty { font-size: 28px; }
 
 /* ------------------------------------------------------------- status chip */
+/* vosu down can happen in any state, so the chip sits where no ruleset draws HUD: right edge at
+   y ≈ 140, below the score/accuracy counters and above the taiko lane and osu! key counter. */
 .chip {
-  position: absolute; right: 16px; top: 12px;
+  position: absolute; right: 16px; top: 132px;
   display: inline-flex; align-items: center; gap: 6px;
   font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
 }

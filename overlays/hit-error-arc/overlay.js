@@ -2,7 +2,7 @@
 // Hit error arc: a precision dial floated into the empty space of osu!'s gameplay layout.
 // Judgement windows are arc segments, every hit is a fading tick, a needle follows the moving
 // average and the attempt's unstable rate sits in the hollow.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const W = 1920;
 const H = 1080;
@@ -69,6 +69,7 @@ readTokens();
 const DEFAULTS = {
   side: 'auto', offsetX: 0, offsetY: 0, scale: 100, backing: 'none', accent: 'map',
   sweep: 240, tickLife: 4, histogram: true, histogramHits: 400, averageHits: 20, showBrand: true,
+  columnStart: 0, columnWidth: 0,
 };
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
 let cfg = { ...DEFAULTS };
@@ -108,6 +109,8 @@ let mode = null;
 let keys = 4;
 let client = 'stable';
 let checksum = '';
+let skinName = '';
+let maniaStage = null; // { columnStart, columnWidth[], columnSpacing[] } from the skin's skin.ini, or null
 let lastLen = 0;
 let firstValue;
 let needle = 0;
@@ -240,6 +243,20 @@ function tintChanged() {
   schedule();
 }
 
+// ------------------------------------------------------------------ mania stage from the skin
+let stageFor = null;
+function loadManiaStage() {
+  const want = mode === 'mania' ? `${keys}|${skinName}` : null;
+  if (!want || want === stageFor) return;
+  stageFor = want;
+  maniaSkin(keys, skinName).then(skin => {
+    if (stageFor !== want) return;
+    maniaStage = skin;
+    placeDirty = true;
+    schedule();
+  }, () => {});
+}
+
 // ------------------------------------------------------------------ vosu
 const P_STATE = '/state/number';
 const P_PLAY_MODE = '/play/mode/number';
@@ -249,8 +266,9 @@ const P_WINDOW = '/beatmap/stats/hitWindow';
 const P_KEYS = '/beatmap/stats/cs/converted';
 const P_CLIENT = '/client';
 const P_CHECKSUM = '/beatmap/checksum';
+const P_SKIN = '/settings/skin/name';
 
-subscribe([P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_WINDOW, P_KEYS, P_CLIENT, P_CHECKSUM], (values, changed) => {
+subscribe([P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_WINDOW, P_KEYS, P_CLIENT, P_CHECKSUM, P_SKIN], (values, changed) => {
   const nextState = values[P_STATE];
   const nextMode = activeMode(nextState, values[P_PLAY_MODE], values[P_SETTINGS_MODE]);
   const moved = nextState !== state || nextMode !== mode;
@@ -258,6 +276,8 @@ subscribe([P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_WINDOW, P_KEYS, P_
   const nextKeys = Math.round(Number(values[P_KEYS])) || 4;
   const nextClient = values[P_CLIENT] === 'lazer' ? 'lazer' : 'stable';
   if (nextKeys !== keys || nextClient !== client) { keys = nextKeys; client = nextClient; placeDirty = domDirty = true; }
+  if (changed.has(P_SKIN)) skinName = values[P_SKIN] || '';
+  loadManiaStage();
   if (moved || changed.has(P_WINDOW)) setWindows(values[P_WINDOW]);
   if (moved || changed.has(P_ERRORS)) {
     ingest(values[P_ERRORS]);
@@ -283,6 +303,8 @@ settings(DEFAULTS, next => {
     backing: ['none', 'scrim', 'panel'].includes(next.backing) ? next.backing : 'none',
     accent: next.accent === '18-lab' ? '18-lab' : 'map',
     scale: clamp(next.scale, 50, 150),
+    columnStart: Math.max(0, next.columnStart),
+    columnWidth: Math.max(0, next.columnWidth),
     sweep: clamp(Math.round(next.sweep), 90, 270),
     tickLife: clamp(next.tickLife, 0.5, 20),
     histogramHits: clamp(Math.round(next.histogramHits), 50, 2000),
@@ -322,7 +344,11 @@ function geometry(k) {
  * taiko: the empty area below the lane (centred, or at either end).
  */
 function zone(m) {
-  const layout = osuLayout(m, { keys, client });
+  // Mania: the stage from the skin's skin.ini (vosu serves it), with the user's overrides on top.
+  const stage = m === 'mania' ? { ...(maniaStage || {}) } : {};
+  if (m === 'mania' && cfg.columnStart > 0) stage.columnStart = cfg.columnStart;
+  if (m === 'mania' && cfg.columnWidth > 0) stage.columnWidth = cfg.columnWidth;
+  const layout = osuLayout(m, { keys, client, ...stage });
   const { busy, hud } = layout;
   const top = hud.health.y + hud.health.h + MARGIN;
   if (m === 'taiko') {
@@ -336,7 +362,8 @@ function zone(m) {
     const bottom = hud.combo ? hud.combo.y - MARGIN : H - MARGIN;
     return { rect: { x: MARGIN, y, w: busy.x - 2 * MARGIN, h: bottom - y }, h: m === 'mania' ? 'end' : 'center', v: 'end' };
   }
-  const x = busy.x + busy.w + (m === 'mania' ? 2 * MARGIN : MARGIN); // mania: clear of the HP bar at the stage's edge
+  // Mania: stay clear of the HP bar that skins hang off the stage's right edge.
+  const x = busy.x + busy.w + (m === 'mania' ? 112 : MARGIN);
   const y = hud.accuracy.y + hud.accuracy.h + MARGIN;
   const right = hud.keys ? hud.keys.x - MARGIN : W - MARGIN;
   return { rect: { x, y, w: right - x, h: H - MARGIN - y }, h: m === 'mania' ? 'start' : 'center', v: 'end' };

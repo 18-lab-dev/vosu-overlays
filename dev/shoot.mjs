@@ -61,7 +61,14 @@ for (const query of cases) {
   await stage();
   const name = query.replace(/freeze=\d*&?|&$/g, '').replace(/[=&]/g, '-').replace(/-+$/, '');
   const file = join(out, `${name}.png`);
-  await page.screenshot({ path: file });
+  // Right after a viewport resize Chromium can refuse a capture until the compositor produces
+  // a frame (seen under heavy parallel load); retry rather than abort the whole run.
+  for (let attempt = 1; ; attempt++) {
+    try { await page.screenshot({ path: file }); break; } catch (error) {
+      if (attempt >= 5) throw error;
+      await page.waitForTimeout(600);
+    }
+  }
   console.log(file);
 }
 

@@ -1,20 +1,22 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Key overlay: one scrolling tape lane per logical key (vosu `keys.all`), key caps with counts,
 // live and peak keys per second. Bars are placed in gameplay time from pressedAt/releasedAt.
-// It floats in the empty regions of osu!'s own layout (osuLayout) for the ruleset being played.
-import { subscribe, settings, fit, activeMode, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
+// The page is sized and placed by its host (OBS, vosulay, the replay renderer); it lays itself out
+// for whatever box it is given.
+import { subscribe, settings, activeMode, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const SW = 1920;
-const SH = 1080;
+// Design units (px at scale 1); the block is scaled to the page's box.
 const GAP = 4;          // between lanes
 const RULER = 10;       // time ruler beside the tape
 const INSET = 3;        // bar inset inside its lane
+const LANE = 36;        // natural lane thickness
+const LANE_MIN = 16;    // thinnest lane before the whole block scales down
 const READ_H = 36;      // readout row
+const READ_MIN = 172;   // narrowest vertical block that still fits the readout row
 const ROW_GAP = 4;      // readout ↔ tape, tape ↔ caps
-const CAP_H = 44;       // caps (up)
-const CAP_W = 64;       // caps (right)
-const COL_GAP = 8;      // caps ↔ tape (right)
-const MARGIN = 24;      // distance kept from screen edges and from osu!'s own elements
+const CAP_H = 44;       // caps (vertical)
+const CAP_W = 64;       // caps (horizontal)
+const COL_GAP = 8;      // caps ↔ tape (horizontal)
 const RING = 256;       // remembered presses per lane
 const KPS_RING = 2048;  // remembered press times across lanes
 const MAX_STEP = 8;     // most presses one key can gain between two samples before it counts as missed data
@@ -23,11 +25,11 @@ const SMOKE = '#b8b5ad';
 const BED = 'rgba(11,12,13,0.5)';
 
 const DEFAULTS = {
-  zone: 'auto', direction: 'auto', offsetX: 0, offsetY: 0, scale: 1, length: 360,
-  speed: 600, laneWidth: 40, showCounts: true, showKps: true, smokeLane: false,
+  orientation: 'auto', align: 'auto', speed: 600, showCounts: true, showKps: true, smokeLane: false,
   accent: 'map', colorOsu: '#ff963f', colorDon: '#ef6a4f', colorKat: '#7fa6cf', colorFruits: '#6fbf8e', colorMania: '#ebe8e1',
-  columnStart: 0, columnWidth: 0, hitPosition: 0, backing: 'none', showBrand: true,
+  backing: 'none',
 };
+const OPTIONS = { orientation: ['auto', 'horizontal', 'vertical'], align: ['auto', 'start', 'end'], accent: ['map', '18-lab'], backing: ['none', 'scrim', 'panel'] };
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client',
@@ -40,24 +42,20 @@ const P = {
 };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
 const block = $('block');
 const canvas = $('tape');
 const ctx = canvas.getContext('2d', { alpha: true });
 const capsEl = $('caps');
-const el = {
-  read: $('read'), brand: $('brand'), kps: $('kps'), peak: $('peak'), note: $('note'),
-  chip: $('chip'), chipText: $('chip-text'),
-  summary: $('summary'), sumBrand: $('sum-brand'), sumAvg: $('sum-avg'), sumPeak: $('sum-peak'), sumKeys: $('sum-keys'),
-};
-fit(stage, SW, SH);
+const el = { read: $('read'), kps: $('kps'), peak: $('peak'), note: $('note'), chip: $('chip'), chipText: $('chip-text') };
 
 let cfg = { ...DEFAULTS };
+let cfgKey = '';
 let values = null;
 let status = 'connecting';
-let palette = null;     // map tonal-spot roles, or null
+let palette = null;       // map tonal-spot roles, or null
 let maniaGeometry = null; // current skin's mania stage for the current key count (maniaSkin), or null
-let maniaKey = '';
+let maniaKey = '';        // skin|keys requested
+let maniaKeyLoaded = '';  // skin|keys whose geometry is applied
 
 // ------------------------------------------------------------------ text helpers
 const shown = new WeakMap();
@@ -110,20 +108,16 @@ let kpsHead = 0;
 let kpsSize = 0;
 let peakKps = 0;
 let totalPresses = 0;
-let firstPress = NaN;
-let lastPress = NaN;
 let baselined = false;  // first keys frame of this attempt seen
 let observedEntry = false; // we saw the transition into play (counts start from zero)
-let results = null;     // { avg, peak } held at the results screen
 
 function resetAttempt() {
   for (const t of tracks) {
     if (!t) continue;
     t.count = 0; t.pressed = false; t.ever = false; t.head = 0; t.size = 0; t.open = false;
   }
-  kpsHead = 0; kpsSize = 0; peakKps = 0; totalPresses = 0; firstPress = NaN; lastPress = NaN;
+  kpsHead = 0; kpsSize = 0; peakKps = 0; totalPresses = 0;
   baselined = false;
-  results = null;
 }
 
 function pushBar(t, start, end) {
@@ -140,8 +134,6 @@ function pushPress(time, rate) {
   kpsHead = (kpsHead + 1) % KPS_RING;
   if (kpsSize < KPS_RING) kpsSize++;
   totalPresses++;
-  if (Number.isNaN(firstPress) || time < firstPress) firstPress = time;
-  if (Number.isNaN(lastPress) || time > lastPress) lastPress = time;
   const n = countWindow(time, 1000 * rate);
   if (n > peakKps) peakKps = n;
 }
@@ -256,6 +248,7 @@ let lanes = [];         // { src, label, color, cap, lit, labelEl, countEl, room
 let geometry = null;
 let signature = '';
 let currentMode = null;
+let builtMode = null;
 let swapTimer = 0;
 let view = 'none';      // 'play' | 'results' | 'idle' | 'nogame' | 'none'
 
@@ -304,110 +297,91 @@ function laneSpec(mode) {
   return spec;
 }
 
-// ------------------------------------------------------------------ placement
+// ------------------------------------------------------------------ layout (inside the page's box)
 function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
 
 /**
- * Sizes the block and places it in a free region of osu!'s layout. Default zones: osu!/catch the
- * band left of the playfield, under the leaderboard (osu! draws its own key counter on the right
- * edge); taiko the empty area under the lane, beneath the drum; mania beside the stage, with the
- * caps on the hit-position line so presses leave where notes are judged.
+ * Lays the block out for the box the host gives the page (OBS source, vosulay frame, replay-renderer
+ * cell). Orientation follows the box (wider than tall: rows; otherwise columns) unless set. The cross
+ * axis fixes one scale k, so type, caps and lanes grow and shrink with the box; the tape takes the
+ * rest of the long axis. Small boxes (multiplayer cells, half-size sources) first narrow the lanes
+ * down to LANE_MIN and only then scale type down, so labels stay legible. Mania lanes keep the
+ * current skin's column proportions.
  */
 function computeGeometry(mode, n) {
-  // Mania stage: the current skin's skin.ini through vosu; non-zero settings override it.
-  const skin = mode === 'mania' ? maniaGeometry : null;
-  const hitPosition = cfg.hitPosition > 0 ? cfg.hitPosition : skin?.hitPosition ?? 402;
-  const layout = osuLayout(mode, {
-    keys: n,
-    columnWidth: cfg.columnWidth > 0 ? cfg.columnWidth : skin?.columnWidth ?? 30,
-    columnSpacing: cfg.columnWidth > 0 ? 0 : skin?.columnSpacing ?? 0,
-    columnStart: cfg.columnStart > 0 ? cfg.columnStart : skin?.columnStart ?? 136,
-    client: values?.[P.client] === 'lazer' ? 'lazer' : 'stable',
-  });
-  const { busy, hud, unit } = layout;
-  const zone = cfg.zone === 'auto'
-    ? mode === 'taiko' ? 'below' : mode === 'mania' ? 'stage' : 'left'
-    : cfg.zone;
-  const up = cfg.direction === 'auto' ? mode === 'mania' : cfg.direction === 'up';
-  const s = clamp(Number(cfg.scale) || 1, 0.5, 2);
-  let tape = Math.round(clamp(cfg.length, 120, 900));
-  const pad = cfg.backing === 'panel' ? 8 + 1 : 0; // padding + border
-  let w = Math.round(clamp(cfg.laneWidth, 12, 96));
-
-  // Free width of the zone, so nothing reaches into the playfield/stage. The stage zone keeps to the
-  // left of the stage, where stable draws no HUD (its mania HP bar, and many skins' panels, sit to
-  // the right).
-  const sideLeft = busy.x - 2 * MARGIN;
-  const sideRight = SW - (busy.x + busy.w) - 2 * MARGIN;
-  const leftSide = sideLeft >= 140 || sideLeft >= sideRight;
-  const wide = SW / 2 - 2 * MARGIN; // taiko: the lane spans the screen, its sides are the whole band
-  const avail = zone === 'stage' ? (leftSide ? sideLeft : sideRight)
-    : zone === 'left' ? (sideLeft > 0 ? sideLeft : wide)
-    : zone === 'right' ? (sideRight > 0 ? sideRight : wide)
-    : Math.min(busy.w, SW) - 2 * MARGIN;
-  if (up) {
-    const across = avail / s - RULER - pad * 2;
-    w = Math.max(12, Math.min(w, Math.floor((across - (n - 1) * GAP) / n)));
+  const W = Math.max(1, innerWidth);
+  const H = Math.max(1, innerHeight);
+  const v = cfg.orientation === 'auto' ? H > W : cfg.orientation === 'vertical';
+  const caps = cfg.align === 'auto' ? (v ? 'end' : 'start') : cfg.align;
+  const pad = cfg.backing === 'panel' ? 9 : 0; // padding + border
+  const read = cfg.showKps ? READ_H + ROW_GAP : 0;
+  const gaps = (n - 1) * GAP;
+  let k;
+  let cross;
+  let along;
+  if (v) {
+    const natural = Math.max(RULER + n * LANE + gaps, cfg.showKps ? READ_MIN : 0) + pad * 2;
+    const tightest = Math.max(RULER + n * LANE_MIN + gaps, cfg.showKps ? READ_MIN : 0) + pad * 2;
+    k = clamp(W / natural, clamp(W / tightest, 0.5, 1), 1.6);
+    cross = W / k - pad * 2 - RULER;
+    along = H / k - pad * 2 - read - ROW_GAP - CAP_H;
   } else {
-    tape = Math.max(120, Math.min(tape, Math.floor(avail / s - CAP_W - COL_GAP - pad * 2)));
+    const natural = read + n * LANE + gaps + RULER + pad * 2;
+    const tightest = read + n * LANE_MIN + gaps + RULER + pad * 2;
+    k = clamp(H / natural, clamp(H / tightest, 0.5, 1), 1.6);
+    cross = H / k - pad * 2 - read - RULER;
+    along = W / k - pad * 2 - CAP_W - COL_GAP;
   }
-  // An upright tape with few keys widens so the readout row above it fits its width.
-  const readMin = cfg.showKps ? 172 - RULER : 0;
-  if (up && n * w + (n - 1) * GAP < readMin) w = Math.ceil((readMin - (n - 1) * GAP) / n);
-  const lanesSpan = n * w + (n - 1) * GAP;
-  const cssW = up ? RULER + lanesSpan : tape;
-  const cssH = up ? tape : lanesSpan + RULER;
-  const width = Math.round(((up ? cssW : CAP_W + COL_GAP + tape) + pad * 2) * s);
-  const height = Math.round(((up ? READ_H + ROW_GAP + tape + ROW_GAP + CAP_H : READ_H + ROW_GAP + cssH)) * s + pad * 2 * s);
-
-  let x;
-  let y;
-  if (zone === 'stage') {
-    // Beside the stage, right-aligned against its left edge (its right edge only when the left is too narrow).
-    x = leftSide ? busy.x - MARGIN - width : busy.x + busy.w + MARGIN;
-    const capsTop = hitPosition * unit; // skin HitPosition, 480-line canvas
-    y = up ? capsTop - (READ_H + ROW_GAP + tape + ROW_GAP + pad) * s : capsTop - height;
-  } else if (zone === 'right') {
-    x = SW - MARGIN - width;
-    y = SH - MARGIN - height;
-  } else if (zone === 'below') {
-    x = mode === 'taiko' ? MARGIN : busy.x + (busy.w - width) / 2;
-    y = busy.y + busy.h + MARGIN;
-  } else {
-    // left band, bottom-aligned above the combo counter
-    x = MARGIN;
-    y = (hud.combo ? hud.combo.y : SH) - MARGIN - height;
-  }
-  x = Math.round(clamp(x + cfg.offsetX, 0, SW - width));
-  y = Math.round(clamp(y + cfg.offsetY, 0, SH - height));
-
+  // Lanes stop growing at a sane thickness; a single catch dash lane still spans the readout row.
+  const maxSpan = Math.max(n * (v ? 96 : 72), v && cfg.showKps ? READ_MIN - RULER : 0);
+  const span = Math.max(n * 8, Math.min(cross - gaps, maxSpan));
+  const columns = mode === 'mania' && maniaGeometry?.columnWidth?.length === n ? maniaGeometry.columnWidth : null;
+  const total = columns ? columns.reduce((a, b) => a + b, 0) : n;
+  const widths = new Float64Array(n);
   const pos = new Float64Array(n);
-  for (let i = 0; i < n; i++) pos[i] = (up ? RULER : 0) + i * (w + GAP);
-  return { up, n, w, tape, cssW, cssH, pos, x, y, s, width, height, dpr: 0 };
+  for (let i = 0, at = v ? RULER : 0; i < n; i++) {
+    widths[i] = Math.floor((span * (columns ? columns[i] : 1)) / total);
+    pos[i] = at;
+    at += widths[i] + GAP;
+  }
+  const lanesEnd = pos[n - 1] + widths[n - 1];
+  const tape = Math.max(40, Math.floor(along));
+  const cssW = v ? lanesEnd : tape;
+  const cssH = v ? tape : lanesEnd + RULER;
+  const width = (v ? cssW : CAP_W + COL_GAP + tape) + pad * 2;
+  const height = (v ? read + tape + ROW_GAP + CAP_H : read + cssH) + pad * 2;
+  // Centred on whatever the scale clamp leaves over.
+  const x = Math.max(0, Math.round((W - width * k) / 2));
+  const y = Math.max(0, Math.round((H - height * k) / 2));
+  // Caps at the end side (bottom / right): presses travel towards the start, so the tape is mirrored.
+  return { v, caps, flip: caps === 'end', n, widths, pos, tape, cssW, cssH, width, k, x, y, dpr: 0 };
 }
 
 function buildLanes(mode) {
+  builtMode = mode;
   const spec = laneSpec(mode);
   geometry = computeGeometry(mode, spec.length);
   const g = geometry;
-  attr(block, 'data-dir', g.up ? 'up' : 'right');
+  attr(block, 'data-orient', g.v ? 'v' : 'h');
+  attr(block, 'data-caps', g.caps);
   attr(block, 'data-kps', cfg.showKps ? '1' : '0');
-  attr(block, 'data-brand', cfg.showBrand ? '1' : '0');
   attr(block, 'data-counts', cfg.showCounts ? '1' : '0');
-  attr(block, 'data-backing', ['none', 'scrim', 'panel'].includes(cfg.backing) ? cfg.backing : 'none');
-  block.style.setProperty('--w', `${g.w}px`);
-  block.style.transform = `translate(${g.x}px, ${g.y}px) scale(${g.s})`;
-  el.read.style.width = g.up ? `${g.cssW}px` : '';
+  attr(block, 'data-backing', cfg.backing);
+  block.style.transform = `translate(${g.x}px, ${g.y}px) scale(${g.k})`;
+  block.style.width = `${g.width}px`;
   canvas.style.width = `${g.cssW}px`;
   canvas.style.height = `${g.cssH}px`;
-  el.brand.hidden = !cfg.showBrand;
-  el.chip.style.transform = `translate(${g.x}px, ${g.y + g.height - 24}px)`;
+  capsEl.style.width = `${g.v ? g.cssW : CAP_W}px`;
+  capsEl.style.height = `${g.v ? CAP_H : g.cssH}px`;
 
   const frag = document.createDocumentFragment();
-  lanes = spec.map(s => {
+  lanes = spec.map((s, i) => {
+    const w = g.widths[i];
     const cap = document.createElement('div');
     cap.className = 'cap';
-    cap.style.setProperty('--k', s.color);
+    cap.style.cssText = g.v
+      ? `--k:${s.color};left:${g.pos[i]}px;top:0;width:${w}px;height:${CAP_H}px`
+      : `--k:${s.color};left:0;top:${g.pos[i]}px;width:${CAP_W}px;height:${w}px`;
     const labelEl = document.createElement('b');
     labelEl.textContent = s.label;
     const countEl = document.createElement('span');
@@ -415,9 +389,9 @@ function buildLanes(mode) {
     const lit = document.createElement('i');
     lit.className = 'lit';
     cap.append(lit, labelEl, countEl);
-    const room = g.up ? g.w - 6 : CAP_W - 6;
+    const room = (g.v ? w : CAP_W) - 6;
     if (s.label.length * 7.8 > room) cap.classList.add('small');
-    if (g.up ? g.w < 22 : g.w < 30) cap.classList.add('tight');
+    if (g.v ? w < 22 : w < 30) cap.classList.add('tight');
     frag.append(cap);
     return { ...s, cap, lit, labelEl, countEl, shownPressed: false, shownCount: null, room };
   });
@@ -427,8 +401,8 @@ function buildLanes(mode) {
 
 function resizeCanvas() {
   if (!geometry) return;
-  const dpr = (window.devicePixelRatio || 1) * geometry.s;
   const g = geometry;
+  const dpr = (window.devicePixelRatio || 1) * g.k;
   const bw = Math.round(g.cssW * dpr);
   const bh = Math.round(g.cssH * dpr);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -437,15 +411,16 @@ function resizeCanvas() {
   dirty = true;
   kick();
 }
-new ResizeObserver(resizeCanvas).observe(canvas);
 matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`).addEventListener?.('change', resizeCanvas);
+// Hosts resize the page (vosulay frame, renderer layer, OBS source): re-flow for the new box.
+new ResizeObserver(() => { if (builtMode && !swapTimer) buildLanes(builtMode); }).observe(document.documentElement);
 
 /** Rebuilds lanes when their structure changes; a ruleset change fades the block out and back. */
 function syncLayout() {
   const mode = currentMode;
   if (!mode) return;
   const spec = laneSpec(mode);
-  const sig = [mode, values?.[P.client], JSON.stringify(cfg), palette?.accent, JSON.stringify(maniaGeometry), ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
+  const sig = [mode, values?.[P.client], cfgKey, palette?.accent, maniaKeyLoaded, ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
   if (sig === signature) return;
   const modeChanged = !signature.startsWith(`${mode}|`);
   const wasShown = signature !== '' && block.getAttribute('data-show') === '1';
@@ -463,48 +438,18 @@ function syncLayout() {
 // ------------------------------------------------------------------ state
 let shownOnce = false;
 /**
- * Gameplay shows the tape in its zone. Results show, in the free right part of the header band, what
- * osu!'s results screen lacks: per-key counts and balance, average and peak KPS (only for an attempt
- * this page watched). Song select and menus show nothing: a key overlay has nothing to add there.
+ * The tape shows during gameplay only (incl. replay/spectate and the replay renderer). Song select,
+ * results and menus show nothing: the page sits where the gameplay layout has room, which on those
+ * screens is osu!'s own UI, and osu! shows no key data worth adding there.
  */
 function updateVisibility() {
   const show = status === 'live' && view === 'play' && geometry !== null && !swapTimer;
   attr(block, 'data-show', show ? '1' : '0');
   if (show && !shownOnce) { shownOnce = true; setTimeout(() => block.removeAttribute('data-instant'), 400); }
-  const summary = status === 'live' && view === 'results' && results !== null && totalPresses > 0;
-  if (el.summary.hidden === summary) el.summary.hidden = !summary;
-  // A tiny chip in the zone for connection and no-game states; nothing elsewhere.
+  // A tiny chip for connection and no-game states; nothing elsewhere.
   const chip = status !== 'live' ? (status === 'offline' ? 'vosu offline' : 'Connecting') : view === 'nogame' ? 'osu! not running' : '';
   el.chip.hidden = !chip;
   if (chip) { text(el.chipText, chip); attr(el.chip, 'data-state', status === 'live' ? 'idle' : status); }
-}
-
-/** Static results summary, built once when the attempt ends. */
-function buildSummary() {
-  let sum = 0;
-  for (const lane of lanes) sum += tracks[lane.src]?.count ?? 0;
-  el.sumBrand.hidden = !cfg.showBrand;
-  el.sumAvg.textContent = results.avg === null ? '—' : results.avg.toFixed(1);
-  el.sumPeak.textContent = String(results.peak);
-  if (lanes.length > 9) el.summary.setAttribute('data-narrow', ''); else el.summary.removeAttribute('data-narrow');
-  const frag = document.createDocumentFragment();
-  for (const lane of lanes) {
-    const count = tracks[lane.src]?.count ?? 0;
-    const cell = document.createElement('div');
-    cell.className = 'kc';
-    cell.style.setProperty('--k', lane.color);
-    cell.style.setProperty('--share', sum ? (count / sum).toFixed(4) : '0');
-    const label = document.createElement('b');
-    label.textContent = lane.label;
-    const value = document.createElement('strong');
-    value.textContent = String(count);
-    const bar = document.createElement('i');
-    const share = document.createElement('span');
-    share.textContent = sum ? `${Math.round((count / sum) * 100)}%` : '—';
-    cell.append(label, value, bar, share);
-    frag.append(cell);
-  }
-  el.sumKeys.replaceChildren(frag);
 }
 
 let checksum = '';
@@ -523,7 +468,7 @@ function followPalette() {
   });
 }
 
-/** Re-reads the skin's mania stage when the key count or skin changes (off the hot path). */
+/** Re-reads the skin's mania column widths when the key count or skin changes (off the hot path). */
 function followManiaSkin() {
   const keys = keyCount();
   const skin = typeof values?.[P.skin] === 'string' ? values[P.skin] : '';
@@ -533,14 +478,15 @@ function followManiaSkin() {
   maniaSkin(keys, skin).then(geometry => {
     if (maniaKey !== key) return;
     maniaGeometry = geometry;
+    maniaKeyLoaded = key;
     syncLayout();
     updateVisibility();
     kick();
   });
 }
 
-// Pointers whose change can alter lanes, labels or placement; key frames alone only can through
-// their length (mania key count) or catch move keys getting their first press.
+// Pointers whose change can alter lanes or labels; key frames alone only can through their length
+// (mania key count) or catch move keys getting their first press.
 const LAYOUT_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.cs, P.skin, P.osuK1, P.osuK2, P.osuSmoke,
   P.taikoOL, P.taikoIL, P.taikoIR, P.taikoOR, P.catchK1, P.catchK2, P.catchDash];
 let keysLength = -1;
@@ -572,12 +518,8 @@ function onFrame(v, changed) {
       resetAttempt();
       observedEntry = prev !== 'none';
       clock.valid = false;
-    } else if (view === 'results' && prev === 'play') {
+    } else {
       closeOpen();
-      const span = (lastPress - firstPress) / rate;
-      results = { avg: totalPresses > 1 && span >= 1000 ? (totalPresses - 1) / (span / 1000) : null, peak: peakKps };
-      if (totalPresses > 0) buildSummary();
-    } else if (view !== 'results') {
       resetAttempt();
     }
   }
@@ -638,7 +580,7 @@ function render(now) {
   const g = geometry;
   const rate = clock.rate;
   const playing = view === 'play';
-  const pxPerMs = cfg.speed / 1000 / rate; // gameplay ms → px
+  const pxPerMs = cfg.speed / 1000 / rate; // gameplay ms → design px
   let anyVisible = false;
   let anyHeld = false;
 
@@ -702,35 +644,37 @@ function updateNote() {
 }
 
 function snap(value) { const d = geometry.dpr || 1; return Math.round(value * d) / d; }
+/** Along-tape coordinate of the span [d0, d1] (distances from the caps), honouring the mirror. */
+function along(g, d0, d1) { return g.flip ? g.tape - d1 : d0; }
 
 function drawLaneBeds(g) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = BED;
   for (let li = 0; li < lanes.length; li++) {
-    const p = g.pos[li];
-    if (g.up) ctx.fillRect(p, 0, g.w, g.tape);
-    else ctx.fillRect(0, p, g.tape, g.w);
+    if (g.v) ctx.fillRect(g.pos[li], 0, g.widths[li], g.tape);
+    else ctx.fillRect(0, g.pos[li], g.tape, g.widths[li]);
   }
 }
 
 function drawRuler(g) {
-  // Static time-ago scale: minor ticks every 100 ms of real time, major every 500 ms.
+  // Static time-ago scale from the caps: minor ticks every 100 ms of real time, major every 500 ms.
   let minor = cfg.speed * 0.1;
   let every = 5;
   if (minor < 8) { minor = cfg.speed * 0.25; every = 4; }
-  const across = g.up ? 0 : g.cssH - RULER;
+  const base = g.v ? 0 : g.cssH - RULER;
   ctx.fillStyle = BED;
-  if (g.up) ctx.fillRect(0, 0, RULER - 1, g.tape);
-  else ctx.fillRect(0, across + 1, g.tape, RULER - 1);
+  if (g.v) ctx.fillRect(0, 0, RULER - 1, g.tape);
+  else ctx.fillRect(0, base + 1, g.tape, RULER - 1);
   ctx.fillStyle = '#7e8288';
   for (let k = 1; k * minor <= g.tape; k++) {
     const d = snap(k * minor);
+    const at = g.flip ? g.tape - d : d;
     const len = k % every === 0 ? 7 : 3;
-    if (g.up) ctx.fillRect(RULER - 2 - len, g.tape - d, len, 1);
-    else ctx.fillRect(d, across + 2, 1, len);
+    if (g.v) ctx.fillRect(RULER - 2 - len, at, len, 1);
+    else ctx.fillRect(at, base + 2, 1, len);
   }
-  if (g.up) ctx.fillRect(RULER - 2, 0, 1, g.tape);
-  else ctx.fillRect(0, across + 2, g.tape, 1);
+  if (g.v) ctx.fillRect(RULER - 2, 0, 1, g.tape);
+  else ctx.fillRect(0, base + 2, g.tape, 1);
 }
 
 function drawBar(g, li, near, far, held) {
@@ -738,15 +682,17 @@ function drawBar(g, li, near, far, held) {
   let b = snap(far);
   if (b - a < 2) b = a + 2;
   const across = g.pos[li] + INSET;
-  const thick = g.w - INSET * 2;
+  const thick = g.widths[li] - INSET * 2;
+  const from = along(g, a, b);
   ctx.globalAlpha = held ? 0.9 : 0.72;
-  if (g.up) ctx.fillRect(across, g.tape - b, thick, b - a);
-  else ctx.fillRect(a, across, b - a, thick);
-  // Press edge: the moment the key went down, crisp at full strength.
+  if (g.v) ctx.fillRect(across, from, thick, b - a);
+  else ctx.fillRect(from, across, b - a, thick);
+  // Press edge: the moment the key went down (the far end), crisp at full strength.
   ctx.globalAlpha = 1;
   const edge = Math.min(2, b - a);
-  if (g.up) ctx.fillRect(across, g.tape - b, thick, edge);
-  else ctx.fillRect(b - edge, across, edge, thick);
+  const at = g.flip ? from : from + (b - a) - edge;
+  if (g.v) ctx.fillRect(across, at, thick, edge);
+  else ctx.fillRect(at, across, edge, thick);
 }
 
 // ------------------------------------------------------------------ connection
@@ -756,10 +702,10 @@ function onStatus(next) {
 }
 
 // ------------------------------------------------------------------ settings
-const OPTIONS = { zone: ['auto', 'left', 'right', 'below', 'stage'], direction: ['auto', 'up', 'right'], accent: ['map', '18-lab'], backing: ['none', 'scrim', 'panel'] };
 settings(DEFAULTS, next => {
   cfg = { ...next, speed: clamp(Number(next.speed) || DEFAULTS.speed, 100, 3000) };
   for (const [key, allowed] of Object.entries(OPTIONS)) if (!allowed.includes(cfg[key])) cfg[key] = DEFAULTS[key];
+  cfgKey = JSON.stringify(cfg);
   signature = '';
   if (values) { followPalette(); syncLayout(); updateVisibility(); }
   dirty = true;

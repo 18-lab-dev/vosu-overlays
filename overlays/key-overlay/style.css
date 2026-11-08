@@ -4,14 +4,14 @@
 *, *::before, *::after { box-sizing: border-box; }
 html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-#stage { position: relative; width: 1920px; height: 1080px; }
+body { position: relative; }
 
 /* Shadow for contrast over any map background; not a glow. */
-:root { --lift: 0 1px 2px rgb(0 0 0 / .65); --ink: rgb(11 12 13); }
+:root { --lift: 0 1px 2px rgb(0 0 0 / .65); }
 
-/* ------------------------------------------------------------------ block (floats on the game) */
+/* ------------------------------------------------------------------ block
+   Laid out in design px for the page's box (overlay.js), then scaled uniformly to it. */
 .block {
-  --w: 40px;            /* lane thickness (set from overlay.js) */
   --k-accent: var(--map-accent, var(--accent));
   position: absolute; left: 0; top: 0; transform-origin: 0 0;
   display: grid; gap: var(--space-1) var(--space-2);
@@ -22,13 +22,17 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 }
 .block[data-show="0"] { opacity: 0; }
 .block[data-instant] { transition: none; }
-.block[data-dir="up"] { grid-template-areas: "read" "tape" "caps"; }
-.block[data-dir="right"] { grid-template-areas: "read read" "caps tape"; grid-template-columns: 64px auto; }
+/* Vertical: caps at the bottom (end) and presses rise, or at the top (start) and presses fall. */
+.block[data-orient="v"][data-caps="end"] { grid-template-areas: "read" "tape" "caps"; }
+.block[data-orient="v"][data-caps="start"] { grid-template-areas: "caps" "tape" "read"; }
+/* Horizontal: caps on the left (start) and presses travel right, or mirrored. */
+.block[data-orient="h"][data-caps="start"] { grid-template-areas: "read read" "caps tape"; grid-template-columns: 64px auto; }
+.block[data-orient="h"][data-caps="end"] { grid-template-areas: "read read" "tape caps"; grid-template-columns: auto 64px; }
 
-/* Backing: none (default) floats; scrim adds a soft fade-out shade; panel is the classic 18-LAB panel. */
+/* Backing: none (default) floats on the game; scrim a soft shade that fades out; panel the classic panel. */
 .block[data-backing="scrim"]::before {
-  content: ""; position: absolute; inset: -36px -48px; z-index: -1; pointer-events: none;
-  background: radial-gradient(closest-side, rgb(11 12 13 / .62), rgb(11 12 13 / .42) 62%, transparent);
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgb(11 12 13 / .62), rgb(11 12 13 / .44) 70%, transparent);
 }
 .block[data-backing="panel"] {
   padding: var(--space-2);
@@ -39,53 +43,55 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /* ------------------------------------------------------------------ readout */
 .read {
   grid-area: read; position: relative; height: 36px;
-  display: flex; align-items: baseline; gap: var(--space-2); padding: 6px 0 0 2px;
+  display: flex; align-items: baseline; gap: var(--space-2); padding: 6px 2px 0;
   white-space: nowrap; text-shadow: var(--lift);
 }
+.block[data-orient="h"][data-caps="end"] .read { justify-content: flex-end; }
 /* A soft local shade under the numbers so they read over bright maps; no hard edges. */
 .block[data-backing="none"] .read::before {
-  content: ""; position: absolute; z-index: -1; inset: -2px -40px -4px -14px; pointer-events: none;
-  background: linear-gradient(to right, transparent, rgb(11 12 13 / .58) 14px, rgb(11 12 13 / .5) 70%, transparent);
+  content: ""; position: absolute; z-index: -1; inset: -2px 0 -4px; pointer-events: none;
+  background: linear-gradient(to right, transparent, rgb(11 12 13 / .56) 18px, rgb(11 12 13 / .5) 72%, transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 72%, transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 72%, transparent);
 }
-.brand { font: 600 12px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg); margin-right: var(--space-1); }
-.brand[hidden] { display: none; }
 .label { font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
 .num { font: 600 28px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); min-width: 1ch; }
 .num.small { font-size: 22px; color: var(--fg-dim); }
 .peak-label { margin-left: var(--space-2); }
 .read[data-empty="1"] .num { color: var(--fg-dim); }
-.block[data-kps="0"] .read > :not(.brand) { display: none; }
-.block[data-kps="0"][data-brand="0"] .read { visibility: hidden; }
+.block[data-kps="0"] .read { display: none; }
 
 /* ------------------------------------------------------------------ tape */
 .tape { grid-area: tape; position: relative; }
 #tape { display: block; }
 /* Presses dissolve at the far end of the tape. */
-.block[data-dir="up"] #tape { -webkit-mask-image: linear-gradient(to top, #000 62%, transparent); mask-image: linear-gradient(to top, #000 62%, transparent); }
-.block[data-dir="right"] #tape { -webkit-mask-image: linear-gradient(to right, #000 62%, transparent); mask-image: linear-gradient(to right, #000 62%, transparent); }
+.block[data-orient="v"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to top, #000 62%, transparent); mask-image: linear-gradient(to top, #000 62%, transparent); }
+.block[data-orient="v"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent); mask-image: linear-gradient(to bottom, #000 62%, transparent); }
+.block[data-orient="h"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to right, #000 62%, transparent); mask-image: linear-gradient(to right, #000 62%, transparent); }
+.block[data-orient="h"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to left, #000 62%, transparent); mask-image: linear-gradient(to left, #000 62%, transparent); }
 .note {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); margin: 0; padding: 0 var(--space-2);
-  font: 400 12px/1.4 var(--font-mono); color: var(--fg); text-shadow: var(--lift); text-align: center;
+  font: 400 12px/1.4 var(--font-mono); color: var(--fg); text-shadow: var(--lift); text-align: center; white-space: normal;
 }
 .note[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ caps */
-.caps { grid-area: caps; display: flex; gap: var(--space-1); }
-.block[data-dir="up"] .caps { padding-left: 10px; }
-.block[data-dir="right"] .caps { flex-direction: column; padding-bottom: 10px; }
-
+.caps { grid-area: caps; position: relative; }
 .cap {
   --k: var(--accent);
-  flex: none; position: relative; contain: strict;
+  position: absolute; contain: strict;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   background: rgb(17 18 20 / .84);
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius);
   font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 }
+/* The stripe faces the tape: presses leave the cap there. */
 .cap::before { content: ""; position: absolute; z-index: 1; background: var(--k); }
+.block[data-orient="v"][data-caps="end"] .cap::before { left: -1px; right: -1px; top: -1px; height: 2px; }
+.block[data-orient="v"][data-caps="start"] .cap::before { left: -1px; right: -1px; bottom: -1px; height: 2px; }
+.block[data-orient="h"][data-caps="start"] .cap::before { top: -1px; bottom: -1px; right: -1px; width: 2px; }
+.block[data-orient="h"][data-caps="end"] .cap::before { top: -1px; bottom: -1px; left: -1px; width: 2px; }
 /* Pressed: an opacity-only layer, so a keypress never costs layout. */
 .cap .lit {
   position: absolute; inset: -1px; border-radius: inherit; opacity: 0; will-change: opacity;
@@ -93,11 +99,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   box-shadow: inset 0 0 0 1px var(--k);
 }
 .cap b, .cap span { position: relative; }
-.block[data-dir="up"] .cap { width: var(--w); height: 44px; }
-.block[data-dir="up"] .cap::before { left: -1px; right: -1px; top: -1px; height: 2px; }
-.block[data-dir="right"] .cap { width: 64px; height: var(--w); }
-.block[data-dir="right"] .cap::before { top: -1px; bottom: -1px; right: -1px; width: 2px; }
-
 .cap b { font-size: 13px; font-weight: 500; line-height: 1; color: var(--fg); letter-spacing: .02em; white-space: nowrap; }
 .cap span { font-size: 12px; line-height: 1; color: var(--fg-dim); white-space: nowrap; }
 .cap.small b { font-size: 11px; letter-spacing: 0; }
@@ -106,9 +107,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 
 /* ------------------------------------------------------------------ connection / no-data chip */
 .chip {
-  position: absolute; left: 0; top: 0; height: 24px; padding: 0 var(--space-2);
-  /* Before any layout is known (vosu unreachable): the left band above the combo counter. */
-  transform: translate(24px, 938px);
+  position: absolute; left: 0; bottom: 0; height: 24px; padding: 0 var(--space-2);
   display: inline-flex; align-items: center; gap: 6px;
   background: rgb(17 18 20 / .78); border-radius: var(--radius);
   font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
@@ -116,24 +115,3 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
 .chip[data-state="offline"] i { background: var(--danger); }
 .chip[hidden] { display: none; }
-
-/* ------------------------------------------------------------------ results summary (header band) */
-.summary {
-  position: absolute; right: 20px; top: 18px; height: 96px;
-  display: flex; align-items: center; gap: var(--space-6);
-  color: var(--fg); text-shadow: var(--lift); white-space: nowrap; user-select: none;
-  contain: layout; transition: opacity 180ms var(--ease-draft);
-}
-.summary[hidden] { display: none; }
-.sum-stats { display: flex; align-items: center; gap: var(--space-5); }
-.sum-stat { display: flex; flex-direction: column; gap: 6px; }
-.sum-stat .num { font-size: 34px; }
-.sum-keys { display: flex; gap: var(--space-3); }
-.kc { --k: var(--accent); width: 60px; display: flex; flex-direction: column; gap: 5px; }
-.kc b { font: 500 12px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg-dim); }
-.kc strong { font: 600 24px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.kc i { display: block; height: 3px; background: rgb(235 232 225 / .16); position: relative; overflow: hidden; }
-.kc i::after { content: ""; position: absolute; inset: 0; background: var(--k); transform-origin: 0 50%; transform: scaleX(var(--share, 0)); }
-.kc span { font: 400 12px/1 var(--font-mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.summary[data-narrow] .kc { width: 44px; }
-.summary[data-narrow] .kc strong { font-size: 20px; }

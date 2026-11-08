@@ -3,34 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Key overlay · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Key overlay</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <section id="block" class="block" data-dir="right" data-show="0" data-instant aria-label="Key overlay">
-    <div class="read" id="read">
-      <span class="brand" id="brand">18—LAB</span>
-      <b class="num" id="kps">—</b><span class="label">KPS</span>
-      <span class="label peak-label">Peak</span><b class="num small" id="peak">—</b>
-    </div>
-    <div class="tape">
-      <canvas id="tape" aria-label="Key presses scrolling away from the key caps"></canvas>
-      <p class="note" id="note" hidden></p>
-    </div>
-    <div class="caps" id="caps"></div>
-  </section>
-  <div class="chip" id="chip" data-state="connecting"><i></i><span id="chip-text">Connecting</span></div>
-  <section id="summary" class="summary" hidden aria-label="Key summary for this attempt">
-    <div class="sum-stats">
-      <span class="brand" id="sum-brand">18—LAB</span>
-      <span class="sum-stat"><span class="label">avg KPS</span><b class="num" id="sum-avg">—</b></span>
-      <span class="sum-stat"><span class="label">Peak</span><b class="num" id="sum-peak">—</b></span>
-    </div>
-    <div class="sum-keys" id="sum-keys"></div>
-  </section>
-</div>
+<section id="block" class="block" data-orient="v" data-caps="end" data-show="0" data-instant aria-label="Key overlay">
+  <div class="read" id="read">
+    <b class="num" id="kps">—</b><span class="label">KPS</span>
+    <span class="label peak-label">Peak</span><b class="num small" id="peak">—</b>
+  </div>
+  <div class="tape">
+    <canvas id="tape" aria-label="Key presses scrolling away from the key caps"></canvas>
+    <p class="note" id="note" hidden></p>
+  </div>
+  <div class="caps" id="caps"></div>
+</section>
+<div class="chip" id="chip" data-state="connecting"><i></i><span id="chip-text">Connecting</span></div>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 name = Key overlay
 author = 18-LAB
-version = 0.2.0
-description = Scrolling key-press tape for every ruleset that floats in osu!'s empty space: one lane per key with bars timed from gameplay press/release edges, key caps with counts, live and peak keys per second; a per-key balance summary on results. Needs vosu keys.all.
-resolution = [1920,1080]
+version = 0.3.0
+description = Scrolling key-press tape for every ruleset: one lane per key with bars timed from gameplay press/release edges, key caps with counts, live and peak keys per second. Lays out for its box: columns when tall, rows when wide. Needs vosu keys.all.
+resolution = [280,420]
+placement = {"osu":["left+16","top+700",200,268],"fruits":["left+16","top+700",200,268],"taiko":["left+24","bottom-24",600,200],"mania":["left+24","bottom-24",280,420]}

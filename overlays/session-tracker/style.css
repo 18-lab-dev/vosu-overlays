@@ -1,0 +1,185 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+
+:root {
+  --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f;
+  /* Grade inks: osu!'s silver / gold / green / blue / violet / red, mapped onto the shared palette. */
+  --g-ss: var(--j-max); --g-s: var(--j-meh); --g-a: var(--j-good); --g-b: var(--j-great); --g-c: #a99bc9; --g-d: var(--j-miss);
+  --panel: rgb(17 18 20 / .86);
+}
+
+/* tokens.css sets color-scheme: dark; inside a host page with another scheme Chromium would paint an opaque backdrop. */
+html[data-theme] { color-scheme: normal; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { color: var(--fg); font: 400 13px/1.25 var(--font-body); -webkit-font-smoothing: antialiased; }
+#stage { position: absolute; left: 0; top: 0; }
+[hidden] { display: none !important; }
+
+.panel {
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  contain: layout paint;
+  transition: opacity 240ms var(--ease-draft), transform 240ms var(--ease-draft);
+  user-select: none;
+}
+.panel.is-away { opacity: 0; transform: translateY(-4px); }
+
+.lbl {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.big, .val, .clock, .legend b, .grades b, .delta, .sub { font-variant-numeric: tabular-nums; }
+
+/* Header ------------------------------------------------------------------------------- */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+}
+.clock { font: 400 11px/1 var(--font-mono); color: var(--fg-dim); }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  transition: opacity 160ms var(--ease-draft);
+}
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip[data-state="idle"] { opacity: 0; }
+.chip[data-state="live"] { color: var(--accent); }
+.chip[data-state="live"] i { background: var(--accent); }
+.chip[data-state="offline"] i { background: var(--danger); }
+.chip[data-state="nogame"] i { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+.brand { font: 600 11px/1 var(--font-mono); letter-spacing: .06em; color: var(--fg-dim); }
+.chip + .brand { margin-left: 4px; }
+
+.sec { border-top: 1px solid var(--rule); padding: 10px 12px 12px; }
+
+/* Plays -------------------------------------------------------------------------------- */
+.plays { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 0 12px; }
+.cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.big {
+  font: 600 32px/.9 var(--font-display);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.big small {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--muted);
+  margin: 0 3px 0 2px;
+  letter-spacing: .02em;
+}
+.big small:last-child { margin-right: 0; }
+
+/* Attempt tape ------------------------------------------------------------------------- */
+.tapebox { position: relative; height: 32px; }
+#tape { display: block; width: 100%; height: 32px; }
+.empty {
+  position: absolute;
+  left: 0;
+  bottom: 6px;
+  font: 400 11px/1 var(--font-mono);
+  color: var(--muted);
+}
+.legend { display: flex; gap: 16px; margin-top: 8px; }
+.key {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.key b { font-weight: 500; color: var(--fg); letter-spacing: 0; font-size: 11px; }
+.key i { display: block; width: 4px; }
+.key.pass i { height: 10px; background: var(--fg-dim); }
+.key.fail i { height: 7px; box-shadow: inset 0 0 0 1px var(--j-miss); }
+.key.retry i { height: 4px; background: var(--muted); }
+
+/* Passes ------------------------------------------------------------------------------- */
+.passes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.passes .map {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.passes .map:empty { display: none; }
+.sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 12px;
+  font: 400 11px/1 var(--font-mono);
+  color: var(--fg-dim);
+}
+.g { font: 600 14px/.8 var(--font-display); letter-spacing: .02em; }
+.new {
+  font-style: normal;
+  color: var(--accent);
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+}
+.new.on { opacity: 1; }
+[data-g="SS"], .g[data-g="SS"] { --ink: var(--g-ss); }
+[data-g="S"] { --ink: var(--g-s); }
+[data-g="A"] { --ink: var(--g-a); }
+[data-g="B"] { --ink: var(--g-b); }
+[data-g="C"] { --ink: var(--g-c); }
+[data-g="D"] { --ink: var(--g-d); }
+.g { color: var(--ink, var(--fg-dim)); }
+
+/* Grades ------------------------------------------------------------------------------- */
+.grades { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 8px; }
+.col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.col b { font: 500 11px/1 var(--font-mono); color: var(--fg); }
+.col i { display: block; position: relative; width: 100%; height: 22px; border-bottom: 1px solid var(--rule-strong); }
+.col s {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 10px;
+  height: 22px;
+  margin-left: -5px;
+  background: var(--ink);
+  transform-origin: 50% 100%;
+  transform: scaleY(0);
+  transition: transform 240ms var(--ease-draft);
+}
+.col span { font: 600 16px/.9 var(--font-display); color: var(--ink); letter-spacing: .02em; }
+.col.zero b, .col.zero span { opacity: .38; }
+
+/* Profile ------------------------------------------------------------------------------ */
+.profile {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.val { font: 600 20px/1 var(--font-display); color: var(--fg); text-align: right; }
+.val small { font: 400 11px/1 var(--font-mono); color: var(--muted); margin-left: 2px; }
+.delta {
+  min-width: 64px;
+  font: 500 11px/1 var(--font-mono);
+  text-align: right;
+  color: var(--muted);
+}
+.delta[data-dir="up"] { color: var(--j-good); }
+.delta[data-dir="down"] { color: var(--j-miss); }

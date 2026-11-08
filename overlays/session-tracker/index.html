@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session tracker · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section id="panel" class="panel" aria-label="Session stats">
+    <header class="head">
+      <span class="lbl">Session</span>
+      <span class="clock" id="clock">0m</span>
+      <span class="chip" id="chip" data-state="connecting"><i aria-hidden="true"></i><span id="chipText">Connecting</span></span>
+      <span class="brand" id="brand">18—LAB</span>
+    </header>
+
+    <div class="sec plays" id="rowPlays">
+      <div class="cell">
+        <span class="lbl">Plays</span>
+        <span class="big" id="plays">0</span>
+      </div>
+      <div class="cell">
+        <span class="lbl">Play time</span>
+        <span class="big"><span id="ptH" hidden>0</span><small id="ptHu" hidden>h</small><span id="ptM">0</span><small>m</small></span>
+      </div>
+      <div class="cell">
+        <span class="lbl">Pass rate</span>
+        <span class="big"><span id="rate">—</span><small id="rateU" hidden>%</small></span>
+      </div>
+    </div>
+
+    <div class="sec tape" id="rowTape">
+      <div class="tapebox">
+        <canvas id="tape" aria-hidden="true"></canvas>
+        <span class="empty" id="tapeEmpty">No attempts yet</span>
+      </div>
+      <div class="legend">
+        <span class="key pass"><i aria-hidden="true"></i>Pass<b id="nPass">0</b></span>
+        <span class="key fail"><i aria-hidden="true"></i>Fail<b id="nFail">0</b></span>
+        <span class="key retry"><i aria-hidden="true"></i>Retry<b id="nRetry">0</b></span>
+      </div>
+    </div>
+
+    <div class="sec passes" id="rowPasses">
+      <div class="cell" id="cellBest">
+        <span class="lbl">Best <em class="new" id="newBest">New</em></span>
+        <span class="big"><span id="best">—</span><small id="bestU" hidden>pp</small></span>
+        <span class="sub" id="bestSub"><b id="bestGrade" class="g"></b><span id="bestAcc"></span></span>
+      </div>
+      <div class="cell" id="cellAcc">
+        <span class="lbl">Avg acc</span>
+        <span class="big"><span id="acc">—</span><small id="accU" hidden>%</small></span>
+        <span class="sub" id="accSub"></span>
+      </div>
+      <span class="map" id="bestMap"></span>
+    </div>
+
+    <div class="sec grades" id="rowGrades" aria-label="Grades">
+      <div class="col" data-g="SS"><b id="gSS">0</b><i><s id="bSS"></s></i><span>SS</span></div>
+      <div class="col" data-g="S"><b id="gS">0</b><i><s id="bS"></s></i><span>S</span></div>
+      <div class="col" data-g="A"><b id="gA">0</b><i><s id="bA"></s></i><span>A</span></div>
+      <div class="col" data-g="B"><b id="gB">0</b><i><s id="bB"></s></i><span>B</span></div>
+      <div class="col" data-g="C"><b id="gC">0</b><i><s id="bC"></s></i><span>C</span></div>
+      <div class="col" data-g="D"><b id="gD">0</b><i><s id="bD"></s></i><span>D</span></div>
+    </div>
+
+    <div class="sec profile" id="rowProfile">
+      <span class="lbl">Total pp</span>
+      <span class="val" id="ppNow">—</span>
+      <span class="delta" id="ppDelta"></span>
+      <span class="lbl">Rank</span>
+      <span class="val" id="rankNow">—</span>
+      <span class="delta" id="rankDelta"></span>
+    </div>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

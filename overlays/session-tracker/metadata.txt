@@ -1,0 +1,5 @@
+name = Session tracker
+author = 18-LAB
+version = 0.1.0
+description = Session ledger for every ruleset: plays, play time, pass / fail / retry strip, best pp, average pass accuracy, grade tally and profile pp / rank movement since the session began.
+resolution = [320,440]

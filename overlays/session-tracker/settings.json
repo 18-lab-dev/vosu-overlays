@@ -1,0 +1,13 @@
+[
+ {"uniqueID":"rowPlays","type":"checkbox","title":"Show plays","description":"Attempts counted this session, time spent in gameplay, and the share of attempts that reached the results screen.","value":true},
+ {"uniqueID":"rowTape","type":"checkbox","title":"Show attempt strip","description":"One bar per attempt, newest on the right: tall bars are passes in their grade colour, red outlines are fails, short grey bars are retries (restarts and quits before the end). The amber bar is the attempt in progress.","value":true},
+ {"uniqueID":"rowBest","type":"checkbox","title":"Show best pp","description":"Highest-pp pass this session with its grade, accuracy and map. Marked NEW on the results screen when a pass beats it.","value":true},
+ {"uniqueID":"rowAccuracy","type":"checkbox","title":"Show average accuracy","description":"Mean accuracy of this session's passes.","value":true},
+ {"uniqueID":"rowGrades","type":"checkbox","title":"Show grade tally","description":"Passes per grade; silver SS/S count with SS/S.","value":true},
+ {"uniqueID":"rowProfile","type":"checkbox","title":"Show profile change","description":"Profile pp and global rank with their change since the session started, tracked separately per account and ruleset.","value":true},
+ {"uniqueID":"hideInPlay","type":"checkbox","title":"Hide during gameplay","description":"Fade the panel out while you play and back in on results and menus.","value":false},
+ {"uniqueID":"persist","type":"options","title":"Keep session","options":["off","reload","day"],"description":"off: every page load starts a new session. reload: survives refreshing the browser source (session storage, lost when OBS closes it). day: kept until the daily reset hour, even across OBS restarts (local storage).","value":"reload"},
+ {"uniqueID":"resetHour","type":"number","title":"Daily reset hour","description":"Local hour (0–23) when a new session day begins; a running session restarts then and stored sessions from an earlier day are discarded. -1 never resets automatically.","value":6},
+ {"uniqueID":"resetEpoch","type":"number","title":"Reset now","description":"Change this number to any other value to start a fresh session immediately.","value":0},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

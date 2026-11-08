@@ -100,17 +100,39 @@ if (perf !== 'none') {
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
   const frame = page.frames().find(f => f.url().includes(`/${id}/`));
   await frame.evaluate(() => { window.__frames = 0; const loop = () => { window.__frames++; requestAnimationFrame(loop); }; requestAnimationFrame(loop); });
+  // Allocation sampling over the same window, counting objects already collected, so the rate
+  // includes short-lived garbage. Built-ins (JSON.parse, Array.from) have no script URL; their
+  // samples are charged to the nearest caller with one.
+  await cdp.send('HeapProfiler.enable');
+  await cdp.send('HeapProfiler.startSampling', { samplingInterval: 1024, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
   const before = await metrics();
   const seconds = 5;
   await page.waitForTimeout(seconds * 1000);
   const after = await metrics();
+  const { profile } = await cdp.send('HeapProfiler.stopSampling');
   const frames = await frame.evaluate(() => window.__frames);
   const per = key => Math.round(((after[key] - before[key]) * 1000 / seconds) * 100) / 100;
+  const alloc = { overlay: 0, client: 0, other: 0 };
+  const sites = new Map();
+  const walk = (node, owner) => {
+    const { url, functionName, lineNumber } = node.callFrame;
+    const here = url ? { url, at: `${functionName || '(anonymous)'} ${url.split('/').pop()}:${lineNumber + 1}` } : owner;
+    if (node.selfSize && here) {
+      const bucket = !here.url.includes(`/${id}/`) ? 'other' : /\/(vosu-overlay|m3)\.js$/.test(here.url) ? 'client' : 'overlay';
+      alloc[bucket] += node.selfSize;
+      if (bucket !== 'other') sites.set(here.at, (sites.get(here.at) ?? 0) + node.selfSize);
+    } else if (node.selfSize) alloc.other += node.selfSize;
+    for (const child of node.children) walk(child, here);
+  };
+  walk(profile.head, null);
+  const kbps = bytes => Math.round(bytes / 1024 / seconds * 10) / 10;
   console.log(JSON.stringify({
     perf: perf,
     msPerSecond: { script: per('ScriptDuration'), layout: per('LayoutDuration'), style: per('RecalcStyleDuration'), task: per('TaskDuration') },
     fps: Math.round(frames / seconds),
     layouts: after.LayoutCount - before.LayoutCount,
+    allocKBps: { overlay: kbps(alloc.overlay), client: kbps(alloc.client), harness: kbps(alloc.other) },
+    allocSites: [...sites].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([at, bytes]) => `${kbps(bytes)} KB/s ${at}`),
     heapMB: Math.round(after.JSHeapUsedSize / 1048576 * 10) / 10,
     nodes: after.Nodes,
   }));

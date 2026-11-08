@@ -21,6 +21,7 @@ function backoff(attempt) {
  *
  * `onFrame(values, changed)`: `values` maps each pointer to its value (`undefined` when vosu
  * reports it absent); `changed` is the Set of pointers this frame touched (all on a snapshot).
+ * Both objects are reused for every frame, so read them inside the callback and keep neither.
  * `onStatus(state, detail)`: state is `connecting`, `live` or `offline`.
  * Returns `{ values, close() }`.
  */
@@ -35,6 +36,9 @@ export function subscribe(pointers, onFrame, { onStatus = () => {} } = {}) {
     onStatus('connecting', 'Connecting to vosu…');
     socket = new WebSocket(socketUrl('/websocket/v2/subscribe'));
     socket.onopen = () => socket.send(JSON.stringify(pointers));
+    // One Set for the socket's lifetime: a message arrives every few milliseconds during play,
+    // and parsing the text is the only allocation a frame cannot avoid.
+    const changed = new Set();
     socket.onmessage = event => {
       let frame;
       try { frame = JSON.parse(event.data); } catch { return; }
@@ -44,19 +48,23 @@ export function subscribe(pointers, onFrame, { onStatus = () => {} } = {}) {
         return;
       }
       if (frame[0] !== 0 && frame[0] !== 1) return;
-      const changed = new Set();
+      changed.clear();
       if (frame[0] === 0) {
-        for (const pointer of pointers) { values[pointer] = undefined; changed.add(pointer); }
+        for (let i = 0; i < pointers.length; i++) { values[pointers[i]] = undefined; changed.add(pointers[i]); }
       }
-      for (const [id, value] of frame[2] || []) {
-        if (pointers[id] === undefined) continue;
-        values[pointers[id]] = value;
-        changed.add(pointers[id]);
+      const set = frame[2];
+      if (set) for (let i = 0; i < set.length; i++) {
+        const pointer = pointers[set[i][0]];
+        if (pointer === undefined) continue;
+        values[pointer] = set[i][1];
+        changed.add(pointer);
       }
-      for (const id of frame[3] || []) {
-        if (pointers[id] === undefined) continue;
-        values[pointers[id]] = undefined;
-        changed.add(pointers[id]);
+      const removed = frame[3];
+      if (removed) for (let i = 0; i < removed.length; i++) {
+        const pointer = pointers[removed[i]];
+        if (pointer === undefined) continue;
+        values[pointer] = undefined;
+        changed.add(pointer);
       }
       attempt = 0;
       onStatus('live', 'Live');

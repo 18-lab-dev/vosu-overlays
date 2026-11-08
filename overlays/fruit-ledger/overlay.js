@@ -35,6 +35,19 @@ function textCell(el) {
   let last = null;
   return value => { if (value !== last) { last = value; el.textContent = value; } };
 }
+/**
+ * A text cell keyed by its number (or null): `format` runs, and allocates, only when the number
+ * changes, and the DOM is written only when the formatted text does.
+ */
+function numberCell(el, format) {
+  let last, text = null;
+  return value => {
+    if (value === last) return;
+    last = value;
+    const next = format(value);
+    if (next !== text) { text = next; el.textContent = next; }
+  };
+}
 function attrCell(el, name) {
   let last;
   return value => {
@@ -49,20 +62,59 @@ function classCell(el, name) {
 }
 let mirrored = false;
 let segEpoch = 0; // bumped when the bars' direction flips, so every bar rewrites
+// Transform strings per thousandth, built the first time each is used. A segment at the track's
+// start (fruits, droplets caught) then reuses a whole cached string; any other costs one
+// concatenation of two cached pieces instead of two number conversions and a template.
+const AT_START = new Array(1001).fill(null);
+const TRANSLATE = new Array(1001).fill(null);
+const TRANSLATE_MIRRORED = new Array(1001).fill(null);
+const SCALE = new Array(1001).fill(null);
+function scalePiece(k) {
+  return SCALE[k] ?? (SCALE[k] = `scaleX(${k / 1000})`);
+}
+function transformOf(startK, widthK) {
+  // translateX(0%) reads the same mirrored or not.
+  if (startK === 0) return AT_START[widthK] ?? (AT_START[widthK] = `translateX(0%) ${scalePiece(widthK)}`);
+  const table = mirrored ? TRANSLATE_MIRRORED : TRANSLATE;
+  const translate = table[startK] ?? (table[startK] = `translateX(${(mirrored ? -startK : startK) / 1000 * 100}%) `);
+  return translate + scalePiece(widthK);
+}
+
+/**
+ * A bar segment spanning `[startCount, startCount + widthCount)` of `total`, positioned in
+ * thousandths. Integer counts (not shares) let unchanged counts return at once and keep the
+ * quantising to one division per edge.
+ */
 function segCell(el) {
+  let lastStartCount = -1, lastWidthCount = -1, lastTotal = -1;
   let lastStart = -1, lastWidth = -1, lastEpoch = -1;
-  return (start, width) => {
-    // A non-zero share stays visible (2 px of a ~120 px track).
-    if (width > 0 && width < 0.016) width = 0.016;
-    if (start + width > 1) start = Math.max(0, 1 - width);
-    start = Math.round(start * 1000) / 1000;
-    width = Math.round(width * 1000) / 1000;
-    if (start === lastStart && width === lastWidth && segEpoch === lastEpoch) return;
-    lastStart = start; lastWidth = width; lastEpoch = segEpoch;
-    el.style.transform = `translateX(${(mirrored ? -start : start) * 100}%) scaleX(${width})`;
+  return (startCount, widthCount, total) => {
+    if (startCount === lastStartCount && widthCount === lastWidthCount && total === lastTotal && segEpoch === lastEpoch) return;
+    lastStartCount = startCount; lastWidthCount = widthCount; lastTotal = total;
+    let startK = 0, widthK = 0;
+    if (total) {
+      // A non-zero share stays visible: at least 16 ‰ (2 px of a ~120 px track), pushed back
+      // from the track's end when it would overflow it.
+      if (widthCount > 0 && widthCount * 1000 < 16 * total) {
+        widthK = 16;
+        startK = startCount * 1000 + 16 * total > 1000 * total ? 984 : Math.round(startCount * 1000 / total);
+      } else {
+        widthK = Math.round(widthCount * 1000 / total);
+        startK = Math.round(startCount * 1000 / total);
+      }
+    }
+    if (startK === lastStart && widthK === lastWidth && segEpoch === lastEpoch) return;
+    lastStart = startK; lastWidth = widthK; lastEpoch = segEpoch;
+    el.style.transform = transformOf(startK, widthK);
   };
 }
 const stat = name => document.querySelector(`.stat-${name}`);
+
+const grouping = new Intl.NumberFormat('en-US');
+const count = n => (n === null ? '—' : grouping.format(n));
+const percent = n => (n === null ? '—' : n.toFixed(2));
+const comboOf = n => (n === null ? '' : `/ ${grouping.format(n)}`);
+const hundredths = n => (n === null ? '—' : (n / 100).toFixed(2));
 
 const ui = {
   chipState: attrCell(chip, 'data-state'),
@@ -70,34 +122,32 @@ const ui = {
   hidden: classCell(ledger, 'is-hidden'),
   verdict: textCell($('verdict')),
   tone: attrCell($('verdict'), 'data-tone'),
-  fruit: textCell($('n-fruit')),
-  drop: textCell($('n-drop')),
-  tiny: textCell($('n-tiny')),
-  miss: textCell($('n-miss')),
+  fruit: numberCell($('n-fruit'), count),
+  drop: numberCell($('n-drop'), count),
+  tiny: numberCell($('n-tiny'), count),
+  miss: numberCell($('n-miss'), count),
   missHot: classCell($('n-miss'), 'hot'),
-  dmiss: textCell($('n-dmiss')),
+  dmiss: numberCell($('n-dmiss'), count),
   dmissHot: classCell($('n-dmiss'), 'hot'),
   segFruit: segCell($('seg-fruit')),
   segDrop: segCell($('seg-drop')),
   segMiss: segCell($('seg-miss')),
   segTiny: segCell($('seg-tiny')),
   segDmiss: segCell($('seg-dmiss')),
-  acc: textCell($('acc')),
+  acc: numberCell($('acc'), percent),
   accEmpty: attrCell(stat('acc'), 'data-empty'),
-  max: textCell($('max')),
+  max: numberCell($('max'), hundredths),
   maxUnknown: attrCell(stat('max'), 'data-unknown'),
-  combo: textCell($('combo')),
+  combo: numberCell($('combo'), count),
   comboEmpty: attrCell(stat('combo'), 'data-empty'),
-  comboOf: textCell($('combo-of')),
+  comboOf: numberCell($('combo-of'), comboOf),
 };
-
-const grouping = new Intl.NumberFormat('en-US');
-const count = n => (n === null ? '—' : grouping.format(n));
-const percent = n => (n === null ? '—' : n.toFixed(2));
 
 // ------------------------------------------------------------ state
 const DEFAULTS = { orientation: 'auto', align: 'right', backing: 'scrim', accent: 'map', compact: false, showAcc: true };
-let values = {};
+// The subscribed values, copied out of the client's reused frame object on every message.
+let gameState, playMode, settingsMode, checksum, mapComboRaw, accuracyRaw, comboRaw, comboMaxRaw;
+let hit300, hit100, hit50, hit0, hitKatu, hitLarge, hitSmall;
 let options = { ...DEFAULTS };
 let status = 'connecting';
 let dirty = true;
@@ -168,7 +218,8 @@ function wantComposition(checksum) {
   compositionFor = checksum;
   composition = null;
   clearTimeout(compositionTimer);
-  compositionTimer = setTimeout(() => loadComposition(checksum, 0), 300);
+  // Arguments rather than a closure: a captured parameter would allocate a context on every call.
+  compositionTimer = setTimeout(loadComposition, 300, checksum, 0);
 }
 
 async function loadComposition(checksum, attempt) {
@@ -177,7 +228,7 @@ async function loadComposition(checksum, attempt) {
     if (compositionFor !== checksum) return;
     if (!response.ok) {
       // 503: the map is still being parsed; anything else means the route is unavailable.
-      if (response.status === 503 && attempt < 5) compositionTimer = setTimeout(() => loadComposition(checksum, attempt + 1), 1500);
+      if (response.status === 503 && attempt < 5) compositionTimer = setTimeout(loadComposition, 1500, checksum, attempt + 1);
       return;
     }
     const attributes = (await response.json())?.difficulty;
@@ -199,39 +250,43 @@ function wantPalette(checksum) {
 
 const int = value => (Number.isFinite(value) ? value : 0);
 
+// The current hits (readHits), kept as scalars so a render builds no objects.
+let fruits = 0, drops = 0, droplets = 0, misses = 0, raw = false;
+let dropletMisses = null; // unknown when vosu publishes catch statistics raw
+
 /**
- * Reads the hits object. The brief's (tosu) catch table: 300 fruits, 100 drops, 50 droplets,
+ * Reads the hits. The brief's (tosu) catch table: 300 fruits, 100 drops, 50 droplets,
  * katu missed droplets, 0 fruit+drop misses. vosu v2 currently publishes catch statistics raw
  * (drops in largeTickHits, droplets in smallTickHits, droplet misses absent): then droplet
- * misses are unknown (null), never zero.
+ * misses are unknown (null), never zero. Returns false when there are no hits yet.
  */
 function readHits() {
-  const fruits = values[playHits[0]];
-  if (!Number.isFinite(fruits)) return null;
-  const h100 = int(values[playHits[1]]);
-  const h50 = int(values[playHits[2]]);
-  const katu = int(values[playHits[4]]);
-  const large = int(values[playHits[5]]);
-  const small = int(values[playHits[6]]);
-  const raw = h100 === 0 && h50 === 0 && katu === 0 && (large > 0 || small > 0);
-  return {
-    fruits,
-    drops: raw ? large : h100,
-    droplets: raw ? small : h50,
-    misses: int(values[playHits[3]]),
-    dropletMisses: raw ? null : katu,
-    raw,
-  };
+  if (!Number.isFinite(hit300)) return false;
+  const h100 = int(hit100);
+  const h50 = int(hit50);
+  const katu = int(hitKatu);
+  const large = int(hitLarge);
+  const small = int(hitSmall);
+  raw = h100 === 0 && h50 === 0 && katu === 0 && (large > 0 || small > 0);
+  fruits = hit300;
+  drops = raw ? large : h100;
+  droplets = raw ? small : h50;
+  misses = int(hit0);
+  dropletMisses = raw ? null : katu;
+  return true;
 }
 
-function verdictOf(hits, maxCombo) {
-  const judged = hits.fruits + hits.drops + hits.droplets + hits.misses + (hits.dropletMisses ?? 0);
-  if (!judged) return ['none', ''];
+const VERDICT = { none: '', broken: 'Combo broken', intact: 'Combo intact', fc: 'Full combo' };
+
+/** The combo verdict's tone for the current hits; VERDICT maps it to its words. */
+function verdictOf(maxCombo) {
+  const judged = fruits + drops + droplets + misses + (dropletMisses ?? 0);
+  if (!judged) return 'none';
   // Without a separate drop-miss count, a combo shorter than the combo objects caught means a break.
-  const broken = hits.misses > 0 || (hits.raw && Number.isFinite(maxCombo) && maxCombo < hits.fruits + hits.drops);
-  if (broken) return ['broken', 'Combo broken'];
-  if (hits.dropletMisses === null || hits.dropletMisses > 0) return ['intact', 'Combo intact'];
-  return ['fc', 'Full combo'];
+  const broken = misses > 0 || (raw && Number.isFinite(maxCombo) && maxCombo < fruits + drops);
+  if (broken) return 'broken';
+  if (dropletMisses === null || dropletMisses > 0) return 'intact';
+  return 'fc';
 }
 
 function chipOnly(state, text) {
@@ -248,79 +303,88 @@ function render() {
 
   if (status !== 'live') return chipOnly(status, status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
 
-  const state = values[P.state];
-  if (!Number.isInteger(state)) return chipOnly('idle', 'Waiting for osu!');
+  if (!Number.isInteger(gameState)) return chipOnly('idle', 'Waiting for osu!');
   ui.chipState('live');
 
   // Another ruleset, song select, results, menus: nothing.
-  if (state !== PLAYING || activeMode(state, values[P.playMode], values[P.settingsMode]) !== 'fruits') {
+  if (gameState !== PLAYING || activeMode(gameState, playMode, settingsMode) !== 'fruits') {
     ui.hidden(true);
     return;
   }
   ui.hidden(false);
 
-  const mapCombo = Number.isFinite(values[P.mapCombo]) && values[P.mapCombo] > 0 ? values[P.mapCombo] : null;
-  ui.comboOf(mapCombo === null ? '' : `/ ${count(mapCombo)}`);
-  const combo = Number.isFinite(values[P.combo]) ? values[P.combo] : null;
-  ui.combo(combo === null ? '—' : count(combo));
+  ui.comboOf(Number.isFinite(mapComboRaw) && mapComboRaw > 0 ? mapComboRaw : null);
+  const combo = Number.isFinite(comboRaw) ? comboRaw : null;
+  ui.combo(combo);
   ui.comboEmpty(combo === null ? '' : null);
 
-  const hits = readHits();
-  if (!hits) {
-    for (const write of [ui.fruit, ui.drop, ui.tiny, ui.miss, ui.dmiss, ui.acc]) write('—');
+  if (!readHits()) {
+    ui.fruit(null); ui.drop(null); ui.tiny(null); ui.miss(null); ui.dmiss(null); ui.acc(null);
     ui.missHot(false); ui.dmissHot(false);
-    for (const seg of [ui.segFruit, ui.segDrop, ui.segMiss, ui.segTiny, ui.segDmiss]) seg(0, 0);
+    ui.segFruit(0, 0, 0); ui.segDrop(0, 0, 0); ui.segMiss(0, 0, 0); ui.segTiny(0, 0, 0); ui.segDmiss(0, 0, 0);
     ui.tone('none'); ui.verdict('');
     ui.accEmpty(''); ui.maxUnknown('');
     return;
   }
 
-  ui.fruit(count(hits.fruits));
-  ui.drop(count(hits.drops));
-  ui.tiny(count(hits.droplets));
-  ui.miss(count(hits.misses));
-  ui.missHot(hits.misses > 0);
-  ui.dmiss(count(hits.dropletMisses));
-  ui.dmissHot(hits.dropletMisses > 0);
+  ui.fruit(fruits);
+  ui.drop(drops);
+  ui.tiny(droplets);
+  ui.miss(misses);
+  ui.missHot(misses > 0);
+  ui.dmiss(dropletMisses);
+  ui.dmissHot(dropletMisses > 0);
 
   // Waterfall shares: combo objects (fruits, drops, their misses) and droplets (caught, missed).
-  const comboTotal = hits.fruits + hits.drops + hits.misses;
-  const fruitShare = comboTotal ? hits.fruits / comboTotal : 0;
-  const dropShare = comboTotal ? hits.drops / comboTotal : 0;
-  ui.segFruit(0, fruitShare);
-  ui.segDrop(fruitShare, dropShare);
-  ui.segMiss(fruitShare + dropShare, comboTotal ? hits.misses / comboTotal : 0);
-  const dropletTotal = hits.droplets + (hits.dropletMisses ?? 0);
-  const caughtShare = dropletTotal ? hits.droplets / dropletTotal : 0;
-  ui.segTiny(0, caughtShare);
-  ui.segDmiss(caughtShare, dropletTotal ? (hits.dropletMisses ?? 0) / dropletTotal : 0);
+  const comboTotal = fruits + drops + misses;
+  ui.segFruit(0, fruits, comboTotal);
+  ui.segDrop(fruits, drops, comboTotal);
+  ui.segMiss(fruits + drops, misses, comboTotal);
+  const knownDropletMisses = dropletMisses ?? 0;
+  const dropletTotal = droplets + knownDropletMisses;
+  ui.segTiny(0, droplets, dropletTotal);
+  ui.segDmiss(droplets, knownDropletMisses, dropletTotal);
 
-  const comboMax = Number.isFinite(values[P.comboMax]) ? values[P.comboMax] : null;
-  const [tone, label] = verdictOf(hits, comboMax);
+  const tone = verdictOf(Number.isFinite(comboMaxRaw) ? comboMaxRaw : null);
   ui.tone(tone);
-  ui.verdict(label);
+  ui.verdict(VERDICT[tone]);
 
-  const accuracy = tone !== 'none' && Number.isFinite(values[P.accuracy]) ? values[P.accuracy] : null;
-  ui.acc(percent(accuracy));
+  const accuracy = tone !== 'none' && Number.isFinite(accuracyRaw) ? accuracyRaw : null;
+  ui.acc(accuracy);
   ui.accEmpty(accuracy === null ? '' : null);
 
   // Max achievable: everything not yet missed is still catchable. Needs the map's object counts
   // and a known droplet-miss count; otherwise the readout stays hidden rather than a dash.
+  // Kept in integer hundredths of a percent, so an unchanged readout costs nothing.
   let max = null;
-  if (composition && composition.total > 0 && hits.dropletMisses !== null) {
-    max = Math.max(0, (composition.total - hits.misses - hits.dropletMisses) / composition.total) * 100;
-    max = Math.floor(max * 100) / 100;
+  if (composition && composition.total > 0 && dropletMisses !== null) {
+    max = Math.floor(Math.max(0, (composition.total - misses - dropletMisses) / composition.total) * 100 * 100);
   }
-  ui.max(percent(max));
+  ui.max(max);
   ui.maxUnknown(max === null ? '' : null);
 }
 
 // ------------------------------------------------------------ wiring
 subscribe([...Object.values(P), ...playHits], (next, changed) => {
-  values = next;
-  const fruits = activeMode(next[P.state], next[P.playMode], next[P.settingsMode]) === 'fruits';
-  if (fruits) wantComposition(next[P.checksum]);
-  if (changed.has(P.checksum) || changed.has(P.state)) wantPalette(fruits ? next[P.checksum] : null);
+  // `next` and `changed` are reused by the client for every frame: copy the values out now.
+  gameState = next[P.state];
+  playMode = next[P.playMode];
+  settingsMode = next[P.settingsMode];
+  checksum = next[P.checksum];
+  mapComboRaw = next[P.mapCombo];
+  accuracyRaw = next[P.accuracy];
+  comboRaw = next[P.combo];
+  comboMaxRaw = next[P.comboMax];
+  hit300 = next[playHits[0]];
+  hit100 = next[playHits[1]];
+  hit50 = next[playHits[2]];
+  hit0 = next[playHits[3]];
+  hitKatu = next[playHits[4]];
+  hitLarge = next[playHits[5]];
+  hitSmall = next[playHits[6]];
+  const isFruits = activeMode(gameState, playMode, settingsMode) === 'fruits';
+  if (isFruits) wantComposition(checksum);
+  if (changed.has(P.checksum) || changed.has(P.state)) wantPalette(isFruits ? checksum : null);
   if (changed.size) markDirty();
 }, {
   onStatus: state => {
@@ -337,8 +401,8 @@ settings(DEFAULTS, next => {
   ledger.dataset.backing = options.backing;
   stat('acc').hidden = !options.showAcc;
   stat('max').hidden = !options.showAcc;
-  const fruits = activeMode(values[P.state], values[P.playMode], values[P.settingsMode]) === 'fruits';
-  wantPalette(fruits ? values[P.checksum] : null);
+  const isFruits = activeMode(gameState, playMode, settingsMode) === 'fruits';
+  wantPalette(isFruits ? checksum : null);
   scheduleRelayout();
 });
 

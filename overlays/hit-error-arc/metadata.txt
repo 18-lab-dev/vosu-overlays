@@ -1,0 +1,5 @@
+name = Hit error arc
+author = 18-LAB
+version = 0.1.0
+description = Hit error meter as a precision dial for osu!, osu!taiko and osu!mania: judgement windows as arc segments, fading hit ticks, a moving-average needle, unstable rate in the centre and a histogram of recent hits.
+resolution = [400,360]

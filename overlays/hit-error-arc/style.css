@@ -1,0 +1,131 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* tokens.css sets color-scheme: dark; a host page with another scheme would otherwise get an opaque backdrop. */
+html[data-theme] { color-scheme: normal; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { color: var(--fg); font: 400 13px/1 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
+
+#stage { position: absolute; left: 0; top: 0; width: 400px; height: 360px; }
+
+/* Geometry (size, position) is written by overlay.js from the dial settings; the panel's content
+   box is exactly the dial so canvas and DOM share one coordinate frame. */
+.panel {
+  position: absolute;
+  box-sizing: content-box;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  contain: layout paint;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+}
+.panel[data-shown="true"] { opacity: 1; }
+
+canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+
+.label {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.corner {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+.corner--left { left: 10px; }
+.corner--right { right: 10px; color: var(--muted); }
+.brand { color: var(--fg-dim); font-weight: 600; letter-spacing: .04em; }
+.brand[hidden] { display: none; }
+#mode { text-transform: none; letter-spacing: .02em; }
+
+.live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 160ms var(--ease-draft);
+}
+.panel[data-phase="play"] .live-dot { opacity: 1; }
+.panel[data-phase="results"] #mode { color: var(--accent); }
+
+/* Big readout: left/top are written by overlay.js at the dial's optical centre. */
+.readout {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+  contain: layout;
+}
+.ur {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--ur-size, 54px);
+  line-height: .9;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .005em;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ur__frac { font-size: .5em; color: var(--fg-dim); margin-left: 1px; }
+
+.foot {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+.label--early { color: var(--signal); }
+.label--late { color: var(--accent); }
+.mean { display: flex; align-items: baseline; gap: 6px; }
+#mean {
+  font: 500 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  min-width: 5ch;
+  text-align: right;
+}
+.unit { font: 400 10px/1 var(--font-mono); color: var(--muted); margin-left: -3px; }
+.panel[data-empty="true"] .unit { visibility: hidden; }
+.panel[data-empty="true"] .ur { color: var(--muted); font-size: calc(var(--ur-size, 54px) * .62); line-height: 1.45; }
+
+/* Connection chip: the only thing on screen while vosu is unreachable. */
+.chip {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  transform: translateX(-50%);
+  background: rgb(17 18 20 / .86);
+  border-radius: var(--radius);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--fg-dim);
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+  white-space: nowrap;
+}
+.chip[data-shown="true"] { opacity: 1; }
+.chip__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip[data-state="offline"] .chip__dot { background: var(--danger); }

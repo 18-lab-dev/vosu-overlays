@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aim scatter · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="overlay.js"></script>
+</head>
+<body>
+<main id="stage">
+  <section id="panel" class="panel" data-anchor="left-middle" aria-label="Aim scatter">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="title">Aim scatter</span>
+      <span class="status" id="status" data-tone="busy"><i class="dot" aria-hidden="true"></i><span id="status-text">Connecting</span></span>
+    </header>
+    <div class="target" id="target">
+      <canvas id="reticle" aria-hidden="true"></canvas>
+      <canvas id="trail" aria-hidden="true"></canvas>
+      <canvas id="live" role="img" aria-label="Cursor offset from each hit circle's centre"></canvas>
+      <span class="corner corner--tl" id="cs">CS —</span>
+      <span class="corner corner--tr" id="radius">R —</span>
+      <span class="corner corner--bl" id="count"></span>
+      <p class="notice" id="notice" hidden>Set <b>ENABLE_HIT_OFFSETS</b> = true in vosu</p>
+    </div>
+    <div class="legend" aria-label="Dot colour is timing error">
+      <span class="legend__early">Early</span>
+      <i class="legend__ramp" aria-hidden="true"></i>
+      <span class="legend__late">Late</span>
+      <span class="legend__window" id="window">± — ms</span>
+    </div>
+    <dl class="readouts">
+      <div class="readout">
+        <dt>Aim bias</dt>
+        <dd><b id="bias">—</b><small>px</small></dd>
+        <dd class="readout__sub"><svg id="bias-arrow" class="arrow" viewBox="0 0 10 10" aria-hidden="true" hidden><path d="M1.5 5h6.5M5.4 2.4 8 5 5.4 7.6"/></svg><span id="bias-dir">—</span></dd>
+      </div>
+      <div class="readout">
+        <dt>On centre</dt>
+        <dd><b id="centre">—</b><small>%</small></dd>
+        <dd class="readout__sub" id="centre-sub"></dd>
+      </div>
+      <div class="readout">
+        <dt>Spread 1<span class="lc">σ</span></dt>
+        <dd><b id="spread">—</b><small>px</small></dd>
+        <dd class="readout__sub" id="spread-sub">—</dd>
+      </div>
+    </dl>
+  </section>
+</main>
+</body>
+</html>

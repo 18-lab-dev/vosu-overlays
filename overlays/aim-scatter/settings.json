@@ -1,0 +1,9 @@
+[
+ {"uniqueID":"dots","type":"options","title":"Dot lifetime","options":["Last 50 hits","Last 150 hits","Last 500 hits","All hits"],"description":"How many recent hits stay on the target as dots. The newest 40 are drawn bright; older ones fade. All hits keeps the whole attempt as a dim cloud that brightens where hits cluster. Bias, on-centre, spread and the ellipse always cover the whole attempt.","value":"All hits"},
+ {"uniqueID":"ellipse","type":"checkbox","title":"Show 1σ ellipse","description":"Outline one standard deviation of the hit cloud around its centroid (the attempt's covariance).","value":true},
+ {"uniqueID":"size","type":"number","title":"Size / %","description":"Panel scale; 100 = 320 px wide. Clamped to 60–200.","value":100},
+ {"uniqueID":"anchor","type":"options","title":"Position anchor","options":["left-middle","right-middle","top-left","top-right","bottom-left","bottom-right"],"description":"Screen edge the panel sits against. Left-middle stays clear of the osu! playfield and HUD at 16:9.","value":"left-middle"},
+ {"uniqueID":"x","type":"number","title":"Horizontal inset / px","value":32},
+ {"uniqueID":"y","type":"number","title":"Vertical inset / px","description":"Distance from the top or bottom edge; for middle anchors, an offset from centre (negative moves up).","value":0},
+ {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

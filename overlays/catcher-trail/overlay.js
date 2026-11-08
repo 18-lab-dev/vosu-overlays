@@ -349,10 +349,12 @@ function writeStats() {
   const travelKey = !has ? -1 : screens >= 100 ? -2 - Math.round(screens) : Math.round(screens * 10);
   if (travelKey !== travelShown) {
     travelShown = travelKey;
-    el.travel.textContent = travelKey === -1 ? '—' : screens >= 100 ? Math.round(screens).toString() : screens.toFixed(1);
+    el.travel.textContent = travelKey === -1 ? '—' : screens >= 100 ? Math.round(screens).toFixed(0) : screens.toFixed(1);
   }
   const turnsKey = has && active >= 3000 ? Math.round(turns / (active / 60000)) : -1;
-  if (turnsKey !== turnsShown) { turnsShown = turnsKey; el.turns.textContent = turnsKey < 0 ? '—' : turnsKey.toString(); }
+  // Integers via toFixed(0): same text as toString, without V8's number-string cache (rebuilt as
+  // one 64 KB block after every full GC).
+  if (turnsKey !== turnsShown) { turnsShown = turnsKey; el.turns.textContent = turnsKey < 0 ? '—' : turnsKey.toFixed(0); }
 }
 
 function draw() {

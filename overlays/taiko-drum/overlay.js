@@ -577,17 +577,21 @@ function setText(el, text) {
 }
 
 // Last number shown per field (-1 = dash): strings are only built for values that changed.
+// Counts format with toFixed(0) (same text as String(n) for integers) and percentages come from a
+// prebuilt table: V8's number-string cache, which String(n) and templates use, is rebuilt as one
+// large block after a full GC.
 const F_BAL_L = 4, F_BAL_R = 5, F_ALT = 6, F_REP = 7, F_KPS = 8, F_PEAK = 9;
 const shownNum = new Int32Array(10).fill(-2);
+const PCT = Array.from({ length: 101 }, (_, n) => `${n}%`);
 function showNum(field, el, n) {
   if (shownNum[field] === n) return;
   shownNum[field] = n;
-  setText(el, n < 0 ? DASH : String(n));
+  setText(el, n < 0 ? DASH : n.toFixed(0));
 }
 function showPct(field, el, n) {
   if (shownNum[field] === n) return;
   shownNum[field] = n;
-  setText(el, n < 0 ? DASH : `${n}%`);
+  setText(el, n < 0 ? DASH : PCT[n]);
 }
 
 let balA = -1;

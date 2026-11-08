@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"window","type":"number","title":"History / s","description":"Seconds of play kept on screen left of the now line (5–60). A further fifth of that previews the upcoming map density.","value":20},
+ {"uniqueID":"height","type":"number","title":"Graph height / px","description":"Height of the chart area (48–144 px). The readouts and axis keep their size.","value":96},
+ {"uniqueID":"strain","type":"checkbox","title":"Show strain backdrop","description":"Draw the map's difficulty strain (vosu performance graph) as a faint blue silhouette behind the trace, aligned to map time.","value":true},
+ {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the panel header.","value":true}
+]

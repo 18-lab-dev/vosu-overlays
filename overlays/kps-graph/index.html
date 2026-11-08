@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KPS graph · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <p id="chip" class="chip" role="status" data-state="connecting"><i></i><span id="chipText">Connecting to vosu…</span></p>
+  <section id="panel" class="panel" aria-label="Keys per second" data-view="init">
+    <header class="head">
+      <span id="brand" class="brand">18—LAB</span>
+      <span class="title">Keys / sec</span>
+      <span id="meta" class="meta"></span>
+      <span class="phase"><i></i><span id="phase">Idle</span></span>
+    </header>
+    <div class="readouts">
+      <span id="pLabel" class="label">Now</span>
+      <span id="aLabel" class="label" data-key="peak">Peak</span>
+      <span id="bLabel" class="label" data-key="avg">Avg</span>
+      <span class="figure"><b id="pValue">—</b><span class="unit">kps</span></span>
+      <b id="aValue" class="stat">—</b>
+      <b id="bValue" class="stat">—</b>
+    </div>
+    <div class="plot">
+      <canvas id="chart" aria-label="Keys per second over time, with the map's density behind it"></canvas>
+      <p id="note" class="note" hidden></p>
+    </div>
+    <footer class="axis" aria-hidden="true">
+      <span id="axisL"></span><span id="axisM"></span><span id="axisN"></span><span id="axisR"></span>
+    </footer>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

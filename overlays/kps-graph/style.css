@@ -1,0 +1,110 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+* { box-sizing: border-box; }
+/* tokens.css declares color-scheme: dark; inside an embedder with another scheme Chromium would paint an opaque backdrop. */
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; }
+#stage { position: absolute; left: 0; top: 0; }
+
+/* ---------------------------------------------------------------- connection chip */
+.chip {
+  position: absolute; left: 0; top: 0; margin: 0;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 22px; padding: 0 var(--space-2);
+  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
+  transition: opacity 180ms var(--ease-draft), visibility 0s;
+}
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip[data-state="offline"] i { background: var(--danger); }
+.chip[hidden] { display: inline-flex; opacity: 0; visibility: hidden; transition: opacity 180ms var(--ease-draft), visibility 0s 180ms; }
+
+/* ---------------------------------------------------------------- panel */
+.panel {
+  --chart-h: 96px;
+  --now: 82%;
+  position: absolute; left: 0; top: 0;
+  width: 480px;
+  padding: 0 var(--space-3) var(--space-2);
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong); border-top: 2px solid var(--accent); border-radius: var(--radius);
+  contain: layout paint;
+  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s;
+}
+.panel[data-view="hidden"], .panel[data-view="offline"], .panel[data-view="init"] {
+  opacity: 0; transform: translateY(-4px); visibility: hidden;
+  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s 200ms;
+}
+
+.head {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: 28px; border-bottom: 1px solid var(--rule);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  user-select: none;
+}
+.brand { color: var(--fg); letter-spacing: .04em; }
+.brand[hidden] { display: none; }
+.brand:not([hidden]) + .title { padding-left: var(--space-2); border-left: 1px solid var(--rule-strong); }
+.title { color: var(--fg-dim); }
+.meta { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.phase { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.phase i { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); }
+.panel[data-view="live"] .phase { color: var(--fg); }
+.panel[data-view="live"] .phase i { background: var(--accent); border-color: var(--accent); }
+.panel[data-view="summary"] .phase i { background: var(--fg-dim); border-color: var(--fg-dim); }
+
+/* ---------------------------------------------------------------- readouts */
+/* Two baseline-aligned rows: labels, then values (big live figure + two secondary stats). */
+/* Fixed height keeps the canvas on whole pixels whatever the baseline maths does. */
+.readouts {
+  display: grid; grid-template-columns: 1fr 72px 72px; grid-template-rows: 12px 1fr; column-gap: var(--space-4); row-gap: 3px;
+  align-items: baseline;
+  height: 72px; padding: 10px 0 0; overflow: hidden;
+}
+.label {
+  display: flex; align-items: center; gap: 6px;
+  font: 500 10px/12px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  user-select: none;
+}
+.label[data-key]::before { content: ""; width: 12px; height: 0; border-top: 1px dashed var(--fg-dim); }
+.label[data-key="peak"]::before { border-top: 2px dotted var(--accent); }
+.label[data-key="none"]::before { display: none; }
+
+.figure { display: flex; align-items: baseline; gap: 6px; }
+.figure b {
+  font: 600 44px/38px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  color: var(--fg); min-width: 1.1ch;
+}
+.unit { font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.stat { font: 600 26px/24px var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
+.panel[data-hot] .figure b, .panel[data-hot] .stat[data-peak] { color: var(--accent); }
+.figure b[data-none], .stat[data-none] { color: var(--muted); font-weight: 500; }
+
+/* ---------------------------------------------------------------- chart */
+.plot { position: relative; height: var(--chart-h); }
+#chart { display: block; width: 100%; height: 100%; }
+.note {
+  position: absolute; left: var(--space-2); top: 50%; margin: 0; transform: translateY(-50%);
+  padding: 3px var(--space-2);
+  background: var(--bg); border: 1px solid var(--rule);
+  font: 400 10px/1.3 var(--font-mono); color: var(--fg-dim); white-space: nowrap;
+}
+.note[hidden] { display: none; }
+
+.axis {
+  position: relative; height: 16px; margin-top: 3px;
+  font: 400 10px/16px var(--font-mono); letter-spacing: .04em; color: var(--muted); font-variant-numeric: tabular-nums;
+  user-select: none; white-space: nowrap;
+}
+.axis span { position: absolute; top: 0; }
+#axisL { left: 0; }
+#axisM { left: calc(var(--now) / 2); transform: translateX(-50%); }
+#axisN { left: var(--now); transform: translateX(-50%); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .08em; }
+#axisR { right: 0; }
+.panel:not([data-view="live"]) #axisM { left: 50%; }
+.panel:not([data-view="live"]) #axisN { display: none; }
+/* The summary's time axis ends where the scale gutter (22 px, overlay.js GUTTER) begins. */
+.panel[data-view="summary"] #axisM { left: calc((100% - 22px) / 2); }
+.panel[data-view="summary"] #axisR { right: 22px; transform: translateX(50%); }

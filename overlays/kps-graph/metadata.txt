@@ -1,0 +1,5 @@
+name = KPS graph
+author = 18-LAB
+version = 0.1.0
+description = osu!mania keys per second over the attempt: a scrolling chart-recorder trace of live KPS (rolling one-second window) over the map's strain density, with the attempt's peak and average. Results hold the whole run; song select previews the map's density.
+resolution = [480,276]

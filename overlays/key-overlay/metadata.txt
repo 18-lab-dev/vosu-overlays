@@ -1,0 +1,5 @@
+name = Key overlay
+author = 18-LAB
+version = 0.1.0
+description = Scrolling key-press tape for every ruleset: one lane per key with bars timed from gameplay press/release edges, key caps with counts, live and peak keys per second. Needs vosu keys.all.
+resolution = [480,640]

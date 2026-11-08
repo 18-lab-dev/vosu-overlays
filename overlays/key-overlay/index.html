@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Key overlay · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section id="panel" class="panel" data-dir="up" data-show="0" data-instant aria-label="Key overlay">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="mode" id="mode">—</span>
+      <span class="state" id="state" data-tone="idle"><i></i><span id="state-text">—</span></span>
+    </header>
+    <div class="body">
+      <div class="tape">
+        <canvas id="tape" aria-label="Key presses scrolling away from the key caps"></canvas>
+        <p class="note" id="note" hidden></p>
+      </div>
+      <div class="caps" id="caps"></div>
+      <aside class="rail" id="rail">
+        <span class="label" id="kps-label">KPS</span>
+        <b class="big" id="kps">—</b>
+        <div class="meter" aria-hidden="true">
+          <span class="scale max" id="scale-max">10</span>
+          <span class="scale mid" id="scale-mid">5</span>
+          <i class="fill" id="fill"></i>
+          <i class="tick" id="tick"></i>
+        </div>
+        <span class="label">Peak</span>
+        <b class="peak" id="peak">—</b>
+      </aside>
+    </div>
+  </section>
+  <div class="chip" id="chip" data-state="connecting"><i></i><span id="chip-text">Connecting</span></div>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#stage { position: relative; width: 480px; height: 640px; }
+
+/* ------------------------------------------------------------------ panel */
+.panel {
+  --w: 48px;           /* lane thickness (set from overlay.js) */
+  --tape: 544px;       /* tape length */
+  --c: var(--accent);  /* ruleset colour for the meter */
+  position: absolute; left: 0; bottom: 0;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--fg);
+  contain: layout paint;
+  user-select: none;
+  opacity: 1; transform: none;
+  transition: opacity 180ms var(--ease-draft), transform 180ms var(--ease-draft);
+}
+.panel[data-show="0"] { opacity: 0; transform: translateY(6px); }
+.panel[data-instant] { transition: none; }
+
+.head {
+  height: 28px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--rule);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  color: var(--muted);
+}
+.brand { color: var(--fg); font-weight: 600; letter-spacing: .04em; }
+.brand[hidden] { display: none; }
+.mode { color: var(--fg-dim); }
+.state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.state i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.state[data-tone="live"] { color: var(--fg-dim); }
+.state[data-tone="live"] i { background: var(--accent); }
+.state[data-tone="hold"] i { background: var(--fg-dim); }
+
+.body { display: grid; gap: var(--space-1) var(--space-2); padding: var(--space-2); }
+.panel[data-dir="up"] .body { grid-template-areas: "tape rail" "caps rail"; grid-template-columns: auto auto; }
+.panel[data-dir="right"] .body { grid-template-areas: "caps tape" "rail rail"; grid-template-columns: auto auto; }
+.panel[data-kps="0"] .rail { display: none; }
+
+/* ------------------------------------------------------------------ tape */
+.tape { grid-area: tape; position: relative; }
+#tape { display: block; }
+/* Presses dissolve into the panel at the far end of the tape. */
+.panel[data-dir="up"] #tape { -webkit-mask-image: linear-gradient(to top, #000 62%, transparent); mask-image: linear-gradient(to top, #000 62%, transparent); }
+.panel[data-dir="right"] #tape { -webkit-mask-image: linear-gradient(to right, #000 62%, transparent); mask-image: linear-gradient(to right, #000 62%, transparent); }
+.note {
+  position: absolute; left: 0; right: 0; bottom: var(--space-4); margin: 0; padding: 0 var(--space-2);
+  font: 400 11px/1.4 var(--font-mono); color: var(--fg-dim); text-align: center;
+}
+.panel[data-dir="right"] .note { bottom: auto; top: 50%; transform: translateY(-50%); }
+.note[hidden] { display: none; }
+
+/* ------------------------------------------------------------------ caps */
+.caps { grid-area: caps; display: flex; gap: var(--space-1); }
+.panel[data-dir="up"] .caps { padding-left: 10px; }
+.panel[data-dir="right"] .caps { flex-direction: column; padding-bottom: 10px; }
+
+.cap {
+  --k: var(--accent);
+  flex: none; position: relative; contain: strict;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.cap::before { content: ""; position: absolute; z-index: 1; background: var(--k); }
+/* Pressed: an opacity-only layer, so a keypress never costs layout. */
+.cap .lit {
+  position: absolute; inset: -1px; border-radius: inherit; opacity: 0; will-change: opacity;
+  background: color-mix(in srgb, var(--k) 40%, transparent);
+  box-shadow: inset 0 0 0 1px var(--k);
+}
+.cap b, .cap span { position: relative; }
+.panel[data-dir="up"] .cap { width: var(--w); height: 44px; flex-direction: column; gap: 5px; }
+.panel[data-dir="up"] .cap::before { left: -1px; right: -1px; top: -1px; height: 2px; }
+.panel[data-dir="right"] .cap { width: 64px; height: var(--w); flex-direction: column; gap: 5px; }
+.panel[data-dir="right"] .cap::before { top: -1px; bottom: -1px; right: -1px; width: 2px; }
+.cap.tight span { display: none; }
+.rail[data-empty="1"] .big, .rail[data-empty="1"] .peak { color: var(--muted); }
+
+.cap b { font-size: 13px; font-weight: 500; line-height: 1; color: var(--fg); letter-spacing: .02em; white-space: nowrap; }
+.cap span { font-size: 10px; line-height: 1; color: var(--muted); white-space: nowrap; }
+.cap.small b { font-size: 10px; letter-spacing: 0; }
+.panel[data-counts="0"] .cap span { display: none; }
+
+/* ------------------------------------------------------------------ KPS rail */
+.rail { grid-area: rail; display: flex; color: var(--fg); }
+.label { font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.big, .peak { font-family: var(--font-display); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
+.big { font-size: 34px; }
+.peak { font-size: 20px; color: var(--fg-dim); }
+
+.meter { position: relative; background: var(--bg-sunken); outline: 1px solid var(--rule); }
+.meter .fill { position: absolute; inset: 0; background: var(--c); transform: scaleY(0); transform-origin: 50% 100%; will-change: transform; }
+.meter .tick { position: absolute; inset: 0; transform: translateY(0); will-change: transform; }
+.meter .tick::after { content: ""; position: absolute; left: -4px; right: -4px; bottom: 0; height: 2px; background: var(--fg); }
+.meter .scale { position: absolute; font: 400 9px/1 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail[data-empty="1"] .tick { opacity: 0; }
+
+.panel[data-dir="up"] .rail { width: 64px; flex-direction: column; align-items: flex-start; padding-left: var(--space-2); border-left: 1px solid var(--rule); }
+.panel[data-dir="up"] .big { margin-top: 6px; }
+.panel[data-dir="up"] .meter { flex: 1; width: 6px; margin: var(--space-4) 0 var(--space-4) 4px; }
+.panel[data-dir="up"] .scale { left: 14px; }
+.panel[data-dir="up"] .scale.max { top: -4px; }
+.panel[data-dir="up"] .scale.mid { top: calc(50% - 4px); }
+.panel[data-dir="up"] .peak { margin-top: 5px; }
+
+.panel[data-dir="right"] .rail { height: 36px; align-items: center; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--rule); }
+.panel[data-dir="right"] .big { font-size: 26px; min-width: 30px; text-align: right; }
+.panel[data-dir="right"] .meter { flex: 1; height: 6px; margin: 0 var(--space-3) 0 var(--space-1); }
+.panel[data-dir="right"] .meter .fill { transform: scaleX(0); transform-origin: 0 50%; }
+.panel[data-dir="right"] .meter .tick::after { left: auto; right: 0; top: -4px; bottom: -4px; width: 2px; height: auto; }
+.panel[data-dir="right"] .scale { top: 10px; }
+.panel[data-dir="right"] .scale.max { right: 0; }
+.panel[data-dir="right"] .scale.mid { left: calc(50% - 4px); }
+.panel[data-dir="right"] .peak { min-width: 26px; }
+.panel[data-dir="right"] .rail .label:first-child { order: 0; }
+
+/* ------------------------------------------------------------------ connection chip */
+.chip {
+  position: absolute; left: 0; bottom: 0; height: 22px; padding: 0 var(--space-2);
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
+}
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip[data-state="offline"] i { background: var(--danger); }
+.chip[data-state="live"] { opacity: 0; }

@@ -270,7 +270,8 @@ function documentAt() {
     session: { playTime: Math.round(240000 + (scenario.attempt - 1) * scenario.end + (state === STATE.play ? Math.max(0, time) : 0)), playCount: 11 + scenario.attempt },
     directPath: { beatmapFile: '', beatmapBackground: '', beatmapAudio: '', beatmapFolder: '', skinFolder: '' },
     profile: {
-      userStatus: { number: 0, name: 'connected' }, banchoStatus: { number: 2, name: 'playing' }, id: 7562902, name: 'sxlvia', mode: modeObj,
+      // id 0: an arbitrary id would make avatar-showing overlays fetch a stranger's picture from a.ppy.sh.
+      userStatus: { number: 0, name: 'connected' }, banchoStatus: { number: 2, name: 'playing' }, id: 0, name: 'sxlvia', mode: modeObj,
       rankedScore: 9876543210, level: 101.4, accuracy: 98.62, pp: 8123.4 + (state === STATE.results ? 3.1 : 0), playCount: 48211,
       globalRank: 4120 - (state === STATE.results ? 6 : 0), countryCode: { number: 225, name: 'US' }, backgroundColour: 'ff963f', matchmaking: null,
     },
@@ -332,7 +333,7 @@ function leaderboard({ score, accuracy, hits, combo, mods, rank, total }) {
     const fraction = 1.12 - i * 0.075;
     return { isFailed: i === 9, team: 0, id: 100 + i, name, score: Math.round(scenario.finalScore * fraction), accuracy: Math.round((99.6 - i * 0.45) * 100) / 100, hits: { 0: i % 3, 50: 0, 100: 6 + i * 3, 300: total - 6 - i * 3, geki: 0, katu: 0 }, combo: { current: total - i * 9, max: total - i * 9 }, mods: i % 2 ? mods : { checksum: '', number: 0, name: '', array: [], rate: 1 }, rank: i < 4 ? 'S' : 'A' };
   });
-  rows.push({ isFailed: false, team: 0, id: 7562902, name: 'sxlvia', score: Math.round(score), accuracy, hits, combo, mods, rank });
+  rows.push({ isFailed: false, team: 0, id: 0, name: 'sxlvia', score: Math.round(score), accuracy, hits, combo, mods, rank });
   rows.sort((a, b) => b.score - a.score);
   rows.forEach((row, index) => { row.position = index + 1; });
   return rows;

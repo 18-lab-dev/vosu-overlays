@@ -1,5 +1,0 @@
-name = Skill radar
-author = 18-LAB
-version = 0.2.0
-description = osu! pp split into aim, speed, accuracy and flashlight as a radar or bars, live against the full-combo projection, with the map's aim-vs-speed strain profile and a playhead, floating in the side band beside the playfield.
-resolution = [1920,1080]

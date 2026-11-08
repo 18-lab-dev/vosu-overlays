@@ -1,5 +1,0 @@
-name = Tap meter
-author = 18-LAB
-version = 0.2.0
-description = osu! stream meter beside the key counter: live tapping speed as 1/4 stream BPM, peak, interval consistency, alternation and finger balance from vosu keys.all, with slider breaks and 100/50/miss counts; a tapping summary on results.
-resolution = [1920,1080]

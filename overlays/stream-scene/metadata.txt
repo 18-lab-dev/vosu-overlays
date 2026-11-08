@@ -1,5 +1,0 @@
-name = Stream scene
-author = 18-LAB
-version = 0.2.0
-description = Streamer chrome over the full-screen osu! window: a webcam frame and handle tag, a compact live play strip (pp now and if FC, accuracy, combo, UR, mods) and a session ledger, each placed in the space osu! leaves empty for the active ruleset. All rulesets.
-resolution = [1920,1080]

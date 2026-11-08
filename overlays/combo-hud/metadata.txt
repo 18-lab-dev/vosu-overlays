@@ -1,5 +1,0 @@
-name = Combo HUD
-author = 18-LAB
-version = 0.2.0
-description = Replaces osu!'s gameplay HUD for streams that hide it: big combo with a hit bump and break flash, accuracy with rank, score, HP and a progress ring, floating in osu!'s own HUD spots. Gameplay only.
-resolution = [1920,1080]

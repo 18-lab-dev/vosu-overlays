@@ -1,5 +1,0 @@
-name = LN timing
-author = 18-LAB
-version = 0.2.0
-description = osu!mania long-note specialist floated beside the stage: press and release hit errors as mirrored distributions with means, UR, release early/late split, and the share of LNs released inside the great window; a compact strip on results.
-resolution = [1920,1080]

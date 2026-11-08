@@ -1,5 +1,0 @@
-name = Taiko strain lanes
-author = 18-LAB
-version = 0.2.0
-description = osu!taiko color, rhythm and stamina strain as lanes floating under the taiko lane, with the play position, the skill leading the current section and live stars; song select shows the map's skill mix.
-resolution = [1920,1080]

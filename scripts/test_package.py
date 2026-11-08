@@ -58,6 +58,17 @@ class OverlayPackageTests(unittest.TestCase):
                 self.assertEqual(entry.date_time, (1980, 1, 1, 0, 0, 0))
                 self.assertEqual(entry.external_attr >> 16, stat.S_IFREG | 0o644)
 
+    def test_apache_license_ships_only_with_the_m3_bundle(self):
+        (self.root / 'licenses').mkdir()
+        (self.root / 'licenses/material-color-utilities-Apache-2.0.txt').write_text('Apache test license text')
+        self.build()
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertNotIn('licenses/material-color-utilities-Apache-2.0.txt', archive.namelist())
+        (self.overlay / 'm3.js').write_text('export {}')
+        self.build()
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertEqual(archive.read('licenses/material-color-utilities-Apache-2.0.txt'), b'Apache test license text')
+
     def test_preview_is_a_separate_release_asset(self):
         (self.overlay / 'preview.png').write_bytes(b'fixture preview')
         catalog = self.build()

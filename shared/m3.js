@@ -1,4 +1,4 @@
-// @license Apache-2.0 — https://www.apache.org/licenses/LICENSE-2.0
+// @license Apache-2.0 — full text: licenses/material-color-utilities-Apache-2.0.txt (packaged into every ZIP that contains this file)
 // Generated: minimal ESM bundle of @material/material-color-utilities 0.4.0, Copyright 2021 Google LLC
 // (https://github.com/material-foundation/material-color-utilities): QuantizerCelebi, Score, Hct, TonalPalette.
 // Regenerate: bun add @material/material-color-utilities@0.4.0, then bun build an entry that re-exports

@@ -71,6 +71,9 @@ def files_for(root, directory):
         if source.is_file():
             files[source.relative_to(directory).as_posix()] = source.read_bytes()
     files['licenses/project-MIT.txt'] = (root / 'LICENSE').read_bytes()
+    # m3.js is Apache-2.0 code; §4(a) requires its recipients get the license text, not a link.
+    if 'm3.js' in files:
+        files['licenses/material-color-utilities-Apache-2.0.txt'] = (root / 'licenses/material-color-utilities-Apache-2.0.txt').read_bytes()
     paths = set()
     for name in files:
         path = PurePosixPath(name)

@@ -83,59 +83,60 @@ as ranks or clear guarantees.
 
 ## Official overlay set (candidates)
 
-Self-contained 18-LAB overlays in `overlays/`, each served by vosu from its static root (copy the folder there, or install the packaged ZIP) at `http://127.0.0.1:24050/<id>/`. They are candidates for publication; none is released. Fields marked *vosu* are vosu-only and absent on tosu; each overlay says so on screen instead of inventing values.
+Self-contained overlays in `overlays/`, each served by vosu from its static root (copy the folder there, or install the packaged ZIP) at `http://127.0.0.1:24050/<id>/`. They are candidates for publication; none is released. Fields marked *vosu* are vosu-only and absent on tosu; each overlay says so on screen instead of inventing values. Overlays carry no 18-LAB tag: they show game data, and the design is the signature.
 
-Every overlay is a transparent 1920×1080 source laid over the full-screen osu! window. It places itself in the empty parts of osu!'s layout for the active ruleset (`osuLayout()` in the shared client; the mania stage comes from the player's own `skin.ini` through vosu's `/files/skin/`), floats without an opaque panel by default, and never shows beatmap background art: its accent can instead follow the map's Material 3 tonal-spot colour (`mapPalette()`). Overlays show during gameplay; in song select and on results they show only what osu! does not already show there. Every overlay has zone, nudge, scale, backing (`none`/`scrim`/`panel`) and accent (`map`/`18-lab`) settings.
+Each overlay is a content-sized page that re-flows to whatever box its host gives it: an OBS browser source, a vosulay layer, or a vosu-tools replay-renderer cell (474×1080 per player for mania four-player, 1920×264 for taiko four-player). The box's shape picks the form (`orientation`, default `auto`) and the content scales with the box; asymmetrical overlays have an `align` setting. The page does not position itself, so where it goes is up to the host. Each `metadata.txt` suggests a spot per ruleset in `placement`, with the guideline that gameplay stays the focus:
 
-| Overlay | Rulesets | Shows |
-| --- | --- | --- |
-| `now-playing` | all | Map identity, live stars, mod-adjusted stats, BPM, rate-adjusted length, progress (gameplay only) |
-| `now-playing-ticker` | all | One-line map bar with progress hairline in the strip between HP bar and score (gameplay only) |
-| `stream-scene` | all | Streamer layer over full-screen osu!: webcam frame in a free band, handle, live play strip; session ledger in song select/results |
-| `stream-interstitial` | all | Starting soon / be right back / ending scene (0.1.0; a full scene, not an overlay over gameplay) |
-| `hit-error` | osu, taiko, mania | Hit error bar beside the playfield/stage or under the lane; judgement windows in song select; final distribution on stable results |
-| `hit-error-arc` | osu, taiko, mania | Hit error dial with needle, UR and histogram; final strip on stable results |
-| `timing-drift` | osu, taiko, mania | Rolling mean and UR across the attempt |
-| `key-overlay` | all | Scrolling key-press tape with counts and KPS; per-key summary on results (*vosu* `keys.all`) |
-| `key-counter` | all | Key caps, counts and KPS sparkline; per-key summary on results (*vosu* `keys.all`) |
-| `pp-counter` | all | Live pp, if-FC and max achievable; accuracy→pp ladder in song select; if-FC gap on results |
-| `strain-graph` | all | Map strain with playhead, kiai and breaks; full preview in song select |
-| `combo-hud` | all | HUD replacement in osu!'s own HUD spots (for streams that hide the in-game HUD) |
-| `results-card` | all | Results-only strip: UR, timing histogram, pp and if-FC |
-| `leaderboard` | all | Rival readout (above/below with score gaps) or a full board where osu!'s sits; final standing on results |
-| `profile-card` | all | Player tag during your own plays: rank, pp, session deltas |
-| `session-tracker` | all | Session ledger in song select; minimal attempt strip in play; session line on results |
-| `aim-scatter` | osu | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
-| `tap-meter` | osu | Stream BPM, consistency, alternation and finger balance (*vosu* `keys.all`) |
-| `skill-radar` | osu | Aim/speed/accuracy/flashlight pp, live vs FC, over the map's skill profile |
-| `taiko-drum` | taiko | Four-zone drum, hand balance, alternation, KPS (*vosu* `keys.all`) |
-| `taiko-pace` | taiko | OK and miss budget for a target accuracy, max achievable accuracy |
-| `taiko-lanes` | taiko | Color/rhythm/stamina strain lanes with the leading skill; map lanes in song select |
-| `catcher-trail` | catch | Catcher position seismograph with dash, travel and turns (*vosu* `catcher`) |
-| `catcher-heatmap` | catch | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
-| `fruit-ledger` | catch | Fruits/drops/droplets caught and missed, combo status; map composition in song select |
-| `column-timing` | mania | Per-column bias and UR with the weakest column called out (*vosu* `ENABLE_MANIA_KEY_HIT_ERRORS`) |
-| `judgement-ratio` | mania | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS |
-| `ln-timing` | mania | Long-note press vs release distributions |
-| `kps-graph` | mania | KPS over the attempt against the map's density; density preview in song select |
+- osu! and catch: never over the playfield; a ticker along the top, vertical columns at the sides.
+- mania: horizontal for key displays (except `key-overlay`), vertical for data such as judgements.
+- taiko: horizontal.
+- The page centre should lie outside the screen's inscribed ellipse. Deliberate exceptions are data the player reads at the focus point in mania and taiko (judgements, hit error near the stage centre), and `leaderboard`, which sits where the in-game board does.
 
-Mode-specific overlays render nothing outside their ruleset. Default placements are chosen per overlay, so several overlays that target the same free band can overlap until their zone settings are adjusted.
+Overlays float without an opaque panel by default and never show beatmap background art: the accent can follow the map's Material 3 tonal-spot colour (`mapPalette()`). They show during gameplay; in song select and on results they show only what osu! does not already show there. Common settings: `orientation`, `align`, `backing` (`none`/`scrim`/`panel`) and `accent` (`map`/`18-lab`).
+
+| Overlay | Rulesets | Default box | Shows |
+| --- | --- | --- | --- |
+| `now-playing` | all | 260×244 column | Map identity, live stars, mod-adjusted stats, BPM, rate-adjusted length, progress; strip in wide boxes (gameplay only) |
+| `now-playing-ticker` | all | 720×56 line | One-line map bar with progress hairline; two-line stack or side column in taller boxes (gameplay only) |
+| `key-overlay` | all | 280×420 columns | Scrolling key-press tape with counts and KPS; rows in wide boxes, mania lanes keep the skin's column proportions (*vosu* `keys.all`) |
+| `key-counter` | all | 720×88 strip | Key caps, counts and KPS sparkline; mania caps follow the skin's columns; per-key counts and KPS history on results (*vosu* `keys.all`) |
+| `pp-counter` | all | 300×184 column | Live pp, if-FC and max achievable on a 0→SS rail; accuracy→pp ladder in song select; if-FC gap on results |
+| `strain-graph` | all | 344×112 strip | Map strain with playhead, kiai and breaks; time runs upward in tall boxes; preview in song select |
+| `results-card` | all | 840×112 row | Results-only strip: UR, timing histogram, pp and if-FC; stacked in upright boxes |
+| `leaderboard` | all | 280×440 list | In-game-style board on the left where osu!'s sits (taiko: strip under the lane); rival style optional; nothing when the leaderboard is idle |
+| `profile-card` | all | 400×88 strip | Player tag: name, country, avatar, rank, pp, session deltas; every field can be overridden with a custom value (shown in the replay renderer too) |
+| `aim-scatter` | osu | 280×340 column | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
+| `taiko-drum` | taiko | 1180×96 row | Four-zone drum, zone counts, hand balance, recent hits, alternation, KPS (*vosu* `keys.all`) |
+| `taiko-pace` | taiko | 1100×150 strip | OK and miss budget for a target accuracy, max achievable accuracy, counts, UR, pp |
+| `catcher-trail` | catch | 340×280 column | Catcher position seismograph with dash, travel and turns; final readouts on results (*vosu* `catcher`) |
+| `catcher-heatmap` | catch | 240×232 column | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
+| `fruit-ledger` | catch | 320×289 column | Fruits/drops/droplets caught and missed, accuracy, combo status (gameplay only) |
+| `judgement-ratio` | mania | 260×384 column | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS; focus row over the stage in wide boxes |
+| `kps-graph` | mania | 232×400 column | KPS over the attempt against the map's density, time running upward; horizontal in wide boxes |
+| `stream-interstitial` | all | 1920×1080 | Starting soon / be right back / ending scene (a full scene, not an overlay over gameplay) |
+
+Mode-specific overlays render nothing outside their ruleset. Suggested placements are chosen per overlay, so several overlays that suggest the same corner overlap until the host moves one. In the replay renderer, which always reports gameplay, profile and leaderboard are idle, `/performance/graph` is empty and `hitOffsets`/`catcher` are not served: `aim-scatter`, `catcher-heatmap` and `catcher-trail` show a one-line notice there, `strain-graph` falls back to a progress track, `leaderboard` renders nothing, and `profile-card` shows the replay's player name unless custom values are set.
 
 ## Developing official overlays
 
-Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.webp` (a stage screenshot; WebP keeps packages small). They link vosu's own `/assets/tokens.css` (18-LAB tokens and fonts) rather than copying it, and follow the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js` (packages must be self-contained). Edit the shared file, then run:
+Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.webp` (a stage screenshot; WebP keeps packages small). Each folder bundles a generated copy of vosu's `tokens.css` and `fonts/` (18-LAB tokens and fonts; SIL OFL text is added to packages), because the replay renderer and tosu do not serve vosu's `/assets/`. It follows the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js`. Edit the shared files, then run:
 
 ```sh
-python scripts/sync_shared.py          # refresh every overlay's copy
-python scripts/sync_shared.py --check  # CI: fail on drift
+python scripts/sync_shared.py                                   # refresh every overlay's copies
+python scripts/sync_shared.py --tokens <vosu>/assets/server     # regenerate shared/tokens.css and fonts/ from vosu
+python scripts/sync_shared.py --check                           # CI: fail on drift or on /assets/ references
 ```
 
-`dev/mock-vosu.js` is a development-only stand-in for the vosu routes overlays use (`/websocket/v2/subscribe`, `/websocket/commands`, `/json/v2`, `/files/beatmap/background`, `/assets/`), driven by a deterministic synthetic attempt in any ruleset, so overlays can be designed without osu! running. Its values are plausible, not real. `/assets/` is proxied from a running vosu, or read from `VOSU_ASSETS=<vosu>/assets/server`.
+`metadata.txt` declares the default box as `resolution = [w,h]` and the suggested spot per ruleset as `placement = {"<mode>":[x,y]}` or `[x,y,w,h]` for a ruleset-specific box. `x`/`y` are pixels on a 1920×1080 screen or anchors: `left+N`, `right-N`, `center`, `top+N`, `bottom-N`, and for mania `stage-left-N`, `stage-right+N`, `stage-center`.
+
+`dev/mock-vosu.js` is a development-only stand-in for the vosu routes overlays use (`/websocket/v2/subscribe`, `/websocket/commands`, `/json/v2`, `/files/beatmap/background`, `/files/skin/`), driven by a deterministic synthetic attempt in any ruleset, so overlays can be designed without osu! running. Its values are plausible, not real. Overlay pages get 404 for `/assets/` so a missing bundled file shows up here rather than in the renderer; the dev pages read `/assets/` from a running vosu or `VOSU_ASSETS=<vosu>/assets/server`. `VOSU_STAGE_BACKDROPS=<dir>` puts local skin screenshots (`osu.png`, `mania-4k.png`, …; not committed) behind the stage.
 
 ```sh
 bun dev/mock-vosu.js --port 24100
 # http://127.0.0.1:24100/__dev/gallery   every overlay live, with ruleset/state switches
-# http://127.0.0.1:24100/__dev/stage?id=<id>   one overlay over a dimmed gameplay backdrop
+# http://127.0.0.1:24100/__dev/stage?id=<id>&mode=mania&keys=7&guide=1
+#     the page at its suggested placement; guide=1 draws the focus ellipse and flags a centre inside it,
+#     w/h/x/y override the box, cell=474x1080 simulates a replay-renderer cell, layout=1 a wireframe HUD
 node dev/shoot.mjs --port 24100 --id <id>     # screenshots of every state plus live perf numbers
 ```
 

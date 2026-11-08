@@ -2,19 +2,12 @@
 // Strain graph: vosu's /performance/graph rasterised once per map into two offscreen layers
 // (lit and dim); each frame only blits them split at the playhead and draws the playhead.
 // Frames are requested only when the playhead crosses a device pixel or a readout changes.
-// The widget floats in a free region of osu!'s layout (osuLayout): horizontal beside the
-// osu!/catch playfield and below the taiko lane, vertical (time running up) beside mania.
-import { subscribe, settings, fit, formatDuration, osuLayout, maniaSkin, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
+// The page is the overlay's box (hosts place and size it): a wide box draws time left→right,
+// a tall box draws time running upward (the mania side strip).
+import { subscribe, settings, formatDuration, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const STAGE_W = 1920;
-const STAGE_H = 1080;
-const MARGIN = 32;
-const HP_BAR_GAP = 112; // stable draws the mania HP bar against the stage's right edge
-const STAGE_GAP = 48;
 const P = {
   state: '/state/number',
-  playMode: '/play/mode/number',
-  selectMode: '/settings/mode/number',
   checksum: '/beatmap/checksum',
   live: '/beatmap/time/live',
   mp3: '/beatmap/time/mp3Length',
@@ -25,14 +18,11 @@ const P = {
   trackRate: '/beatmap/time/rate',
   series: '/performance/graph/series',
   xaxis: '/performance/graph/xaxis',
-  // Mania stage geometry: key count (mania CS), client (lazer centres the stage), skin.
-  keys: '/beatmap/stats/cs/converted',
-  client: '/client',
-  skin: '/settings/skin/name',
 };
+/** Thickness (css px across the time axis) the type scale is designed for: --s = 1. */
+const BASE = 112;
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
 const widget = $('w');
 const plot = $('plot');
 const canvas = $('graph');
@@ -69,7 +59,7 @@ function setTint(hex) {
 }
 setTint(C.accent);
 
-// vosu series per ruleset (converts included); the first group present wins. Index 0 takes the tint.
+// vosu series per ruleset (converts included); the first group present wins. Slot 0 takes the tint.
 const SKILLS = {
   aim: ['Aim', 0], speed: ['Speed', 1],
   color: ['Colour', 0], rhythm: ['Rhythm', 1], stamina: ['Stamina', 2],
@@ -79,12 +69,13 @@ const GROUPS = [['aim', 'speed'], ['color', 'rhythm', 'stamina'], ['movement'], 
 const skillColor = slot => (slot === 0 ? INK.tint : [C.accent, C.signal, C.ok, C.fgDim][slot]);
 
 // ---------------------------------------------------------------- state
-const opts = { zone: 'auto', offsetX: 0, offsetY: 0, scale: 1, graphHeight: 56, view: 'combined', showTime: true, showMarks: true, showInSelect: true, backing: 'none', accent: 'map', showBrand: true };
-const view = { phase: null, mode: null, keys: 4, client: 'stable', skin: '', live: NaN, rate: 1, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, backing: 'none', accent: 'map' };
+const view = { phase: null, live: NaN, rate: 1, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+// skills empty but end > 0: no strain data (e.g. the replay renderer), the strip is a plain progress track.
 const graph = { skills: [], end: 0, section: 400, key: '' };
 // Device-pixel geometry. u runs along time (0..L), v across it (0 = peak side, T = baseline).
 const size = { w: 0, h: 0, cssW: 0, cssH: 0, cssL: 0, ratio: 1, lw: 1, L: 0, T: 0 };
-const geo = { vertical: false, side: 'right', m: [1, 0, 0, 1, 0, 0] };
+const geo = { vertical: false, align: 'left', m: [1, 0, 0, 1, 0, 0] };
 const drawn = { px: -2, sec: -2 };
 const lit = document.createElement('canvas');
 const dim = document.createElement('canvas');
@@ -94,8 +85,7 @@ let hatch = null;
 let surface = new Float32Array(0); // silhouette v per u column, for the playhead needle
 let latest = null;
 let palette = null;
-let maniaGeo = null; // maniaSkin() result for the current skin and key count, or null
-let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, placeDirty = true, fadeIn = false;
+let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, fadeIn = false;
 let ticks = [];
 let legendW = 0;
 let raf = 0;
@@ -197,18 +187,6 @@ function visibility() {
   return 'off';
 }
 
-// skin.ini is read once per skin (maniaSkin caches it); a key-count change re-parses its section.
-function loadManiaSkin() {
-  const { keys, skin, client } = view;
-  if (client === 'lazer') { maniaGeo = null; return; } // lazer centres the stage itself
-  maniaSkin(keys, skin).then(result => {
-    if (keys !== view.keys || skin !== view.skin) return;
-    maniaGeo = result;
-    placeDirty = true;
-    request();
-  });
-}
-
 function loadPalette(checksum) {
   if (opts.accent !== 'map' || !checksum) { palette = null; applyColors(); return; }
   mapPalette(checksum).then(result => {
@@ -229,17 +207,7 @@ function onData(values, changed) {
   latest = values;
   let want = false;
   const phase = phaseOf(values[P.state]);
-  if (phase !== view.phase) { view.phase = phase; metaDirty = frameDirty = placeDirty = want = true; }
-  const mode = activeMode(values[P.state], values[P.playMode], values[P.selectMode]);
-  if (mode !== view.mode) { view.mode = mode; placeDirty = want = true; }
-  const keys = Math.round(positive(values[P.keys])) || 4;
-  const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
-  const skin = typeof values[P.skin] === 'string' ? values[P.skin] : '';
-  if (keys !== view.keys || client !== view.client || skin !== view.skin) {
-    view.keys = keys; view.client = client; view.skin = skin;
-    loadManiaSkin();
-    placeDirty = want = true;
-  }
+  if (phase !== view.phase) { view.phase = phase; metaDirty = frameDirty = want = true; }
   const rate = positive(values[P.rate]) || positive(values[P.trackRate]) || 1;
   if (rate !== view.rate) { view.rate = rate; modelDirty = true; }
   if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.mp3) || changed.has(P.checksum)) modelDirty = true;
@@ -268,63 +236,21 @@ function onStatus(state) {
   request();
 }
 
-// ---------------------------------------------------------------- placement
-// Free regions of the stable default layout at 1920×1080 (osuLayout). Song select: the centre
-// column between the local leaderboard and the carousel (x≈540–1160, y≈190–930), low in it.
-function place() {
-  placeDirty = false;
-  const mode = view.mode || 'osu';
-  const layout = osuLayout(mode, { width: STAGE_W, height: STAGE_H, keys: view.keys, client: view.client, ...(mode === 'mania' && maniaGeo ? maniaGeo : {}) });
-  const { busy, hud } = layout;
-  const zone = opts.zone;
-  let orient = 'h', side = 'right', len, anchor, origin;
-  // The catcher sprite can reach past the playfield's side edges near the bottom: sit higher.
-  const catchLift = mode === 'fruits' ? 180 : 0;
-  if (view.phase === 'select') {
-    len = 600;
-    anchor = { left: 550, bottom: STAGE_H - 910 };
-    origin = 'center bottom';
-  } else if (mode === 'mania') {
-    // Vertical strip beside the stage (skin.ini geometry when vosu serves it): right of the
-    // stage past the HP bar, or left of it; the screen edge when the stage leaves no room.
-    orient = 'v';
-    side = zone === 'left' ? 'left' : 'right';
-    len = 600;
-    const width = 42 + opts.graphHeight;
-    if (side === 'right') {
-      const left = busy.x + busy.w + HP_BAR_GAP;
-      anchor = left + width <= STAGE_W - MARGIN ? { left, top: 200 } : { right: MARGIN, top: 200 };
-    } else {
-      const right = busy.x - STAGE_GAP;
-      anchor = right - width >= MARGIN ? { right: STAGE_W - right, top: 200 } : { left: MARGIN, top: 200 };
-    }
-    origin = `${side === 'left' ? 'right' : 'left'} top`;
-  } else if (mode === 'taiko') {
-    len = 1152;
-    const top = busy.y + busy.h + 40;
-    anchor = zone === 'left' ? { left: 96, top } : zone === 'right' ? { right: 96, top } : { left: (STAGE_W - len) / 2, top };
-    origin = zone === 'left' ? 'left top' : zone === 'right' ? 'right top' : 'center top';
-  } else if (zone === 'left') {
-    // Left band, above the combo counter (the multiplayer leaderboard sits higher).
-    len = busy.x - 2 * MARGIN;
-    anchor = { left: MARGIN, bottom: Math.max(catchLift, STAGE_H - (hud.combo ? hud.combo.y - 16 : STAGE_H - 40)) };
-    origin = 'left bottom';
-  } else {
-    // Right band, lower half: below the key counter, clear of the score/accuracy block.
-    len = STAGE_W - (busy.x + busy.w) - 2 * MARGIN;
-    anchor = { right: MARGIN, bottom: Math.max(catchLift, 40) };
-    origin = 'right bottom';
-  }
-  const s = widget.style;
-  for (const key of ['left', 'right', 'top', 'bottom']) s[key] = key in anchor ? `${Math.round(anchor[key])}px` : '';
-  s.setProperty('--len', `${Math.round(len)}px`);
-  s.transformOrigin = origin;
-  s.transform = `translate(${opts.offsetX}px, ${opts.offsetY}px) scale(${opts.scale})`;
-  setData(widget, 'orient', orient);
-  setData(widget, 'side', side);
-  if (geo.vertical !== (orient === 'v') || geo.side !== side) {
-    geo.vertical = orient === 'v';
-    geo.side = side;
+// ---------------------------------------------------------------- box layout
+// The host decides the page size; the layout re-flows to it. Tall boxes go vertical unless the
+// orientation setting pins one; type and chrome scale with the box's thickness (--s).
+function layoutBox() {
+  const W = innerWidth, H = innerHeight;
+  const vertical = opts.orientation === 'vertical' || (opts.orientation === 'auto' && H > W * 1.25);
+  const thickness = vertical ? W : H;
+  widget.style.setProperty('--s', clamp(thickness / BASE, 0.6, 1.6).toFixed(3));
+  setData(widget, 'orient', vertical ? 'v' : 'h');
+  setData(widget, 'align', opts.align);
+  // Below ~3/4 of the default thickness the time axis and legend give their room to the graph.
+  setData(widget, 'compact', thickness < BASE * 0.75 ? 'on' : 'off');
+  if (geo.vertical !== vertical || geo.align !== opts.align) {
+    geo.vertical = vertical;
+    geo.align = opts.align;
     hatch = null;
     resize(size.cssW, size.cssH, true);
   }
@@ -336,7 +262,7 @@ function pickSkills(series) {
   for (const entry of series) if (entry && typeof entry.name === 'string' && Array.isArray(entry.data)) byName.set(entry.name, entry);
   for (const group of GROUPS) {
     const found = group.filter(name => byName.has(name));
-    if (found.length) return found.map((name, i) => ({ name, label: SKILLS[name][0], slot: SKILLS[name][1] ?? i, data: byName.get(name).data }));
+    if (found.length) return found.map(name => ({ name, label: SKILLS[name][0], slot: SKILLS[name][1], data: byName.get(name).data }));
   }
   return [...byName.values()].slice(0, 4).map((entry, i) => ({ name: entry.name, label: entry.name, slot: i, data: entry.data }));
 }
@@ -348,9 +274,11 @@ function buildModel() {
   graph.skills = [];
   graph.end = 0;
   graph.key = view.checksum;
+  const mp3 = latest?.[P.mp3];
+  const audioEnd = typeof mp3 === 'number' && mp3 > 0 ? mp3 / view.rate : 0;
   const series = latest?.[P.series];
   const xaxis = latest?.[P.xaxis];
-  if (!Array.isArray(series) || !Array.isArray(xaxis) || !xaxis.length) return;
+  if (!Array.isArray(series) || !Array.isArray(xaxis) || !xaxis.length) { graph.end = audioEnd; return; }
   let section = Infinity;
   let lastX = 0;
   for (let i = 0; i < xaxis.length; i++) {
@@ -378,9 +306,8 @@ function buildModel() {
     if (order.length) any = true;
     graph.skills.push(skill);
   }
-  if (!any) { graph.skills = []; return; }
-  const mp3 = latest[P.mp3];
-  graph.end = Math.max(lastX + section, typeof mp3 === 'number' && mp3 > 0 ? mp3 / view.rate : 0);
+  if (!any) { graph.skills = []; graph.end = audioEnd; return; }
+  graph.end = Math.max(lastX + section, audioEnd);
   graph.section = section;
   if (previous !== graph.key) fadeIn = true;
 }
@@ -437,13 +364,16 @@ function computeTicks() {
 function writeAxis() {
   axisDirty = false;
   ticksRow.replaceChildren();
-  if (!graph.skills.length || !size.cssL) return;
+  if (!graph.end || !size.cssL) return;
   // Labels stop short of the far end, and of the legend when it shares the row.
   const limit = size.cssL - (legendW && !geo.vertical ? legendW + 36 : 30);
+  const flip = !geo.vertical && opts.align === 'right' && legendW;
   for (const t of ticks) {
-    if (t && (t / graph.end) * size.cssL > limit) break;
+    const at = (t / graph.end) * size.cssL;
+    if (flip ? at < legendW + 36 || (t && at > size.cssL - 30) : t && at > limit) continue;
     const label = document.createElement('span');
     label.textContent = formatDuration(t);
+    if (!t) label.className = 'zero';
     label.style[geo.vertical ? 'bottom' : 'left'] = `${(t / graph.end) * 100}%`;
     ticksRow.append(label);
   }
@@ -469,26 +399,36 @@ function raster() {
   if (lit.width !== w || lit.height !== h) { lit.width = dim.width = w; lit.height = dim.height = h; }
   for (const c of [litCtx, dimCtx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, w, h); }
   computeTicks();
-  if (!graph.skills.length || !L || !T) { surface = new Float32Array(0); return; }
+  if (!graph.end || !L || !T) { surface = new Float32Array(0); return; }
 
   const k = L / graph.end;
-  const sigma = Math.max(0.9 * size.ratio, 0.7 * graph.section * k);
-  const raw = new Float32Array(L);
+  const floor = T - lw;
+  const shade = (c, on) => {
+    c.shadowColor = on ? SHADOW : 'transparent';
+    c.shadowBlur = on ? 3 * size.ratio : 0;
+    c.shadowOffsetX = 0;
+    c.shadowOffsetY = on ? size.ratio : 0;
+  };
+  const [a, b, cc, d, e, f] = geo.m;
   const levels = [new Float32Array(L)];
-  for (const skill of graph.skills) {
-    resample(skill.xs, skill.vs, k, raw);
-    const level = new Float32Array(L);
-    blur(raw, level, sigma);
-    const below = levels[levels.length - 1];
-    for (let c = 0; c < L; c++) level[c] += below[c];
-    levels.push(level);
+  let scale = 0;
+  const ceiling = Math.round(7 * size.ratio);
+  if (graph.skills.length) {
+    const sigma = Math.max(0.9 * size.ratio, 0.7 * graph.section * k);
+    const raw = new Float32Array(L);
+    for (const skill of graph.skills) {
+      resample(skill.xs, skill.vs, k, raw);
+      const level = new Float32Array(L);
+      blur(raw, level, sigma);
+      const below = levels[levels.length - 1];
+      for (let c = 0; c < L; c++) level[c] += below[c];
+      levels.push(level);
+    }
+    let peak = 0;
+    for (const value of levels[levels.length - 1]) if (value > peak) peak = value;
+    scale = peak > 0 ? (floor - ceiling) / peak : 0;
   }
   const top = levels[levels.length - 1];
-  let peak = 0;
-  for (let c = 0; c < L; c++) if (top[c] > peak) peak = top[c];
-  const floor = T - lw;
-  const ceiling = Math.round(7 * size.ratio);
-  const scale = peak > 0 ? (floor - ceiling) / peak : 0;
   const V = value => floor - value * scale;
   surface = Float32Array.from(top, V);
 
@@ -506,12 +446,6 @@ function raster() {
     c.closePath();
   };
   // Edges carry a contact shadow so the silhouette reads over bright map backgrounds too.
-  const shade = (c, on) => {
-    c.shadowColor = on ? SHADOW : 'transparent';
-    c.shadowBlur = on ? 3 * size.ratio : 0;
-    c.shadowOffsetX = 0;
-    c.shadowOffsetY = on ? size.ratio : 0;
-  };
   const edge = (c, upper, style) => {
     c.beginPath();
     outline(c, upper);
@@ -523,11 +457,18 @@ function raster() {
     shade(c, false);
   };
 
-  const [a, b, cc, d, e, f] = geo.m;
   for (const [c, isLit] of [[litCtx, true], [dimCtx, false]]) {
     c.setTransform(a, b, cc, d, e, f);
     c.fillStyle = INK.grid;
-    for (const t of ticks) if (t > 0) c.fillRect(Math.round(t * k), 0, lw, floor);
+    for (const t of ticks) if (t > 0) c.fillRect(Math.round(t * k), graph.skills.length ? 0 : floor - 6 * lw, lw, graph.skills.length ? floor : 6 * lw);
+    if (!graph.skills.length) {
+      // No strain data: a progress track only (lit part a touch heavier).
+      shade(c, true);
+      c.fillStyle = isLit ? INK.tint : rgba(C.fg, 0.45);
+      c.fillRect(0, isLit ? floor - lw : floor, L, isLit ? 2 * lw : lw);
+      shade(c, false);
+      continue;
+    }
     if (opts.view === 'per-skill' && graph.skills.length > 1) {
       graph.skills.forEach((skill, i) => {
         area(c, levels[i], levels[i + 1]);
@@ -580,10 +521,8 @@ function writeMeta() {
   $('break').classList.toggle('on', view.brk && !view.kiai);
   const status = $('status');
   status.hidden = show !== 'status';
-  const state = view.status === 'live' ? 'idle' : view.status;
-  setData(status, 'state', state);
+  setData(status, 'state', view.status === 'live' ? 'idle' : view.status);
   setText($('statusText'), view.status === 'offline' ? 'vosu offline' : view.status === 'live' ? 'osu! not running' : 'Connecting…');
-  setText(empty, '—');
 }
 
 function writeLegend() {
@@ -603,7 +542,6 @@ function writeLegend() {
 
 function frame() {
   raf = 0;
-  if (placeDirty) place();
   if (modelDirty) buildModel();
   if (metaDirty) writeMeta();
   if (view.show !== 'on') return;
@@ -613,14 +551,14 @@ function frame() {
   if (axisDirty) writeAxis();
 
   const { w, h, lw, L } = size;
-  const hasGraph = graph.skills.length > 0 && L > 0;
-  if (empty.hidden !== hasGraph) empty.hidden = hasGraph;
-  const px = hasGraph ? playheadPx() : -1;
+  const hasTrack = graph.end > 0 && L > 0;
+  if (empty.hidden !== hasTrack) empty.hidden = hasTrack;
+  const px = hasTrack ? playheadPx() : -1;
   const t = shownTime();
-  const sec = Number.isFinite(t) && hasGraph ? Math.floor(t / 1000) : -1;
+  const sec = Number.isFinite(t) && hasTrack ? Math.floor(t / 1000) : -1;
   if (sec !== drawn.sec || frameDirty) {
     setText($('now'), sec >= 0 ? formatDuration(sec * 1000) : '—');
-    setText($('total'), hasGraph ? `/ ${formatDuration(graph.end)}` : '');
+    setText($('total'), hasTrack ? `/ ${formatDuration(graph.end)}` : '');
   }
   drawn.sec = sec;
   if (px === drawn.px && !frameDirty) return;
@@ -629,7 +567,7 @@ function frame() {
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (!hasGraph) return;
+  if (!hasTrack) return;
   const play = view.phase === 'play';
   const floor = size.T - lw;
   const k = L / (graph.end * view.rate); // map ms → device px along time
@@ -671,12 +609,8 @@ function frame() {
 }
 
 // ---------------------------------------------------------------- sizing
-function stageScale() {
-  return Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H) || 1;
-}
-
 function resize(cssW, cssH, force = false) {
-  const ratio = (devicePixelRatio || 1) * stageScale() * opts.scale;
+  const ratio = devicePixelRatio || 1;
   const w = Math.max(0, Math.round(cssW * ratio));
   const h = Math.max(0, Math.round(cssH * ratio));
   if (!force && w === size.w && h === size.h && cssW === size.cssW && cssH === size.cssH && ratio === size.ratio) return;
@@ -685,8 +619,8 @@ function resize(cssW, cssH, force = false) {
   const L = geo.vertical ? h : w;
   const T = geo.vertical ? w : h;
   Object.assign(size, { w, h, cssW, cssH, cssL: geo.vertical ? cssH : cssW, ratio, lw, L, T });
-  // u along time, v across (v = T is the baseline, beside the stage for the vertical strip).
-  geo.m = !geo.vertical ? [1, 0, 0, 1, 0, 0] : geo.side === 'left' ? [0, -1, 1, 0, 0, L] : [0, -1, -1, 0, T, L];
+  // u along time, v across (v = T is the baseline: left for align left, right for align right).
+  geo.m = !geo.vertical ? [1, 0, 0, 1, 0, 0] : geo.align === 'right' ? [0, -1, 1, 0, 0, L] : [0, -1, -1, 0, T, L];
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
   rasterDirty = frameDirty = true;
@@ -704,25 +638,17 @@ new ResizeObserver(entries => {
   axisDirty = true;
   request();
 }).observe(legend);
-addEventListener('resize', () => resize(size.cssW, size.cssH));
-fit(stage, STAGE_W, STAGE_H);
+addEventListener('resize', layoutBox);
 
 // ---------------------------------------------------------------- settings + subscription
 settings({ ...opts }, s => {
-  const num = (value, lo, hi, fallback) => (Number.isFinite(value) ? clamp(value, lo, hi) : fallback);
-  opts.zone = ['left', 'right'].includes(s.zone) ? s.zone : 'auto';
-  opts.offsetX = num(s.offsetX, -1920, 1920, 0);
-  opts.offsetY = num(s.offsetY, -1080, 1080, 0);
-  const scale = num(s.scale, 0.5, 2, 1);
-  const height = Math.round(num(s.graphHeight, 32, 120, 56));
-  widget.style.setProperty('--graph-h', `${height}px`);
+  opts.orientation = ['horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto';
+  opts.align = s.align === 'right' ? 'right' : 'left';
   const viewMode = s.view === 'per-skill' ? 'per-skill' : 'combined';
   if (viewMode !== opts.view) { opts.view = viewMode; rasterDirty = legendDirty = true; }
-  opts.graphHeight = height;
   opts.showTime = !!s.showTime;
   opts.showMarks = !!s.showMarks;
   opts.showInSelect = !!s.showInSelect;
-  opts.showBrand = !!s.showBrand;
   opts.backing = ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   const accent = s.accent === '18-lab' ? '18-lab' : 'map';
   const accentChanged = accent !== opts.accent;
@@ -730,11 +656,10 @@ settings({ ...opts }, s => {
   setData(widget, 'time', opts.showTime ? 'on' : 'off');
   setData(widget, 'marks', opts.showMarks ? 'on' : 'off');
   setData(widget, 'backing', opts.backing);
-  $('brand').hidden = !opts.showBrand;
-  if (scale !== opts.scale) { opts.scale = scale; resize(size.cssW, size.cssH, true); }
+  layoutBox();
   if (accentChanged) loadPalette(view.checksum);
   else applyColors();
-  placeDirty = metaDirty = frameDirty = true;
+  metaDirty = frameDirty = axisDirty = true;
   request();
 });
 

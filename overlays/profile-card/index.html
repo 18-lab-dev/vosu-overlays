@@ -3,33 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Player tag · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Player tag</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="overlay.js"></script>
 </head>
 <body>
-<div id="stage">
-  <div id="zone" class="zone" data-h="right" data-v="bottom" data-backing="none">
-    <section id="tag" class="tag" aria-label="Player">
-      <figure class="avatar" id="avatar" aria-hidden="true">
-        <span class="monogram" id="monogram"></span>
-        <img id="avatar-img" alt="" decoding="async" referrerpolicy="no-referrer" draggable="false" hidden>
-      </figure>
-      <div class="info">
-        <div class="who">
-          <span class="name" id="name"></span>
-          <span class="country" id="country" hidden></span>
-          <span class="brand" id="brand">18—LAB</span>
-        </div>
-        <div class="nums">
-          <span class="num"><span class="v rank" id="rank">—</span><span class="d" id="d-rank"></span></span>
-          <span class="num"><span class="v" id="pp">—</span><span class="unit">pp</span><span class="d" id="d-pp"></span></span>
-        </div>
+<main id="stage" class="stage" data-orient="horizontal" data-align="right" data-backing="none" data-accent="map">
+  <section id="tag" class="tag" aria-label="Player">
+    <figure class="avatar" id="avatar" aria-hidden="true">
+      <span class="monogram" id="monogram"></span>
+      <img id="avatar-img" alt="" decoding="async" referrerpolicy="no-referrer" draggable="false" hidden>
+    </figure>
+    <div class="info">
+      <div class="who">
+        <span class="name" id="name"></span>
+        <span class="country" id="country" hidden></span>
       </div>
-    </section>
-    <div id="chip" class="chip" role="status" hidden><i class="dot" aria-hidden="true"></i><span id="chip-text"></span></div>
-  </div>
-</div>
+      <div class="nums" id="nums">
+        <span class="num" id="rank-num"><span class="v rank" id="rank"></span><span class="d" id="d-rank"></span></span>
+        <span class="num" id="pp-num"><span class="v" id="pp"></span><span class="unit">pp</span><span class="d" id="d-pp"></span></span>
+      </div>
+    </div>
+  </section>
+  <div id="chip" class="chip" role="status" hidden><i class="dot" aria-hidden="true"></i><span id="chip-text"></span></div>
+</main>
 </body>
 </html>

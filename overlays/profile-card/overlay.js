@@ -1,15 +1,14 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Player tag: who is playing, their global rank and pp, and what this session has changed.
-// It floats in a free corner of osu!'s layout during the player's own attempts only: song select
-// already shows the user panel and results already show the ranking change, so it stays away there.
-import { subscribe, settings, fit, osuLayout, maniaSkin, mapPalette, applyPalette, activeMode, MODES } from './vosu-overlay.js';
+// Shown during gameplay only: song select already shows the user panel and results already show
+// the ranking change. The page is the overlay's box; the tag re-flows to whatever box the host
+// (OBS, vosulay, the replay renderer) gives it.
+import { subscribe, settings, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
 const PLAYING = 2;
-// Distance from the edges of the chosen free region.
-const MARGIN = 32;
-const HP_CLEARANCE = 64;
+// Design boxes per arrangement (metadata resolution is the horizontal one); --u scales to fit.
+// `orientation: auto` takes whichever arrangement fits the page at the larger size.
+const BOX = { horizontal: [400, 88], vertical: [220, 200] };
 // A ruleset or account switch can deliver stats that are still settling; the session baseline
 // follows the latest values for this long after a key is first seen.
 const SETTLE_MS = 2000;
@@ -19,10 +18,7 @@ const P = {
   state: '/state/number',
   source: '/play/source',
   playerName: '/play/playerName',
-  playMode: '/play/mode/number',
   selectedMode: '/settings/mode/number',
-  keys: '/beatmap/stats/cs/converted',
-  skin: '/settings/skin/name',
   checksum: '/beatmap/checksum',
   name: '/profile/name',
   id: '/profile/id',
@@ -33,10 +29,11 @@ const P = {
 };
 
 const $ = id => document.getElementById(id);
-const zone = $('zone');
+const stage = $('stage');
 const ui = {
-  img: $('avatar-img'), monogram: $('monogram'), name: $('name'), country: $('country'), brand: $('brand'),
-  rank: $('rank'), pp: $('pp'), dRank: $('d-rank'), dPp: $('d-pp'), chip: $('chip'), chipText: $('chip-text'),
+  img: $('avatar-img'), monogram: $('monogram'), name: $('name'), country: $('country'),
+  nums: $('nums'), rankNum: $('rank-num'), ppNum: $('pp-num'), rank: $('rank'), pp: $('pp'),
+  dRank: $('d-rank'), dPp: $('d-pp'), chip: $('chip'), chipText: $('chip-text'), ppUnit: document.querySelector('#pp-num .unit'),
 };
 
 const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
@@ -58,20 +55,10 @@ function flag(node, name, on) {
 function data(node, key, value) {
   if (node.dataset[key] !== value) node.dataset[key] = value;
 }
-function css(node, property, value) {
-  if (node.style.getPropertyValue(property) !== value) node.style.setProperty(property, value);
-}
-/** A readout that changed from one real value to another eases in, so a rank-up reads as an event. */
-function readout(node, value, live) {
-  const empty = value === '—';
-  const was = node.hasAttribute('data-empty');
-  flag(node, 'data-empty', empty);
-  if (text(node, value) && live && !empty && !was) node.animate(ARRIVE, ARRIVE_TIMING);
-}
 
 const DEFAULTS = {
-  zone: 'bottom-right', offsetX: 0, offsetY: 0, scale: 1, backing: 'none', accent: 'map',
-  showAvatar: true, showDeltas: true, showBrand: true,
+  orientation: 'auto', align: 'right', backing: 'none', accent: 'map', showAvatar: true, showDeltas: true,
+  customName: '', customAvatar: '', customRank: '', customPp: '', customCountry: '',
 };
 const opts = { ...DEFAULTS };
 let values = null;
@@ -82,13 +69,28 @@ let frame = 0;
 let palette = null;
 let paletteFor = '';
 let appliedPalette = null;
+// Arrangement and unit for the current box; computed on resize, never inside a frame.
+let orient = 'horizontal';
+let unit = 1;
 
 function invalidate() {
   if (!frame) frame = requestAnimationFrame(render);
 }
 
+function measure() {
+  const width = innerWidth || BOX.horizontal[0];
+  const height = innerHeight || BOX.horizontal[1];
+  const fits = ([w, h]) => Math.min(width / w, height / h);
+  orient = opts.orientation === 'horizontal' || opts.orientation === 'vertical'
+    ? opts.orientation
+    : fits(BOX.horizontal) >= fits(BOX.vertical) ? 'horizontal' : 'vertical';
+  unit = Math.round(fits(BOX[orient]) * 1000) / 1000 || 1;
+  invalidate();
+}
+
 const finite = value => typeof value === 'number' && Number.isFinite(value);
-const signedIn = () => typeof values?.[P.name] === 'string' && values[P.name].trim() !== '' && finite(values[P.id]) && values[P.id] > 0;
+const textOf = value => (typeof value === 'string' ? value.trim() : '');
+const signedIn = () => textOf(values?.[P.name]) !== '' && finite(values[P.id]) && values[P.id] > 0;
 
 function profileMode() {
   const own = values?.[P.mode];
@@ -114,7 +116,7 @@ function track() {
 
 /** Map tint, derived off the hot path once per beatmap. */
 function loadPalette() {
-  const checksum = opts.accent === 'map' && typeof values?.[P.checksum] === 'string' ? values[P.checksum] : '';
+  const checksum = opts.accent === 'map' ? textOf(values?.[P.checksum]) : '';
   if (checksum === paletteFor) return;
   paletteFor = checksum;
   palette = null;
@@ -127,31 +129,10 @@ function loadPalette() {
   });
 }
 
-/** The skin's mania stage (columnStart/widths/spacing from skin.ini), read once per skin and key count. */
-let stage = null;
-let stageFor = '';
-function loadStage() {
-  const v = values ?? {};
-  const mania = activeMode(v[P.state], v[P.playMode], v[P.selectedMode]) === 'mania';
-  const keys = finite(v[P.keys]) ? Math.round(v[P.keys]) : 4;
-  const skin = typeof v[P.skin] === 'string' ? v[P.skin] : '';
-  const key = mania ? `${keys}|${skin}` : '';
-  if (key === stageFor) return;
-  stageFor = key;
-  stage = null;
-  if (!mania) return;
-  maniaSkin(keys, skin).then(result => {
-    if (stageFor !== key) return;
-    stage = result;
-    invalidate();
-  });
-}
-
 subscribe(Object.values(P), current => {
   values = current;
   track();
   loadPalette();
-  loadStage();
   invalidate();
 }, {
   onStatus: state => {
@@ -165,77 +146,41 @@ subscribe(Object.values(P), current => {
 settings({ ...DEFAULTS }, next => {
   Object.assign(opts, next);
   loadPalette();
-  invalidate();
+  measure();
 });
 
-fit($('stage'), WIDTH, HEIGHT);
+addEventListener('resize', measure);
 
 /* ---------- avatar ---------- */
 
-let avatarFor = 0;
-ui.img.addEventListener('load', () => { if (avatarFor) ui.img.classList.add('is-loaded'); });
-// a.ppy.sh unreachable (offline PC, blocked host): the monogram underneath stays.
+let avatarSrc = '';
+ui.img.addEventListener('load', () => { if (avatarSrc) ui.img.classList.add('is-loaded'); });
+// Unreachable image (offline PC, blocked host such as the replay renderer's): the monogram stays.
 ui.img.addEventListener('error', () => { ui.img.classList.remove('is-loaded'); ui.img.hidden = true; });
 
-function avatar(id) {
-  const want = opts.showAvatar && finite(id) && id > 0 ? id : 0;
-  if (want === avatarFor) return;
-  avatarFor = want;
+function avatar(src) {
+  if (src === avatarSrc) return;
+  avatarSrc = src;
   ui.img.classList.remove('is-loaded');
-  if (!want) {
+  if (!src) {
     ui.img.hidden = true;
     ui.img.removeAttribute('src');
     return;
   }
   ui.img.hidden = false;
-  ui.img.src = `https://a.ppy.sh/${want}`;
+  ui.img.src = src;
 }
 
-/* ---------- placement ---------- */
+/* ---------- values ---------- */
 
-const CORNERS = new Set(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
-let placedFor = '';
-
-/**
- * Pins the zone to the requested corner of the free region of osu!'s layout that touches that
- * screen edge and lies closest to the corner: beside the osu!/catch playfield, beside the mania
- * stage, below the taiko lane — clear of the playfield and the default HUD. The tag never hops
- * across the playfield, so it stays where the chosen corner promises.
- */
-function place(mode, keys, client) {
-  const corner = CORNERS.has(opts.zone) ? opts.zone : DEFAULTS.zone;
-  const scale = Math.min(2, Math.max(0.5, opts.scale || 1));
-  const key = `${mode}|${keys}|${client}|${corner}|${opts.offsetX}|${opts.offsetY}|${scale}|${stage ? stageFor : ''}`;
-  if (key === placedFor) return;
-  placedFor = key;
-  // Default stable geometry until the skin's stage is known (or when vosu serves no skin.ini).
-  const layout = osuLayout(mode ?? 'osu', { keys, client, ...(mode === 'mania' && stage ? stage : {}) });
-  const [v, h] = corner.split('-');
-  const cornerX = h === 'right' ? WIDTH : 0;
-  const cornerY = v === 'bottom' ? HEIGHT : 0;
-  const edge = layout.free.filter(r => (h === 'right' ? r.x + r.w >= WIDTH : r.x <= 0));
-  let best = null, bestDistance = Infinity;
-  for (const r of edge.length ? edge : layout.free) {
-    const x = h === 'right' ? r.x + r.w : r.x;
-    const y = v === 'bottom' ? r.y + r.h : r.y;
-    const distance = Math.hypot(x - cornerX, y - cornerY);
-    if (distance < bestDistance) { best = r; bestDistance = distance; }
-  }
-  const r = best ?? { x: 0, y: 0, w: WIDTH, h: HEIGHT };
-  data(zone, 'h', h);
-  data(zone, 'v', v);
-  css(zone, 'left', h === 'left' ? `${r.x + MARGIN}px` : 'auto');
-  css(zone, 'right', h === 'right' ? `${WIDTH - r.x - r.w + MARGIN}px` : 'auto');
-  // Skinned HP bars (face, SP gauge) hang well below the default bar: keep extra room under it.
-  const health = layout.hud.health;
-  const underHealth = r.y <= health.y + health.h + 8 ? HP_CLEARANCE : 0;
-  css(zone, 'top', v === 'top' ? `${r.y + MARGIN + underHealth}px` : 'auto');
-  css(zone, 'bottom', v === 'bottom' ? `${HEIGHT - r.y - r.h + MARGIN}px` : 'auto');
-  css(zone, 'transform-origin', `${v} ${h}`);
-  css(zone, 'transform', `translate(${Number(opts.offsetX) || 0}px, ${Number(opts.offsetY) || 0}px) scale(${scale})`);
+/** A custom stat: a number when it reads as one ("#4,120", "8123pp"), else the text as typed. */
+function custom(textValue) {
+  const raw = textValue.trim();
+  if (!raw) return null;
+  const digits = raw.replace(/^#|pp$/gi, '').replace(/[,\s]/g, '');
+  const number = Number(digits);
+  return digits !== '' && Number.isFinite(number) ? number : raw;
 }
-
-/* ---------- formatting ---------- */
 
 function signed(change) {
   const size = Math.abs(change);
@@ -245,7 +190,7 @@ function signed(change) {
 }
 
 /** Session change since load; empty when there is none, so the tag only grows when it has news. */
-function delta(node, before, now, kind, live) {
+function delta(node, before, now, kind, animate) {
   let out = '', tone = 'flat';
   if (before > 0 && now > 0) {
     if (kind === 'rank') {
@@ -258,72 +203,104 @@ function delta(node, before, now, kind, live) {
     }
   }
   data(node, 'tone', out ? tone : 'flat');
-  if (text(node, out) && live && out) node.animate(ARRIVE, ARRIVE_TIMING);
+  if (text(node, out) && animate && out) node.animate(ARRIVE, ARRIVE_TIMING);
+}
+
+/** Writes one stat; returns whether it has a value. Numbers that change ease in. */
+function stat(node, wrap, value, kind, animate) {
+  const has = value !== null && value !== 0 && value !== '';
+  flag(wrap, 'hidden', !has);
+  if (!has) return false;
+  const raw = typeof value === 'string';
+  flag(node, 'data-raw', raw);
+  const out = raw ? value : integer.format(Math.round(value));
+  if (text(node, out) && animate) node.animate(ARRIVE, ARRIVE_TIMING);
+  return true;
 }
 
 function chipFor() {
   if (conn === 'offline') return ['vosu offline', 'error'];
   if (conn === 'connecting' || values === null) return ['Connecting', 'wait'];
   if (values[P.client] === undefined) return ['osu! not running', 'wait'];
-  if (values[P.state] === PLAYING && !signedIn()) return ['Not signed in', 'warn'];
   return null;
 }
 
-/** The tag belongs to the signed-in player: it hides for other people's replays and spectating. */
+/** The signed-in player's own attempt (not someone else's replay, spectating or autoplay). */
 function ownAttempt() {
-  if (values[P.state] !== PLAYING) return false;
   const source = values[P.source];
   if (typeof source === 'string') return source === 'player';
-  const player = values[P.playerName];
-  return typeof player !== 'string' || player === '' || player.toLowerCase() === values[P.name].trim().toLowerCase();
+  const player = textOf(values[P.playerName]);
+  return player === '' || player.toLowerCase() === textOf(values[P.name]).toLowerCase();
 }
 
 /* ---------- render ---------- */
 
 function render() {
   frame = 0;
-  const v = values ?? {};
-  const playMode = activeMode(v[P.state], v[P.playMode], v[P.selectedMode]);
-  const keys = finite(v[P.keys]) ? Math.round(v[P.keys]) : 4;
-  place(playMode, keys, v[P.client] === 'lazer' ? 'lazer' : 'stable');
-
-  data(zone, 'backing', ['scrim', 'panel'].includes(opts.backing) ? opts.backing : 'none');
-  data(zone, 'accent', opts.accent === '18-lab' ? 'lab' : 'map');
-  data(zone, 'avatar', opts.showAvatar ? 'on' : 'off');
-  data(zone, 'deltas', opts.showDeltas ? 'on' : 'off');
-  flag(ui.brand, 'hidden', !opts.showBrand);
+  if (shown.get(stage) !== unit) {
+    shown.set(stage, unit);
+    stage.style.setProperty('--u', `${unit}px`);
+  }
+  data(stage, 'orient', orient);
+  data(stage, 'align', ['left', 'center', 'right'].includes(opts.align) ? opts.align : DEFAULTS.align);
+  data(stage, 'backing', ['scrim', 'panel'].includes(opts.backing) ? opts.backing : 'none');
+  data(stage, 'accent', opts.accent === '18-lab' ? 'lab' : 'map');
+  data(stage, 'avatar', opts.showAvatar ? 'on' : 'off');
+  data(stage, 'deltas', opts.showDeltas ? 'on' : 'off');
   const tint = opts.accent === 'map' ? palette : null;
   if (tint !== appliedPalette) {
     appliedPalette = tint;
-    applyPalette(zone, tint);
+    applyPalette(stage, tint);
   }
 
   const chip = chipFor();
-  const user = chip === null && signedIn();
-  const show = user && ownAttempt();
-  data(zone, 'show', show ? 'tag' : chip ? 'chip' : 'none');
   flag(ui.chip, 'hidden', chip === null);
   if (chip) {
     text(ui.chipText, chip[0]);
     data(ui.chip, 'tone', chip[1]);
   }
-  // Values keep updating while hidden so the tag never fades in with stale numbers.
-  if (!user) return;
-  const live = show;
+  const v = values ?? {};
+  const playing = chip === null && v[P.state] === PLAYING;
 
-  const name = v[P.name].trim();
+  // Who the tag is about. Custom values describe the streamer and always make a full tag (the
+  // replay renderer keeps the profile idle). Otherwise the signed-in player's own attempt does;
+  // anyone else's attempt (replay, spectating, a renderer track) gets a name-only tag.
+  const customName = opts.customName.trim();
+  const customRank = custom(opts.customRank);
+  const customPp = custom(opts.customPp);
+  const customCountry = opts.customCountry.trim();
+  const customAvatar = opts.customAvatar.trim();
+  const anyCustom = Boolean(customName || customRank !== null || customPp !== null || customCountry || customAvatar);
+  const own = playing && signedIn() && ownAttempt();
+  const full = playing && (anyCustom || own);
+  const player = textOf(v[P.playerName]);
+  const name = customName || (own ? textOf(v[P.name]) : full && signedIn() ? textOf(v[P.name]) : player);
+  const show = playing && name !== '';
+  data(stage, 'show', show ? 'tag' : chip ? 'chip' : 'none');
+  if (!show) return;
+
   text(ui.name, name);
   text(ui.monogram, (name.match(/[\p{L}\p{N}]/u)?.[0] ?? name[0]).toUpperCase());
-  avatar(v[P.id]);
-  const country = typeof v[P.country] === 'string' ? v[P.country].trim() : '';
+  const liveProfile = full && signedIn();
+  const id = liveProfile ? v[P.id] : 0;
+  avatar(!opts.showAvatar ? '' : customAvatar || (id > 0 ? `https://a.ppy.sh/${id}` : ''));
+  const country = customCountry || (liveProfile ? textOf(v[P.country]) : '');
   flag(ui.country, 'hidden', country === '');
   text(ui.country, country);
 
-  // Zero reads as "not loaded yet" (stats arrive after login) or unranked: show a calm dash.
-  const rank = finite(v[P.rank]) && v[P.rank] > 0 ? v[P.rank] : 0;
-  const pp = finite(v[P.pp]) && v[P.pp] > 0 ? v[P.pp] : 0;
-  readout(ui.rank, rank ? integer.format(rank) : '—', live);
-  readout(ui.pp, pp ? integer.format(Math.round(pp)) : '—', live);
-  delta(ui.dRank, session?.rank ?? 0, rank, 'rank', live);
-  delta(ui.dPp, session?.pp ?? 0, pp, 'pp', live);
+  // Zero reads as "not loaded yet" (stats arrive after login) or unranked: the stat stays out.
+  const liveRank = liveProfile && finite(v[P.rank]) && v[P.rank] > 0 ? v[P.rank] : 0;
+  const livePp = liveProfile && finite(v[P.pp]) && v[P.pp] > 0 ? v[P.pp] : 0;
+  const rank = full ? customRank ?? liveRank : null;
+  const pp = full ? customPp ?? livePp : null;
+  const hasRank = stat(ui.rank, ui.rankNum, rank, 'rank', true);
+  const hasPp = stat(ui.pp, ui.ppNum, pp, 'pp', true);
+  flag(ui.ppUnit, 'hidden', typeof pp === 'string');
+  flag(ui.nums, 'hidden', !hasRank && !hasPp);
+  // Session changes only for live values (a custom value has no history).
+  const base = own ? session : null;
+  delta(ui.dRank, customRank === null ? base?.rank ?? 0 : 0, liveRank, 'rank', true);
+  delta(ui.dPp, customPp === null ? base?.pp ?? 0 : 0, livePp, 'pp', true);
 }
+
+measure();

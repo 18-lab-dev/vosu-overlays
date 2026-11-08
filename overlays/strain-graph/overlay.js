@@ -70,20 +70,35 @@ const skillColor = slot => (slot === 0 ? INK.tint : [C.accent, C.signal, C.ok, C
 
 // ---------------------------------------------------------------- state
 const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, backing: 'none', accent: 'map' };
-const view = { phase: null, live: NaN, rate: 1, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+const view = { phase: null, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+// The map clock as received. Messages arrive every few ms and the code that reads them runs
+// unoptimised for its first thousands of calls, where every fractional result is a new heap
+// number; so these fields keep the parsed numbers by reference (null-initialised: tagged fields,
+// never boxed copies) and the per-message path only compares them. `lo`..`hi` is the live-clock
+// span in which neither the playhead pixel nor the clock second can change.
+const tick = { live: null, rate: null, prev: null, lo: null, hi: null, scale: null };
+const head = { px: -1, sec: -1 }; // playhead device px along time and whole second; -1 when none
+// The graph inputs, captured when they change (the subscribe values object is reused per frame).
+const source = { series: undefined, xaxis: undefined, mp3: undefined };
 // skills empty but end > 0: no strain data (e.g. the replay renderer), the strip is a plain progress track.
 const graph = { skills: [], end: 0, section: 400, key: '' };
 // Device-pixel geometry. u runs along time (0..L), v across it (0 = peak side, T = baseline).
 const size = { w: 0, h: 0, cssW: 0, cssH: 0, cssL: 0, ratio: 1, lw: 1, L: 0, T: 0 };
-const geo = { vertical: false, align: 'left', m: [1, 0, 0, 1, 0, 0] };
+const geo = { vertical: false, align: 'left', m: [1, 0, 0, 1, 0, 0] }; // ints only: no boxing per setTransform
 const drawn = { px: -2, sec: -2 };
+const nowText = $('now');
+const totalText = $('total');
+const TAU = Math.PI * 2;
+let needleX = 0.5, needleR = 2.5; // needle centre offset from the playhead column, radius (device px)
 const lit = document.createElement('canvas');
 const dim = document.createElement('canvas');
 const litCtx = lit.getContext('2d');
 const dimCtx = dim.getContext('2d');
 let hatch = null;
-let surface = new Float32Array(0); // silhouette v per u column, for the playhead needle
-let latest = null;
+const NONE = new Float32Array(0);
+let surface = NONE; // silhouette v per u column, for the playhead needle
+let rawLevel = NONE; // one skill resampled per u column (raster scratch)
+const levelPool = []; // stacked skill levels per u column, reused while L holds
 let palette = null;
 let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, fadeIn = false;
 let ticks = [];
@@ -100,13 +115,15 @@ const request = () => { if (!raf) raf = requestAnimationFrame(frame); };
 // vosu exposes only the live isKiai/isBreak flags, so sections are learned as the map clock
 // passes them (gameplay or the song-select preview) and remembered per beatmap checksum.
 const STORE = 'strain-graph:marks:';
-const marks = { key: '', kiai: [], brk: [], runKiai: null, runBrk: null, prevKiai: false, prevBrk: false, prevT: NaN };
+const marks = { key: '', kiai: [], brk: [], runKiai: null, runBrk: null, prevKiai: false, prevBrk: false };
 
 function settle(list) {
   list.sort((a, b) => a[0] - b[0]);
   let out = 0;
-  for (const run of list) {
-    const last = list[out - 1];
+  for (let i = 0; i < list.length; i++) {
+    const run = list[i];
+    // No list[-1]: a negative index is a string-keyed lookup (number → string conversion).
+    const last = out > 0 ? list[out - 1] : null;
     if (last && run[0] <= last[1] + 250) last[1] = Math.max(last[1], run[1]);
     else list[out++] = run;
   }
@@ -130,7 +147,7 @@ function loadMarks(key) {
   marks.kiai = []; marks.brk = [];
   marks.runKiai = marks.runBrk = null;
   marks.prevKiai = marks.prevBrk = false;
-  marks.prevT = NaN;
+  tick.prev = null;
   if (!key) return;
   try {
     const stored = JSON.parse(localStorage.getItem(STORE + key) || 'null');
@@ -142,23 +159,32 @@ function loadMarks(key) {
 function track(list, run, on, t) {
   if (on) {
     if (run) run[1] = t;
-    else { run = [marks.prevT, t]; list.push(run); }
+    else { run = [tick.prev, t]; list.push(run); }
     return run;
   }
   if (run) { settle(list); saveMarks(); }
   return null;
 }
 
+/** t − prev < 1500 with t ≥ prev. Whole milliseconds (Smis) decide it unless the gap is within
+ *  a millisecond of the limit, so the per-message check makes no heap number. */
+function contiguous(t, prev) {
+  if (prev === null || !(t >= prev)) return false;
+  const gap = Math.floor(t) - Math.floor(prev);
+  return gap < 1499 || (gap <= 1500 && t - prev < 1500);
+}
+
 function observe(key, t, kiai, brk) {
   if (key !== marks.key) loadMarks(key);
   // A flag counts once two consecutive, contiguous samples agree: a stale flag from the
   // previous map or a seek never paints a section.
-  const contiguous = t >= marks.prevT && t - marks.prevT < 1500;
-  marks.runKiai = track(marks.kiai, marks.runKiai, kiai && marks.prevKiai && contiguous, t);
-  marks.runBrk = track(marks.brk, marks.runBrk, brk && marks.prevBrk && contiguous, t);
+  const kiaiOn = kiai && marks.prevKiai, brkOn = brk && marks.prevBrk;
+  const near = (kiaiOn || brkOn) && contiguous(t, tick.prev);
+  marks.runKiai = track(marks.kiai, marks.runKiai, kiaiOn && near, t);
+  marks.runBrk = track(marks.brk, marks.runBrk, brkOn && near, t);
   marks.prevKiai = kiai;
   marks.prevBrk = brk;
-  marks.prevT = t;
+  tick.prev = t;
 }
 
 // ---------------------------------------------------------------- data
@@ -168,15 +194,35 @@ function phaseOf(state) {
   return state === 2 ? 'play' : state === 5 ? 'select' : state === 7 ? 'results' : 'menu';
 }
 
-/** Graph time (ms after rate) the readouts show; NaN when unknown. */
-function shownTime() {
-  if (!graph.end || !Number.isFinite(view.live)) return NaN;
-  return clamp(view.live / view.rate, 0, graph.end);
+/**
+ * Places the playhead (`head`): graph time is the map clock ÷ rate, clamped to the track. Also
+ * sets `tick.lo..hi`, the live-clock span that keeps both the pixel and the second, shrunk by a
+ * microsecond so rounding can never hide a change; runs only when the clock leaves that span.
+ */
+function locate() {
+  const end = graph.end, L = size.L, live = tick.live;
+  if (end > 0 && L > 0 && typeof live === 'number' && Number.isFinite(live)) {
+    const rate = tick.rate;
+    let t = live / rate;
+    t = t < 0 ? 0 : t > end ? end : t;
+    const px = Math.round(t / end * L), sec = Math.floor(t / 1000);
+    head.px = px;
+    head.sec = sec;
+    // px holds for t in [px − ½, px + ½)·end/L, sec for [sec, sec + 1)·1000; clamping extends
+    // a span touching either end of the track to infinity.
+    const lo = Math.max((px - 0.5) * end / L, sec * 1000);
+    const hi = Math.min((px + 0.5) * end / L, (sec + 1) * 1000);
+    tick.lo = lo <= 0 ? -Infinity : lo * rate + 1e-3;
+    tick.hi = hi > end ? Infinity : hi * rate - 1e-3;
+  } else {
+    head.px = head.sec = -1;
+    tick.lo = tick.hi = null;
+  }
 }
 
-function playheadPx() {
-  const t = shownTime();
-  return Number.isFinite(t) && size.L ? Math.round(t / graph.end * size.L) : -1;
+/** True while `live` stays inside the span the last locate measured, so `head` is current. */
+function placed(live) {
+  return tick.lo !== null && typeof live === 'number' && live >= tick.lo && live < tick.hi;
 }
 
 /** on | status (tiny connection / no-osu! chip) | off. Gameplay first; song select only previews. */
@@ -204,27 +250,32 @@ function applyColors() {
 }
 
 function onData(values, changed) {
-  latest = values;
   let want = false;
   const phase = phaseOf(values[P.state]);
   if (phase !== view.phase) { view.phase = phase; metaDirty = frameDirty = want = true; }
   const rate = positive(values[P.rate]) || positive(values[P.trackRate]) || 1;
-  if (rate !== view.rate) { view.rate = rate; modelDirty = true; }
-  if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.mp3) || changed.has(P.checksum)) modelDirty = true;
+  if (rate !== tick.rate) { tick.rate = rate; modelDirty = true; }
+  if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.mp3) || changed.has(P.checksum)) {
+    source.series = values[P.series];
+    source.xaxis = values[P.xaxis];
+    source.mp3 = values[P.mp3];
+    modelDirty = true;
+  }
   if (modelDirty) want = true;
   const checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : '';
   if (checksum !== view.checksum) { view.checksum = checksum; loadPalette(checksum); }
   const live = values[P.live];
-  view.live = typeof live === 'number' ? live : NaN;
+  tick.live = typeof live === 'number' ? live : null;
   const kiai = values[P.kiai] === true;
   const brk = values[P.brk] === true;
   if (kiai !== view.kiai || brk !== view.brk) { view.kiai = kiai; view.brk = brk; metaDirty = want = true; }
-  if (phase && checksum && Number.isFinite(view.live) && (changed.has(P.live) || changed.has(P.kiai) || changed.has(P.brk))) {
-    observe(checksum, view.live, kiai, brk);
+  if (phase && checksum && typeof live === 'number' && Number.isFinite(live) && (changed.has(P.live) || changed.has(P.kiai) || changed.has(P.brk))) {
+    observe(checksum, live, kiai, brk);
   }
-  if (!want && graph.end && view.show === 'on') {
-    const t = shownTime();
-    want = playheadPx() !== drawn.px || (Number.isFinite(t) ? Math.floor(t / 1000) : -1) !== drawn.sec;
+  // Inside the span the last locate measured, the playhead cannot have moved.
+  if (!want && graph.end && view.show === 'on' && !(placed(live) && head.px === drawn.px && head.sec === drawn.sec)) {
+    locate();
+    want = head.px !== drawn.px || head.sec !== drawn.sec;
   }
   if (want) request();
 }
@@ -273,11 +324,12 @@ function buildModel() {
   const previous = graph.key;
   graph.skills = [];
   graph.end = 0;
+  tick.lo = tick.hi = null;
   graph.key = view.checksum;
-  const mp3 = latest?.[P.mp3];
-  const audioEnd = typeof mp3 === 'number' && mp3 > 0 ? mp3 / view.rate : 0;
-  const series = latest?.[P.series];
-  const xaxis = latest?.[P.xaxis];
+  const mp3 = source.mp3;
+  const audioEnd = typeof mp3 === 'number' && mp3 > 0 ? mp3 / tick.rate : 0;
+  const series = source.series;
+  const xaxis = source.xaxis;
   if (!Array.isArray(series) || !Array.isArray(xaxis) || !xaxis.length) { graph.end = audioEnd; return; }
   let section = Infinity;
   let lastX = 0;
@@ -392,6 +444,11 @@ function makeHatch() {
   hatch = ctx.createPattern(tile, 'repeat');
 }
 
+/** The i-th stacked level buffer, sized L (contents are whatever the last raster left). */
+function level(i) {
+  return levelPool[i] || (levelPool[i] = new Float32Array(size.L));
+}
+
 function raster() {
   rasterDirty = false;
   frameDirty = true;
@@ -399,7 +456,9 @@ function raster() {
   if (lit.width !== w || lit.height !== h) { lit.width = dim.width = w; lit.height = dim.height = h; }
   for (const c of [litCtx, dimCtx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, w, h); }
   computeTicks();
-  if (!graph.end || !L || !T) { surface = new Float32Array(0); return; }
+  // Map ms → device px along time for the kiai/break sections (rate changes rebuild the model).
+  tick.scale = graph.end && L ? L / (graph.end * tick.rate) : null;
+  if (!graph.end || !L || !T) { surface = rawLevel = NONE; return; }
 
   const k = L / graph.end;
   const floor = T - lw;
@@ -410,19 +469,21 @@ function raster() {
     c.shadowOffsetY = on ? size.ratio : 0;
   };
   const [a, b, cc, d, e, f] = geo.m;
-  const levels = [new Float32Array(L)];
+  // Column buffers persist across rasters and are replaced only when L changes.
+  if (rawLevel.length !== L) { rawLevel = new Float32Array(L); surface = new Float32Array(L); levelPool.length = 0; }
+  const levels = [level(0)];
+  levels[0].fill(0);
   let scale = 0;
   const ceiling = Math.round(7 * size.ratio);
   if (graph.skills.length) {
     const sigma = Math.max(0.9 * size.ratio, 0.7 * graph.section * k);
-    const raw = new Float32Array(L);
     for (const skill of graph.skills) {
-      resample(skill.xs, skill.vs, k, raw);
-      const level = new Float32Array(L);
-      blur(raw, level, sigma);
+      resample(skill.xs, skill.vs, k, rawLevel);
+      const stacked = level(levels.length);
+      blur(rawLevel, stacked, sigma);
       const below = levels[levels.length - 1];
-      for (let c = 0; c < L; c++) level[c] += below[c];
-      levels.push(level);
+      for (let c = 0; c < L; c++) stacked[c] += below[c];
+      levels.push(stacked);
     }
     let peak = 0;
     for (const value of levels[levels.length - 1]) if (value > peak) peak = value;
@@ -430,7 +491,7 @@ function raster() {
   }
   const top = levels[levels.length - 1];
   const V = value => floor - value * scale;
-  surface = Float32Array.from(top, V);
+  for (let u = 0; u < L; u++) surface[u] = V(top[u]);
 
   const outline = (c, upper) => {
     c.moveTo(0, V(upper[0]));
@@ -495,9 +556,12 @@ function raster() {
 }
 
 // ---------------------------------------------------------------- frame
-function runs(list, k, v, thickness) {
+/** Fills sections (map ms) along time. */
+function runs(list, v, thickness) {
+  const k = tick.scale;
   for (let i = 0; i < list.length; i++) {
-    const u0 = Math.round(list[i][0] * k), u1 = Math.round(list[i][1] * k);
+    const run = list[i];
+    const u0 = Math.round(run[0] * k), u1 = Math.round(run[1] * k);
     if (u1 > u0) ctx.fillRect(u0, v, u1 - u0, thickness);
   }
 }
@@ -553,13 +617,11 @@ function frame() {
   const { w, h, lw, L } = size;
   const hasTrack = graph.end > 0 && L > 0;
   if (empty.hidden !== hasTrack) empty.hidden = hasTrack;
-  const px = hasTrack ? playheadPx() : -1;
-  const t = shownTime();
-  const sec = Number.isFinite(t) && hasTrack ? Math.floor(t / 1000) : -1;
-  if (sec !== drawn.sec || frameDirty) {
-    setText($('now'), sec >= 0 ? formatDuration(sec * 1000) : '—');
-    setText($('total'), hasTrack ? `/ ${formatDuration(graph.end)}` : '');
-  }
+  if (!placed(tick.live)) locate();
+  const px = head.px, sec = head.sec;
+  // Readouts format only when their value moves: the clock once a second, the total per model/size.
+  if (sec !== drawn.sec || frameDirty) setText(nowText, sec >= 0 ? formatDuration(sec * 1000) : '—');
+  if (frameDirty) setText(totalText, hasTrack ? `/ ${formatDuration(graph.end)}` : '');
   drawn.sec = sec;
   if (px === drawn.px && !frameDirty) return;
   drawn.px = px;
@@ -570,25 +632,24 @@ function frame() {
   if (!hasTrack) return;
   const play = view.phase === 'play';
   const floor = size.T - lw;
-  const k = L / (graph.end * view.rate); // map ms → device px along time
   const marksOn = marks.key === graph.key && opts.showMarks;
-  const [a, b, c, d, e, f] = geo.m;
-  ctx.setTransform(a, b, c, d, e, f);
+  const m = geo.m;
+  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   if (marksOn) {
     ctx.fillStyle = hatch;
-    runs(marks.brk, k, 0, floor);
+    runs(marks.brk, 0, floor);
     ctx.fillStyle = INK.kiaiWash;
-    runs(marks.kiai, k, 0, floor);
+    runs(marks.kiai, 0, floor);
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (play && px >= 0) {
     blit(lit, 0, px);
     blit(dim, px, L);
   } else ctx.drawImage(lit, 0, 0);
-  ctx.setTransform(a, b, c, d, e, f);
+  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   if (marksOn) {
     ctx.fillStyle = INK.tint;
-    runs(marks.kiai, k, 0, 2 * lw);
+    runs(marks.kiai, 0, 2 * lw);
   }
   if (px >= 0) {
     const u = Math.min(px, L - lw);
@@ -596,7 +657,7 @@ function frame() {
     ctx.fillRect(u, 0, lw, floor);
     // Needle: where the playhead meets the strain silhouette.
     ctx.beginPath();
-    ctx.arc(u + lw / 2, surface[Math.min(px, L - 1)], 2.5 * size.ratio, 0, Math.PI * 2);
+    ctx.arc(u + needleX, surface[Math.min(px, L - 1)], needleR, 0, TAU);
     ctx.fill();
     ctx.lineWidth = lw;
     ctx.strokeStyle = INK.ring;
@@ -619,6 +680,9 @@ function resize(cssW, cssH, force = false) {
   const L = geo.vertical ? h : w;
   const T = geo.vertical ? w : h;
   Object.assign(size, { w, h, cssW, cssH, cssL: geo.vertical ? cssH : cssW, ratio, lw, L, T });
+  tick.lo = tick.hi = null;
+  needleX = lw / 2;
+  needleR = 2.5 * ratio;
   // u along time, v across (v = T is the baseline: left for align left, right for align right).
   geo.m = !geo.vertical ? [1, 0, 0, 1, 0, 0] : geo.align === 'right' ? [0, -1, 1, 0, 0, L] : [0, -1, -1, 0, T, L];
   if (canvas.width !== w) canvas.width = w;

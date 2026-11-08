@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Timing drift · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section class="panel" id="panel" aria-label="Timing drift" data-show="true" data-phase="offline" data-ur="true">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="title">Timing drift</span>
+      <span class="phase" id="phase"></span>
+      <span class="chip" id="chip"><i></i><span id="chipText">Connecting to vosu</span></span>
+      <span class="meta" id="meta"></span>
+    </header>
+    <div class="body">
+      <div class="rail">
+        <div class="cell" id="meanCell">
+          <div class="row"><span class="label">Mean</span><span class="all"><i></i>All <b id="meanAll">—</b></span></div>
+          <div class="value"><span class="num" id="meanNow">—</span><span class="unit">ms</span></div>
+          <span class="dir" id="dir" data-dir="none">—</span>
+        </div>
+        <div class="cell" id="urCell">
+          <div class="row"><span class="label">UR</span><span class="all"><i></i>All <b id="urAll">—</b></span></div>
+          <div class="value"><span class="num" id="urNow">—</span></div>
+        </div>
+      </div>
+      <div class="plot">
+        <canvas id="chart" role="img" aria-label="Rolling mean hit error and unstable rate over the attempt"></canvas>
+        <p class="empty" id="empty"></p>
+      </div>
+      <span class="count" id="count"></span>
+      <div class="axis"><span id="t0"></span><span id="t1"></span></div>
+    </div>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

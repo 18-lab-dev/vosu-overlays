@@ -1,0 +1,5 @@
+name = Timing drift
+author = 18-LAB
+version = 0.1.0
+description = Rolling mean hit error and rolling unstable rate across the attempt, so you can see whether you drift early or late as you tire. osu!, osu!taiko and osu!mania.
+resolution = [640,300]

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Taiko strain lanes · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage" data-view="boot">
+  <p id="status" class="status" role="status"><i></i><span id="status-text">Connecting to vosu</span></p>
+  <section id="panel" class="panel" aria-label="osu!taiko strain lanes">
+    <header class="head">
+      <p class="tag" id="brand">18—LAB</p>
+      <p class="label">Strain lanes</p>
+      <p class="label phase" id="phase"></p>
+    </header>
+    <div class="readouts">
+      <div class="lead">
+        <p class="label" id="lead-label">Section lead</p>
+        <p class="lead-value"><b id="lead-name">—</b><span id="lead-share"></span></p>
+      </div>
+      <div class="stars">
+        <p class="label" id="stars-label">Stars</p>
+        <p class="stars-value"><b id="stars-live">—</b><span id="stars-total"></span></p>
+        <span class="meter" aria-hidden="true"><i id="stars-meter"></i></span>
+      </div>
+    </div>
+    <div class="lanes" id="lanes">
+      <canvas id="chart" aria-label="Color, rhythm, stamina and reading strain with the play position"></canvas>
+    </div>
+    <footer class="foot">
+      <span id="clock"></span>
+      <span id="note"></span>
+      <span id="length"></span>
+    </footer>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

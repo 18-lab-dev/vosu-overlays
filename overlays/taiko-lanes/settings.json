@@ -1,0 +1,8 @@
+[
+ {"uniqueID":"laneColor","type":"checkbox","title":"Color lane","description":"Colour (don/kat pattern) strain.","value":true},
+ {"uniqueID":"laneRhythm","type":"checkbox","title":"Rhythm lane","description":"Rhythm (timing change) strain.","value":true},
+ {"uniqueID":"laneStamina","type":"checkbox","title":"Stamina lane","description":"Stamina (sustained density) strain.","value":true},
+ {"uniqueID":"laneReading","type":"checkbox","title":"Reading lane","description":"Reading (scroll speed) strain. Appears only on maps where reading contributes to the rating.","value":true},
+ {"uniqueID":"laneHeight","type":"number","title":"Lane height / px","description":"Height of each lane; clamped to 20–56 px. Lane heights and shares are weighted by each skill's star-rating multiplier, and the lead is judged over the ±1.6 s around the play position.","value":34},
+ {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

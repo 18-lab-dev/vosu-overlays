@@ -4,8 +4,12 @@
 // screenshotted and profiled without osu! running. NOT a vosu replacement: values come from a
 // deterministic synthetic attempt, not from a client.
 //
-//   bun dev/mock-vosu.js [--port 24100] [--mode osu|taiko|fruits|mania] [--state play|menu|results|offline]
-//                        [--client stable|lazer] [--keys 4|7] [--ext 1|0] [--freeze <ms>] [--speed 1]
+//   bun dev/mock-vosu.js [--port 24100] [--mode osu|taiko|fruits|mania] [--state play|menu|results|offline|down]
+//                        [--client stable|lazer] [--keys 4|7] [--ext 1|0] [--freeze <ms>] [--speed 1] [--start <ms>]
+//                        [--catchHits vosu|legacy] [--compat vosu|tosu]
+//   offline = osu! not running (pointers absent); down = vosu unreachable (sockets closed).
+//   start = live attempt begins this far into the map; ext=0 drops ENABLE_* extensions
+//   (hitOffsets, keyHitErrors); compat=tosu drops every vosu-only field (keys.all, catcher, …).
 //
 // Overlays: http://127.0.0.1:<port>/<overlay-id>/   Control page: /__dev/   All overlays live: /__dev/gallery
 // Live control: GET /__dev/scenario?mode=mania&state=play&keys=7&freeze=60000 (any subset; resets).
@@ -46,7 +50,7 @@ const STATE = { menu: { number: 5, name: 'selectPlay' }, play: { number: 2, name
 let config = {
   mode: arg('mode', 'osu'), state: arg('state', 'play'), client: arg('client', 'stable'),
   keys: Number(arg('keys', 4)), ext: arg('ext', '1') !== '0', freeze: arg('freeze', null), speed: Number(arg('speed', 1)),
-  start: Number(arg('start', 0)), catchHits: arg('catchHits', 'vosu'),
+  start: Number(arg('start', 0)), catchHits: arg('catchHits', 'vosu'), compat: arg('compat', 'vosu'),
 };
 let scenario;
 
@@ -306,6 +310,12 @@ function documentAt() {
       audio: { offset: { universal: 0 } }, skin: { name: '18-LAB' }, resolution: { width: 1920, height: 1080 },
     },
   };
+  if (config.compat === 'tosu') {
+    // Upstream tosu has none of vosu's additive fields; overlays must degrade, not break.
+    for (const key of ['hitOffsets', 'keyHitErrors', 'catcher', 'pressHitErrors', 'releaseHitErrors', 'source']) delete play[key];
+    delete keys.all;
+    catcher = undefined;
+  }
   const precise = {
     keys, hitErrors, pressHitErrors, releaseHitErrors, tourney: [],
     ...(play.hitOffsets ? { hitOffsets: play.hitOffsets } : {}),
@@ -540,6 +550,7 @@ function reset(params) {
   for (const key of ['mode', 'state', 'client']) if (params.has(key)) config[key] = params.get(key);
   if (params.has('keys')) config.keys = Number(params.get('keys'));
   if (params.has('catchHits')) config.catchHits = params.get('catchHits');
+  if (params.has('compat')) config.compat = params.get('compat');
   if (params.has('ext')) config.ext = params.get('ext') !== '0';
   if (params.has('freeze')) config.freeze = params.get('freeze') || null;
   if (params.has('speed')) config.speed = Number(params.get('speed')) || 1;

@@ -69,9 +69,14 @@ export function subscribe(pointers, onFrame, { onStatus = () => {} } = {}) {
     };
   };
 
+  const close = () => {
+    stopped = true;
+    window.removeEventListener('pagehide', close);
+    socket?.close(1000);
+  };
   open();
-  window.addEventListener('pagehide', () => { stopped = true; socket?.close(1000); });
-  return { values, close() { stopped = true; socket?.close(1000); } };
+  window.addEventListener('pagehide', close);
+  return { values, close };
 }
 
 function coerce(fallback, value) {

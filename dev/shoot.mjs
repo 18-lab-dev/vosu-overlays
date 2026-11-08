@@ -3,7 +3,7 @@
 // Screenshots an overlay on the mock vosu stage across scenarios and measures its live cost.
 //
 //   node dev/shoot.mjs --port 24100 --id hit-error [--out /tmp/shots/hit-error]
-//        [--cases "mode=osu&state=play&freeze=60000;state=offline"] [--perf mode=mania&state=play] [--dpr 1]
+//        [--cases "mode=osu&state=play&freeze=60000;state=offline"] [--perf mode=mania&state=play] [--dpr 1] [--settle 900]
 //
 // Requires a running `bun dev/mock-vosu.js --port <port>`. Playwright is resolved from
 // $PLAYWRIGHT (path to playwright's index.mjs) or the `playwright` package.
@@ -23,6 +23,9 @@ const id = arg('id');
 if (!id) throw new Error('--id <overlay> is required');
 const out = arg('out', `/tmp/overlay-shots/${id}`);
 const dpr = Number(arg('dpr', 1));
+// Milliseconds to let the page run before each capture; raise it for live cases whose
+// visuals accumulate (trails, scrolling bars).
+const settle = Number(arg('settle', 900));
 const base = `http://127.0.0.1:${port}`;
 const defaults = [];
 for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
@@ -55,7 +58,7 @@ async function stage() {
   await page.goto(`${base}/__dev/stage?id=${encodeURIComponent(id)}`);
   const size = await page.evaluate(() => ({ width: document.body.offsetWidth, height: document.body.offsetHeight }));
   await page.setViewportSize(size);
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(settle);
 }
 
 for (const query of cases) {

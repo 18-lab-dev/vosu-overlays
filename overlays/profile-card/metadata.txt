@@ -1,0 +1,5 @@
+name = Player card
+author = 18-LAB
+version = 0.1.0
+description = Profile card with avatar, global rank, pp, accuracy, play count, level progress, bancho status and session changes since the source loaded. Horizontal or vertical.
+resolution = [640,360]

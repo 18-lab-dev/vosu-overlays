@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"layout","type":"options","title":"Layout","options":["horizontal","vertical"],"description":"Horizontal: a 520 px strip with rank, pp, accuracy and plays in one row. Vertical: a 264 px card for a screen edge.","value":"horizontal"},
+ {"uniqueID":"showAvatar","type":"checkbox","title":"Show avatar","description":"Loads your profile picture from a.ppy.sh, the only request this overlay makes outside vosu; your initial stands in when it cannot load. Off hides the avatar and makes no outside request.","value":true},
+ {"uniqueID":"showDeltas","type":"checkbox","title":"Show session changes","description":"Under each stat: the change in global rank, pp and play count since this source loaded, kept per account and ruleset. Reload the source to start a new session.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the card header.","value":true}
+]

@@ -15,5 +15,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: python scripts/sync_shared.py --check
+      - run: node --test shared/
       - run: python -m unittest discover -s scripts -p test_package.py
       - run: python scripts/package.py --base-url https://example.invalid/releases/test

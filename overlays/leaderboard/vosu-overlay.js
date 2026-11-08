@@ -282,14 +282,19 @@ export async function maniaSkin(keys, skin = '') {
     section[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
     if (section.keys !== undefined && Number(section.keys) === keys) match = section;
   }
-  const list = (value, fallback, length) => {
-    const parts = String(value ?? '').split(',').map(Number).filter(Number.isFinite);
-    return Array.from({ length }, (_, i) => parts[i] ?? parts.at(-1) ?? fallback);
+  // Per position, as stable does: a missing or blank entry takes the default (not the previous
+  // value), and widths below 1 are invalid. Number('') is 0, so blanks must be rejected explicitly.
+  const list = (value, fallback, length, min = 0) => {
+    const tokens = typeof value === 'string' ? value.split(',') : [];
+    return Array.from({ length }, (_, i) => {
+      const parsed = Number.parseFloat(tokens[i]);
+      return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
+    });
   };
   const number = (value, fallback) => (Number.isFinite(Number.parseFloat(value)) ? Number.parseFloat(value) : fallback);
   return {
     columnStart: number(match?.columnstart, 136),
-    columnWidth: list(match?.columnwidth, 30, keys),
+    columnWidth: list(match?.columnwidth, 30, keys, 1),
     columnSpacing: list(match?.columnspacing, 0, Math.max(0, keys - 1)),
     hitPosition: number(match?.hitposition, 402),
   };

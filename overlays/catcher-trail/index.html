@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Catcher trail · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="overlay.js"></script>
+</head>
+<body>
+<div id="stage" data-view="connecting" data-orient="vertical">
+  <p class="chip" role="status"><i></i><span id="chip-text">Connecting</span></p>
+  <section class="panel" aria-label="Catcher trail">
+    <header class="head">
+      <b class="brand" id="brand">18—LAB</b>
+      <span class="title">Catcher trail</span>
+      <span class="status"><i></i><span id="status-text">Idle</span></span>
+    </header>
+    <dl class="stats" id="stats">
+      <div class="stat"><dt><i class="key"></i>Dash</dt><dd><span id="dash">—</span><small>%</small></dd></div>
+      <div class="stat"><dt>Travel</dt><dd><span id="travel">—</span><small>screens</small></dd></div>
+      <div class="stat"><dt>Turns</dt><dd><span id="turns">—</span><small>/min</small></dd></div>
+    </dl>
+    <div class="plot">
+      <canvas id="trace" aria-label="Catcher position over time"></canvas>
+      <ol class="ruler" aria-hidden="true"><li>0</li><li>128</li><li>256</li><li>384</li><li>512</li></ol>
+      <span class="span" id="span">−6 s</span>
+    </div>
+    <p class="note">Catcher position needs vosu</p>
+  </section>
+</div>
+</body>
+</html>

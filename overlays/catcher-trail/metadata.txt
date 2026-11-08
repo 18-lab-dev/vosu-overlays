@@ -1,0 +1,5 @@
+name = Catcher trail
+author = 18-LAB
+version = 0.1.0
+description = osu!catch movement seismograph: a scrolling trace of the catcher's position with dash segments marked, a live 0–512 playfield ruler, dash share, distance travelled and direction changes per minute. Needs vosu's catcher state.
+resolution = [640,640]

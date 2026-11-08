@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"window","type":"number","title":"Window / seconds","description":"How much gameplay time the trace shows, newest at the ruler. Clamped to 2–30 s.","value":6},
+ {"uniqueID":"orientation","type":"options","title":"Orientation","options":["vertical","horizontal"],"description":"vertical: a tall strip, the ruler along the bottom like the playfield and older movement rising away from it. horizontal: a wide strip, newest movement at the right, playfield 0 at the top.","value":"vertical"},
+ {"uniqueID":"showStats","type":"checkbox","title":"Show stats","description":"Dash share of active play time (breaks excluded), distance travelled in screens (one screen = the 512 px playfield width) and direction changes per minute.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

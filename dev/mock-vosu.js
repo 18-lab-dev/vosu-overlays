@@ -647,8 +647,9 @@ function stagePage(id, params) {
     const x = params.has('x') ? Number(params.get('x')) : cell ? 0 : resolveAnchor(anchor[0], width, 'x');
     const y = params.has('y') ? Number(params.get('y')) : cell ? 0 : resolveAnchor(anchor[1], height, 'y');
     const cx = x + width / 2, cy = y + height / 2;
-    // Inside the inscribed ellipse means the page's centre sits over the gameplay focus.
-    const focus = ((cx - W / 2) / (W / 2)) ** 2 + ((cy - H / 2) / (H / 2)) ** 2 <= 1;
+    // Inside the inscribed ellipse means the page's centre sits over the gameplay focus. Screen
+    // rule only: in a narrow renderer cell nearly every spot is inside, so cells are not judged.
+    const focus = !cell && ((cx - W / 2) / (W / 2)) ** 2 + ((cy - H / 2) / (H / 2)) ** 2 <= 1;
     return { id: one, x: Math.round(x), y: Math.round(y), width, height, centreInFocus: focus };
   });
   const frames = boxes.map(b => `<iframe src="/${b.id}/" style="left:${b.x}px;top:${b.y}px;width:${b.width}px;height:${b.height}px" allowtransparency="true"></iframe>`).join('');

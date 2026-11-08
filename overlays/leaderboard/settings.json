@@ -1,9 +1,16 @@
 [
- {"uniqueID":"rows","type":"number","title":"Rows","description":"Most rows shown (1–16). When you are below them, the top rows give way to the row you are chasing and your own row, so you are always visible.","value":8},
- {"uniqueID":"showAcc","type":"checkbox","title":"Show accuracy","value":true},
- {"uniqueID":"showCombo","type":"checkbox","title":"Show max combo","value":true},
- {"uniqueID":"showMods","type":"checkbox","title":"Show mods","value":true},
- {"uniqueID":"compact","type":"checkbox","title":"Compact","description":"One line per row; the gap to the next position moves into the header.","value":false},
- {"uniqueID":"showGap","type":"checkbox","title":"Show gap to next position","description":"Score you need to pass the player above you, or your lead when you are first.","value":true},
+ {"uniqueID":"style","type":"options","title":"Style","options":["rival","board"],"description":"rival: a small ladder beside the playfield — the player above you, your position, the player below, and the score gaps; it complements osu!'s own scoreboard. board: a full leaderboard drawn where osu!stable puts its scoreboard, for when you hide osu!'s.","value":"rival"},
+ {"uniqueID":"zone","type":"options","title":"Side","options":["auto","right","left"],"description":"auto: rival on the right of the playfield (under the lane in taiko, beside the stage in mania), board on the left where osu!'s scoreboard sits.","value":"auto"},
+ {"uniqueID":"offsetX","type":"number","title":"Horizontal nudge / px","description":"Moves the overlay right (positive) or left (negative) from its place, for skins that move osu!'s HUD.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Vertical nudge / px","description":"Moves the overlay down (positive) or up (negative).","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"0.5–2.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: text straight on the game with a light shadow. scrim: a soft dark haze behind it. panel: a graphite 18-LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"map: highlight colour taken from the map's background. 18-lab: amber.","value":"map"},
+ {"uniqueID":"rows","type":"number","title":"Board rows","description":"Board style: most rows shown (1–16, fewer when the screen runs out). When you are below them, the top rows give way to the player you are chasing and your own row.","value":8},
+ {"uniqueID":"showAcc","type":"checkbox","title":"Board: show accuracy","value":true},
+ {"uniqueID":"showCombo","type":"checkbox","title":"Board: show max combo","value":true},
+ {"uniqueID":"showMods","type":"checkbox","title":"Board: show mods","value":true},
+ {"uniqueID":"compact","type":"checkbox","title":"Board: compact","description":"One line per row: position, name, accuracy, score.","value":false},
+ {"uniqueID":"showGap","type":"checkbox","title":"Board: show gap to next position","description":"Score you need to pass the player above you, or your lead when you are first.","value":true},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

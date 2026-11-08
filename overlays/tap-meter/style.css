@@ -9,90 +9,113 @@ body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: 
 #stage { position: relative; }
 dl, dd, p { margin: 0; }
 
-.panel {
-  position: absolute; left: 0; top: 0; width: 360px;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong); border-top: 2px solid var(--accent); border-radius: var(--radius);
-  contain: layout paint;
-  opacity: 1;
-  transition: opacity 200ms var(--ease-draft), visibility 0s;
+/* One floating cluster in a free region of osu!'s layout; JS places it (zone, nudge, scale). */
+.cluster {
+  --tint: var(--map-accent, var(--accent));
+  --label: rgb(235 232 225 / .74);
+  position: absolute; box-sizing: content-box; width: 268px;
+  display: grid; row-gap: 10px; justify-items: end; text-align: right;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
+  isolation: isolate; contain: layout paint;
+  opacity: 1; transition: opacity 200ms var(--ease-draft), visibility 0s;
 }
-.panel[data-hidden] { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s 200ms; }
+.cluster[data-accent="18-lab"] { --tint: var(--accent); }
+.cluster[data-zone="left"] { justify-items: start; text-align: left; }
+.cluster[data-hidden] { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s 200ms; }
+.cluster > * { width: 100%; }
 
-/* Connecting / offline: only the header survives, shrunk to a chip. */
-.panel[data-view="chip"] { width: max-content; }
-.panel[data-view="chip"] > :not(.head) { display: none; }
-.panel[data-view="chip"] .head { border-bottom: 0; }
+/* Backing: none (default) floats on the game; scrim is a soft local shade with no edge; panel is the
+   18-LAB graphite panel. contain: paint would clip the scrim, so it drops containment to layout. */
+.cluster[data-backing="scrim"] { contain: layout; }
+.cluster[data-backing="scrim"]::before {
+  content: ""; position: absolute; inset: -36px -44px; z-index: -1;
+  background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .4) 55%, transparent);
+}
+.cluster[data-backing="panel"] {
+  padding: 10px 14px 12px; background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong); border-top: 2px solid var(--tint); border-radius: var(--radius);
+  text-shadow: none;
+}
 
-#meter [data-empty] { color: var(--rule-strong); }
-#meter [data-empty] + .unit { visibility: hidden; }
-.sub { min-height: 12px; }
-.label, .head, dt, .sub, .unit, .axis, .notice {
-  font-family: var(--font-mono); font-size: 10px; line-height: 12px;
-  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+/* Views: live = everything; results = summary only; chip = status line only. */
+.cluster[data-view="chip"] > :not(.tag),
+.cluster[data-view="results"] > .hero,
+.cluster[data-view="results"] > .trace,
+.cluster[data-view="results"] > .judgements,
+.cluster[data-view="results"] .sigma { display: none; }
+.cluster[data-view="results"] { width: auto; grid-template-columns: auto 200px; column-gap: 32px; row-gap: 8px; align-items: end; }
+.cluster[data-view="results"] > .tag { grid-column: 1 / -1; }
+.cluster[data-view="results"] .stats { grid-template-columns: repeat(2, auto); column-gap: 28px; justify-content: end; }
+
+.label, .tag, dt, .sub, .unit, .axis, .notice, .key {
+  font-family: var(--font-mono); font-size: 12px; line-height: 14px; font-weight: 500;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--label); white-space: nowrap;
 }
 b, dd { font-weight: 600; font-variant-numeric: tabular-nums; }
+#meter [data-empty] { color: rgb(235 232 225 / .3); }
+#meter [data-empty] + .unit { visibility: hidden; }
 
-/* ── header ─────────────────────────────────────────── */
-.head { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
-.brand { color: var(--fg); font-weight: 500; letter-spacing: .04em; }
+/* ── tag ────────────────────────────────────────────── */
+.tag { display: flex; align-items: center; justify-content: flex-end; gap: 10px; white-space: nowrap; }
+.cluster[data-zone="left"] .tag { justify-content: flex-start; }
+.brand { color: var(--fg); letter-spacing: .04em; }
 .brand[hidden] { display: none; }
-.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 12px; color: var(--fg-dim); }
-.dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); }
-.status[data-state="live"] .dot { background: var(--accent); border-color: var(--accent); }
+.status { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--label); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.status[data-state="live"] .dot { background: var(--tint); border-color: var(--tint); }
 .status[data-state="held"] .dot { background: var(--fg-dim); border-color: var(--fg-dim); }
 .status[data-state="offline"] .dot { background: var(--danger); border-color: var(--danger); }
-.status[data-state="offline"], .status[data-state="connecting"], .status[data-state="idle"] { color: var(--muted); }
 
-/* ── readouts ───────────────────────────────────────── */
-.readouts { display: grid; grid-template-columns: 1fr auto; column-gap: 16px; padding: 10px 12px 10px; }
-.live, .peak { display: grid; row-gap: 2px; align-content: start; }
-.peak { justify-items: end; text-align: right; }
-.live .label { display: flex; align-items: center; gap: 6px; }
-.live .label::before { content: ""; width: 10px; height: 2px; background: var(--accent); }
-.figure { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-display); }
-.figure b { display: inline-block; min-width: 3ch; transition: opacity 200ms var(--ease-draft); }
-#bpm { font-size: 60px; line-height: 52px; letter-spacing: -.005em; color: var(--fg); }
-#peak { font-size: 34px; line-height: 32px; color: var(--fg-dim); text-align: right; }
-.figure .unit { color: var(--muted); }
-.live[data-stale] #bpm { opacity: .42; }
-.live[data-stale] .label::before { background: var(--muted); }
-.sub { color: var(--fg-dim); letter-spacing: .04em; text-transform: none; }
-.peak .figure { margin-top: 8px; }
+/* ── hero readout ───────────────────────────────────── */
+.hero { display: grid; justify-items: inherit; row-gap: 0; }
+.hero .label { display: inline-flex; align-items: center; gap: 6px; }
+.hero .label::before { content: ""; width: 12px; height: 2px; background: var(--tint); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.hero .label .unit { color: inherit; }
+.figure { font-family: var(--font-display); font-size: 76px; line-height: 70px; letter-spacing: -.005em; color: var(--fg); transition: opacity 200ms var(--ease-draft); }
+.hero[data-stale] .figure { opacity: .45; }
+.hero[data-stale] .label::before { background: var(--label); }
+.sub { min-height: 14px; letter-spacing: .04em; text-transform: none; }
 
 /* ── comb trace ─────────────────────────────────────── */
-.trace { position: relative; display: grid; grid-template-columns: 20px 1fr; grid-template-rows: 1fr 1fr; height: 76px; margin: 0 12px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
-#comb { grid-column: 2; grid-row: 1 / span 2; width: 100%; height: 100%; display: block; }
-.axis { grid-column: 1; font-size: 9px; line-height: 10px; letter-spacing: .04em; }
-.axis.k1 { grid-row: 1; align-self: start; margin-top: 6px; }
-.axis.k2 { grid-row: 2; align-self: end; margin-bottom: 6px; }
-.sym { text-transform: none; font-size: 11px; }
-.notice { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 12px; color: var(--fg-dim); letter-spacing: .04em; text-transform: none; text-align: center; }
+.trace { position: relative; height: 72px; }
+#comb { width: 100%; height: 100%; display: block; }
+.axis { position: absolute; font-size: 12px; line-height: 12px; letter-spacing: .04em; }
+.axis.k1 { top: 0; }
+.axis.k2 { bottom: 0; }
+.cluster[data-zone="right"] .axis { left: 0; }
+.cluster[data-zone="left"] .axis { right: 0; }
+.notice { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-dim); letter-spacing: .04em; text-transform: none; text-align: center; white-space: normal; }
 .notice[hidden] { display: none; }
+.notice:not([hidden]) ~ .axis { visibility: hidden; }
 
 /* ── stats ──────────────────────────────────────────── */
-.stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 9px 12px 10px; }
-.stats > div { position: relative; display: grid; row-gap: 3px; align-content: start; }
-.stats > div + div { padding-left: 12px; border-left: 1px solid var(--rule); }
-.stats > div:not(:last-child) { padding-right: 12px; }
-.stats dd { display: flex; align-items: baseline; gap: 4px; font-family: var(--font-display); font-size: 24px; line-height: 22px; color: var(--fg); }
-.stats dd .unit { font-weight: 400; }
-#balance-cell[hidden] { display: none; }
-.split { position: relative; display: block; height: 2px; margin-top: 3px; background: var(--rule-strong); }
-.split > i { position: absolute; inset: 0; display: block; background: var(--fg-dim); transform-origin: 0 50%; transform: scaleX(.5); transition: transform 200ms var(--ease-draft); }
-.split::after { content: ""; position: absolute; left: 50%; top: -2px; width: 1px; height: 6px; background: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(3, auto); justify-content: space-between; column-gap: 14px; }
+.stats > div { display: grid; row-gap: 2px; justify-items: inherit; }
+.cluster[data-zone="right"] .stats > div { justify-items: end; }
+.stats dd { display: flex; align-items: baseline; gap: 3px; font-family: var(--font-display); font-size: 28px; line-height: 26px; color: var(--fg); }
+.peak dd { color: var(--tint); }
+.sym { text-transform: none; }
+
+/* ── finger balance ─────────────────────────────────── */
+.balance { display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; column-gap: 8px; }
+.balance[hidden] { display: none; }
+.balance b { font-family: var(--font-display); font-size: 24px; line-height: 24px; color: var(--fg); min-width: 2ch; }
+.balance b#k1 { text-align: left; }
+.balance b#k2 { text-align: right; }
+.split { position: relative; display: block; height: 3px; background: rgb(235 232 225 / .22); box-shadow: 0 1px 2px rgb(0 0 0 / .45); }
+.split > i { position: absolute; inset: 0; display: block; background: var(--fg); transform-origin: 0 50%; transform: scaleX(0); transition: transform 200ms var(--ease-draft); }
+.split::after { content: ""; position: absolute; left: 50%; top: -3px; width: 1px; height: 9px; background: var(--fg-dim); }
 
 /* ── judgements ─────────────────────────────────────── */
-.judgements { display: grid; grid-template-columns: repeat(4, 1fr); padding: 7px 12px 8px; border-top: 1px solid var(--rule); }
+.judgements { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; }
 .judgements[hidden] { display: none; }
-.judgements > div { display: flex; align-items: baseline; gap: 6px; }
-.judgements dt { display: inline-flex; align-items: center; gap: 5px; }
-.judgements dt::before { content: ""; width: 6px; height: 6px; background: var(--c); align-self: center; }
-.judgements dd { font-family: var(--font-display); font-size: 19px; line-height: 20px; color: var(--fg); }
+.judgements > div { display: grid; row-gap: 2px; justify-items: inherit; }
+.cluster[data-zone="right"] .judgements > div { justify-items: end; }
+.judgements dt { display: inline-flex; align-items: center; gap: 5px; color: var(--c); }
+.judgements dt::before { content: ""; width: 7px; height: 7px; background: var(--c); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.judgements dd { font-family: var(--font-display); font-size: 24px; line-height: 24px; color: var(--fg); }
 .j100 { --c: var(--j-good); }
 .j50 { --c: var(--j-meh); }
 .jmiss { --c: var(--j-miss); }
-.jsb { --c: transparent; }
-.jsb dt::before { box-shadow: inset 0 0 0 1px var(--j-miss); }
-.judgements dt { color: var(--c); }
-.jsb dt { color: var(--j-miss); }
+.jsb { --c: var(--j-miss); }
+.jsb dt::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--j-miss); }

@@ -1,17 +1,18 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Column timing: per-column osu!mania press (and hold release) timing from vosu's
-// /play/keyHitErrors. Each column is a vertical channel strip, early above and late below,
-// on a scale that is linear near zero and compresses towards the outer windows (so a few
-// ms of bias is visible while 100s still fit). The attempt's distribution is a mirrored
-// density profile coloured by judgement window; fresh hits flash as ticks that fade; a
-// mean marker and ±1σ edge bars sit on top. Readouts give per-column mean (bias) and UR
-// and call out the column with the highest UR and the most biased column.
+// /play/keyHitErrors, floated into the empty space beside the mania stage. Each column is a
+// vertical channel strip, early above and late below, on a scale that is linear near zero and
+// compresses towards the outer windows (so a few ms of bias is visible while 100s still fit).
+// The attempt's distribution is a mirrored density profile coloured by judgement window; fresh
+// hits flash as ticks that fade; a mean marker and ±1σ edge bars sit on top. Readouts give
+// per-column mean (bias) and UR and call out the column with the highest UR and the most
+// biased column. The `columns` zone instead lays one thin strip under each real stage column.
 
-import { subscribe, settings, fit, activeMode } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const W = 500;
-const H = 460;
-const AREA = 420;             // widest the column block may get (px)
+const W = 1920;
+const H = 1080;
+const AREA = 360;             // widest the column block may get (px)
 const MAX_COLS = 18;          // dual-stage 9K+9K
 const MIN_N = 20;             // presses a column needs before it can be called out
 const MIN_BIAS = 1.5;         // ms; below this every column counts as balanced
@@ -20,9 +21,16 @@ const TEXT_MS = 125;          // readouts refresh at most 8×/s so digits stay l
 const LAYER_MS = 120;         // density profiles redraw at most ~8×/s
 const RING = 4096;
 const BURST = 64;             // more new events than this in one frame = a snapshot, not live hits
+const MARGIN = 32;            // distance kept from screen edges and the stage
+const HP_CLEARANCE = 104;     // mania draws its health bar against the stage's right edge
+const TOP = 168;              // clears score + accuracy (top right) and the HP bar (top left)
+const RESULTS_RIGHT = 24;     // results: the right of stable's top header strip (x ≈ 1000–1900, y ≈ 8–130)
+const RESULTS_TOP = 10;
+const RESULTS_AREA = 640;
 
-// Per kind (0 press, 1 release): strip height, density bins, scale knee (ms).
-const STRIP_H = [192, 56];
+// Per kind (0 press, 1 release): strip height in the side block, density bins, scale knee (ms).
+const STRIP_H = [200, 56];
+const BAND_H = 64;            // strip height in the columns zone
 const BINS = [64, 24];
 const KNEE = [10, 15];
 
@@ -34,6 +42,8 @@ const P = {
   hitWindow: '/beatmap/stats/hitWindow',
   keys: '/beatmap/stats/cs/converted',
   holds: '/beatmap/stats/objects/holds',
+  checksum: '/beatmap/checksum',
+  client: '/client',
 };
 
 const $ = id => document.getElementById(id);
@@ -62,9 +72,9 @@ const JUDGE = [
   token('--j-ok', '#b8b5ad'), token('--j-meh', '#e8b04a'), token('--j-miss', '#ef5b4f'),
 ];
 const FG = token('--fg', '#ebe8e1');
-const ACCENT = token('--accent', '#ff963f');
-const ZERO = 'rgb(235 232 225 / .34)';
-const SUNKEN = 'rgb(11 12 13 / .66)';
+let HI = token('--accent', '#ff963f'); // highest-UR highlight; follows the map tint (readHighlight)
+const ZERO = 'rgb(235 232 225 / .4)';
+const SUNKEN = 'rgb(8 9 10 / .46)';
 const OUTLINE = 'rgb(11 12 13 / .9)';
 const SIGMA = 'rgb(235 232 225 / .5)';
 const RULER_GREAT = 'rgb(235 232 225 / .11)';
@@ -92,7 +102,16 @@ const kinds = [series(0), series(1)];
 
 let status = 'connecting';
 let values = {};
-let opts = { tickLifetime: 6, release: 'auto', numbers: true, brand: true, align: 'left' };
+let opts = {
+  tickLifetime: 6, release: 'auto', numbers: true, zone: 'right', x: 0, y: 0, scale: 1,
+  backing: 'none', accent: 'map', columnWidth: 30, columnStart: 136, brand: true,
+};
+let palette = null;
+let paletteFor = '';
+let place = '';               // last applied placement signature
+let band = false;             // columns zone
+let summary = false;          // results: per-column table only
+let where = { band: false, unit: 2.25, columnWidth: 30, scale: 1 };
 let columns = 0;
 let colW = 64;
 let gap = 4;
@@ -270,17 +289,19 @@ class Strip {
 
   layout() {
     const cssW = columns * colW + (columns - 1) * gap;
-    const cssH = STRIP_H[this.s.kind];
+    const cssH = band ? (this.s.kind ? 0 : BAND_H) : STRIP_H[this.s.kind];
     this.canvas.style.width = `${cssW}px`;
     this.canvas.style.height = `${cssH}px`;
     const w = Math.max(1, Math.round(cssW * ratio));
     const h = Math.max(1, Math.round(cssH * ratio));
     this.canvas.width = this.layer.width = w;
     this.canvas.height = this.layer.height = h;
+    // The columns zone has no gaps (strips sit under the real columns), so inset each well.
+    const inner = band ? Math.round(3 * ratio) : 0;
     for (let c = 0; c < columns; c++) {
       const x0 = Math.round(c * (colW + gap) * ratio);
-      this.xs[c] = x0;
-      this.ws[c] = Math.round((c * (colW + gap) + colW) * ratio) - x0;
+      this.xs[c] = x0 + inner;
+      this.ws[c] = Math.round((c * (colW + gap) + colW) * ratio) - x0 - 2 * inner;
     }
     const pad = Math.round(4 * ratio);
     this.mid = Math.round(h / 2);
@@ -444,7 +465,7 @@ class Strip {
       if (s.count[c] > 1) {
         const top = Math.round(this.y(m - s.shownSd[c])), bottom = Math.round(this.y(m + s.shownSd[c]));
         const bar = hot ? this.thick : this.thin;
-        g.fillStyle = hot ? ACCENT : SIGMA;
+        g.fillStyle = hot ? HI : SIGMA;
         g.fillRect(x, top, bar, bottom - top);
         g.fillRect(x + cw - bar, top, bar, bottom - top);
       }
@@ -452,7 +473,7 @@ class Strip {
       const yc = y + this.thick / 2;
       g.fillStyle = OUTLINE;
       g.fillRect(x, y - this.thin, cw, this.thick + 2 * this.thin);
-      g.fillStyle = hot ? ACCENT : FG;
+      g.fillStyle = hot ? HI : FG;
       g.fillRect(x, y, cw, this.thick);
       g.beginPath();
       g.moveTo(x, yc - nh); g.lineTo(x + nd, yc); g.lineTo(x, yc + nh);
@@ -473,8 +494,9 @@ subscribe(Object.values(P), (v, changed) => {
   values = v;
   if (changed.has(P.hitWindow)) setWindows(values[P.hitWindow]);
   if (changed.has(P.keyHitErrors)) onKeyHitErrors(values[P.keyHitErrors]);
+  if (changed.has(P.checksum)) loadPalette();
   if (changed.has(P.state) || changed.has(P.playMode) || changed.has(P.settingsMode) || changed.has(P.keys)
-    || changed.has(P.holds) || changed.has(P.keyHitErrors)) layoutDirty = true;
+    || changed.has(P.holds) || changed.has(P.keyHitErrors) || changed.has(P.client)) layoutDirty = true;
   wake();
 }, {
   onStatus(next) {
@@ -486,13 +508,42 @@ subscribe(Object.values(P), (v, changed) => {
 });
 
 settings({ ...opts }, next => {
+  const accentChanged = next.accent !== opts.accent;
   opts = next;
   strips[0].dirty = strips[1].dirty = true;
   layoutDirty = textDirty = true;
+  if (accentChanged) loadPalette();
   wake();
 });
 
 addEventListener('resize', () => { layoutDirty = true; wake(); });
+
+// ---------------------------------------------------------------- map tint (off the hot path)
+function readHighlight() {
+  HI = getComputedStyle(panel).getPropertyValue('--hi').trim() || HI;
+  strips[0].dirty = true;
+  wake();
+}
+
+function loadPalette() {
+  const checksum = opts.accent === 'map' ? values[P.checksum] || '' : '';
+  if (checksum === paletteFor) return;
+  paletteFor = checksum;
+  if (!checksum) {
+    palette = null;
+    applyPalette(document.documentElement, null);
+    document.documentElement.classList.remove('tint-map');
+    readHighlight();
+    return;
+  }
+  mapPalette(checksum).then(result => {
+    if (paletteFor !== checksum) return;
+    palette = result;
+    applyPalette(document.documentElement, result);
+    document.documentElement.classList.toggle('tint-map', Boolean(result));
+    readHighlight();
+  });
+}
 
 // ---------------------------------------------------------------- layout (rare: key count, view, settings)
 const cells = { cols: [], mean: [], ur: [], rmean: [] };
@@ -517,25 +568,80 @@ function makeCells(row, n) {
   return Array.from(row.children).slice(1);
 }
 
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+/**
+ * Positions the dock in osu!mania's free space. Side zones float the block beside the stage
+ * (screen edge, or against the stage using the skin's ColumnStart/ColumnWidth); the columns zone
+ * lays one thin strip under each real column, which needs those two settings to match the skin.
+ * Results use the one band stable's results screen leaves free: the right of its top header.
+ */
+function placeDock(n, results) {
+  const zone = results ? 'results'
+    : ['right', 'left', 'stage-right', 'stage-left', 'columns'].includes(opts.zone) ? opts.zone : 'right';
+  const lazer = values[P.client] === 'lazer';
+  const columnWidth = clamp(Number(opts.columnWidth) || 30, 10, 200);
+  const stage = osuLayout('mania', {
+    keys: n, columnWidth, columnStart: clamp(Number(opts.columnStart) || 0, 0, 640), client: lazer ? 'lazer' : 'stable',
+  });
+  const scale = results ? 1 : clamp(Number(opts.scale) || 1, 0.5, 2);
+  const x = Number(opts.x) || 0, y = Number(opts.y) || 0;
+  const right = zone === 'right' || zone === 'stage-left' || zone === 'results';
+  let left = 0, top = TOP + y;
+  if (zone === 'results') { left = W - RESULTS_RIGHT; top = RESULTS_TOP; }
+  else if (zone === 'right') left = W - MARGIN + x;
+  else if (zone === 'left') left = MARGIN + x;
+  else if (zone === 'stage-right') left = stage.busy.x + stage.busy.w + HP_CLEARANCE + x;
+  else if (zone === 'stage-left') left = stage.busy.x - MARGIN + x;
+  else { left = stage.busy.x + x; top = H - BAND_H - 4 + y; }
+  const columnsZone = zone === 'columns';
+  const signature = `${zone}|${left}|${top}|${scale}|${columnsZone ? stage.busy.w : ''}`;
+  if (signature !== place) {
+    place = signature;
+    setClass(dock, 'is-right', right);
+    // Right-anchored zones pin the block's right edge so its width can follow the key count.
+    dock.style.left = right ? 'auto' : `${left}px`;
+    dock.style.right = right ? `${W - left}px` : 'auto';
+    dock.style.top = `${top}px`;
+    dock.style.transform = !columnsZone && scale !== 1 ? `scale(${scale})` : '';
+  }
+  return { band: columnsZone, unit: stage.unit, columnWidth, scale: columnsZone ? 1 : scale };
+}
+
+let geometry = '';
+
 function applyLayout() {
   layoutDirty = false;
-  setClass(dock, 'is-right', opts.align === 'right');
   setHidden(brand, !opts.brand);
+  const backing = ['none', 'scrim', 'panel'].includes(opts.backing) ? opts.backing : 'none';
+  if (panel.dataset.backing !== backing) panel.dataset.backing = backing;
 
   const state = values[P.state];
   const mode = activeMode(state, values[P.playMode], values[P.settingsMode]);
+  // Gameplay, and a compact per-column table on results (osu! shows no per-column timing).
+  // Song select and menus: nothing; there is no attempt and osu! already lists the map.
+  const attempt = state === 2 || state === 7 || total > 0;
   let next;
-  if (status !== 'live') next = 'hidden';
-  else if (state === undefined) next = 'waiting';
-  else if (mode !== 'mania') next = 'hidden';
+  if (status !== 'live' || state === undefined) next = 'hidden';
+  else if (mode !== 'mania' || !attempt) next = 'hidden';
   else if (values[P.keyHitErrors] === undefined) next = 'extension';
-  else if (state === 2 || state === 7 || total > 0) next = 'strips';
-  else next = 'idle';  // song select and menus: no attempt to show, so stay compact
+  else next = 'strips';
+  const results = state !== 2;
 
-  setClass(chip, 'is-hidden', status === 'live');
-  if (chip.dataset.state !== status) chip.dataset.state = status;
-  setOnce(chipText, 'chip', status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
+  const chipState = status !== 'live' ? status : state === undefined ? 'waiting' : '';
+  setClass(chip, 'is-hidden', !chipState);
+  if (chipState && chip.dataset.state !== chipState) chip.dataset.state = chipState;
+  setOnce(chipText, 'chip', chipState === 'offline' ? 'vosu offline' : chipState === 'waiting' ? 'Waiting for osu!' : 'Connecting to vosu');
   setClass(panel, 'is-hidden', next === 'hidden');
+
+  const n = mode === 'mania' ? columnCount() : columns || 4;
+  // A fading-out panel stays where it is; the chip still needs a place.
+  if (next !== 'hidden' || chipState) where = placeDock(n, results && next !== 'hidden');
+  if (next !== 'hidden') {
+    setClass(panel, 'is-band', where.band && next === 'strips');
+    setClass(panel, 'is-results', results);
+    summary = results;
+  }
 
   if (next !== view) {
     view = next;
@@ -543,10 +649,6 @@ function applyLayout() {
       const code = document.createElement('code');
       code.textContent = 'ENABLE_MANIA_KEY_HIT_ERRORS';
       message.replaceChildren('Needs ', code, ' in vosu');
-    } else if (view === 'waiting') {
-      message.replaceChildren('— Waiting for osu!');
-    } else if (view === 'idle') {
-      message.replaceChildren('— Waiting for play');
     }
     if (view !== 'hidden') {  // a fading-out panel keeps its last content
       setHidden(message, view === 'strips');
@@ -557,29 +659,38 @@ function applyLayout() {
     textDirty = true;
   }
 
-  const n = mode === 'mania' ? columnCount() : 0;
-  setOnce(keysLabel, 'keys', n && view !== 'waiting' ? `${n}K${state === 7 ? ' · final' : ''}` : '');
+  setOnce(keysLabel, 'keys', mode === 'mania' ? `${n}K${state === 7 ? ' · final' : ''}` : '');
   if (view !== 'strips') return;
 
-  const wantRelease = opts.release === 'always'
-    || (opts.release === 'auto' && (Number(values[P.holds]) > 0 || kinds[1].count.some(Boolean)));
+  const nextBand = where.band;
+  const nextGap = nextBand ? 0 : n > 10 ? 2 : 4;
+  const area = results ? RESULTS_AREA : AREA;
+  const nextColW = nextBand
+    ? where.columnWidth * where.unit
+    : clamp(Math.floor((area - (n - 1) * nextGap) / n), n > 10 && !results ? 16 : 30, 64);
+  const wantRelease = !nextBand && !results && (opts.release === 'always'
+    || (opts.release === 'auto' && (Number(values[P.holds]) > 0 || kinds[1].count.some(Boolean))));
+  const numbers = results || (Boolean(opts.numbers) && nextColW >= 30);
   setHidden(rel, !wantRelease);
-  setHidden(rows.mean, !opts.numbers);
-  setHidden(rows.ur, !opts.numbers);
-  setHidden(rows.rmean, !opts.numbers);
+  setHidden(rows.mean, !numbers);
+  setHidden(rows.ur, !numbers);
+  setHidden(rows.rmean, !numbers);
   if (wantRelease !== showRelease) { showRelease = wantRelease; strips[1].dirty = true; }
 
-  const nextRatio = (window.devicePixelRatio || 1) * (Math.min(innerWidth / W, innerHeight / H) || 1);
-  if (n === columns && nextRatio === ratio) return;
+  const nextRatio = (window.devicePixelRatio || 1) * (Math.min(innerWidth / W, innerHeight / H) || 1) * where.scale;
+  const signature = `${n}|${nextBand}|${nextColW}|${nextGap}|${nextRatio}`;
+  if (signature === geometry) return;
+  geometry = signature;
   ratio = nextRatio;
+  band = nextBand;
+  gap = nextGap;
+  colW = nextColW;
+  panel.style.setProperty('--n', n);
+  panel.style.setProperty('--col', `${colW}px`);
+  panel.style.setProperty('--gap', `${gap}px`);
+  panel.style.setProperty('--gut', band ? '0px' : '52px');
   if (n !== columns) {
     columns = n;
-    gap = n > 10 ? 2 : 4;
-    colW = Math.max(n > 10 ? 18 : 24, Math.min(64, Math.floor((AREA - (n - 1) * gap) / n)));
-    panel.style.setProperty('--n', n);
-    panel.style.setProperty('--col', `${colW}px`);
-    panel.style.setProperty('--gap', `${gap}px`);
-    setClass(panel, 'dense', colW < 34);
     cells.cols = makeCells(rows.cols, n);
     cells.cols.forEach((el, i) => { el.textContent = String(i + 1); });
     cells.mean = makeCells(rows.mean, n);
@@ -596,7 +707,7 @@ function applyLayout() {
 // ---------------------------------------------------------------- readouts
 /** Signed ms, − early / + late; whole ms when columns are too narrow for a decimal. */
 function signed(v) {
-  const digits = colW < 34 ? 0 : 1;
+  const digits = colW < 44 ? 0 : 1;
   const text = Math.abs(v).toFixed(digits);
   return Number(text) === 0 ? text : `${v < 0 ? '−' : '+'}${text}`;
 }
@@ -669,8 +780,8 @@ function frame(now) {
   if (layoutDirty) applyLayout();
   let busy = false;
   if (view === 'strips' && columns) {
-    if (strips[0].render(now, dt)) busy = true;
-    if (showRelease && strips[1].render(now, dt)) busy = true;
+    if (!summary && strips[0].render(now, dt)) busy = true;
+    if (!summary && showRelease && strips[1].render(now, dt)) busy = true;
     if (textDirty) {
       if (now - lastText >= TEXT_MS) { writeText(); lastText = now; textDirty = false; } else busy = true;
     }

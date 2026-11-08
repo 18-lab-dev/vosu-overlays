@@ -1,6 +1,13 @@
 [
+ {"uniqueID":"zone","type":"options","title":"Side","description":"Which empty side band beside the catch playfield holds the heatmap during play: right (under score/accuracy, the default) or left (under the health bar). On the results screen it sits in the right of osu!'s header strip.","options":["right","left"],"value":"right"},
+ {"uniqueID":"x","type":"number","title":"Nudge X / px","description":"Moves the heatmap horizontally (1920×1080 px; negative = left) for skins that place their HUD differently.","value":0},
+ {"uniqueID":"y","type":"number","title":"Nudge Y / px","description":"Moves the heatmap vertically (1920×1080 px; negative = up).","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–2. Keep it so the heatmap stays inside the side band (it is 336 px wide at 1).","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","description":"none: numbers and the strip float on the game, with a soft ground only under the strip. scrim: adds a soft dark wash behind the whole cluster for very bright maps. panel: the solid 18-LAB graphite panel.","options":["none","scrim","panel"],"value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Highlight colour","description":"map: the live catcher and dash light take the current map's tonal accent (derived from its background, never shown). 18-lab: always 18-LAB amber. Heat colours are fixed.","options":["map","18-lab"],"value":"map"},
  {"uniqueID":"bins","type":"options","title":"Heatmap bins","description":"How many columns the 0–512 playfield is split into. Fewer bins read as broad zones, more show fine positioning. Changes apply to the whole attempt instantly.","options":["16","32","64","128"],"value":"64"},
  {"uniqueID":"intensity","type":"number","title":"Colour intensity","description":"Brightness curve of the heat colours, 0.25–4. 1 is linear; higher values lift rarely visited zones, lower values keep only the hottest spots bright. Bar heights stay linear.","value":1},
  {"uniqueID":"showMarker","type":"checkbox","title":"Show catcher marker","description":"Draw the live catcher (true catch range for the map's CS, filled while dashing) and its position line during play.","value":true},
- {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Show the 18—LAB tag in the panel header.","value":true}
+ {"uniqueID":"showOnResults","type":"checkbox","title":"Show on results","description":"Keep the finished attempt's heatmap on the results screen, in the free right part of osu!'s header strip. osu! itself never shows where the catcher spent its time.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Show the 18—LAB tag above the strip.","value":true}
 ]

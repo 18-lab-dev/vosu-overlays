@@ -8,103 +8,124 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; }
 #stage { position: absolute; left: 0; top: 0; }
 
-/* ---------------------------------------------------------------- connection chip */
+/* ---------------------------------------------------------------- the floating instrument
+   Placed by overlay.js (translate + scale) into osu!'s free band beside the mania stage.
+   Geometry contract with overlay.js: width 210 = axis 44 + gap 6 + chart 160; the chart starts 116 px down. */
+.kps {
+  --hl: var(--map-accent, var(--accent));
+  --hl-soft: var(--map-secondary, var(--signal));
+  --chart-h: 560px;
+  position: absolute; left: 0; top: 0; width: 210px;
+  transform-origin: 0 0;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
+  contain: layout style;
+  transition: opacity 220ms var(--ease-draft), visibility 0s;
+}
+.kps[data-view="hidden"], .kps[data-view="init"] {
+  opacity: 0; visibility: hidden;
+  transition: opacity 220ms var(--ease-draft), visibility 0s 220ms;
+}
+.kps :is(.label, .unit, .head, .axis, .note, .chip) { user-select: none; }
+
+/* Optional backing: a soft scrim that fades out (no edges), or the 18-LAB graphite panel. */
+.kps::before { content: ""; position: absolute; pointer-events: none; opacity: 0; transition: opacity 220ms var(--ease-draft); }
+.kps[data-backing="scrim"]::before {
+  inset: -48px -56px; opacity: 1;
+  background: radial-gradient(closest-side, rgb(5 6 7 / .55), rgb(5 6 7 / .38) 55%, rgb(5 6 7 / 0));
+}
+.kps[data-backing="panel"]::before {
+  inset: -12px; opacity: 1;
+  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius);
+}
+.kps[data-view="offline"]::before, .kps[data-view="empty"]::before { opacity: 0; }
+.body { position: relative; transition: opacity 220ms var(--ease-draft); }
+.kps[data-view="offline"] .body, .kps[data-view="empty"] .body { opacity: 0; visibility: hidden; }
+
+/* ---------------------------------------------------------------- status chip (in the zone) */
 .chip {
   position: absolute; left: 0; top: 0; margin: 0;
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  height: 22px; padding: 0 var(--space-2);
-  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-radius: var(--radius);
-  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-  transition: opacity 180ms var(--ease-draft), visibility 0s;
+  display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap;
+  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
 }
-.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip[hidden] { display: none; }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
 .chip[data-state="offline"] i { background: var(--danger); }
-.chip[hidden] { display: inline-flex; opacity: 0; visibility: hidden; transition: opacity 180ms var(--ease-draft), visibility 0s 180ms; }
 
-/* ---------------------------------------------------------------- panel */
-.panel {
-  --chart-h: 96px;
-  --now: 82%;
-  position: absolute; left: 0; top: 0;
-  width: 480px;
-  padding: 0 var(--space-3) var(--space-2);
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong); border-top: 2px solid var(--accent); border-radius: var(--radius);
-  contain: layout paint;
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s;
-}
-.panel[data-view="hidden"], .panel[data-view="offline"], .panel[data-view="init"] {
-  opacity: 0; transform: translateY(-4px); visibility: hidden;
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s 200ms;
-}
-
+/* ---------------------------------------------------------------- header + readouts */
 .head {
-  display: flex; align-items: center; gap: var(--space-2);
-  height: 28px; border-bottom: 1px solid var(--rule);
-  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
-  user-select: none;
+  display: flex; align-items: center; justify-content: space-between; height: 20px;
+  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
 }
 .brand { color: var(--fg); letter-spacing: .04em; }
-.brand[hidden] { display: none; }
-.brand:not([hidden]) + .title { padding-left: var(--space-2); border-left: 1px solid var(--rule-strong); }
-.title { color: var(--fg-dim); }
-.meta { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-.phase { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-.phase i { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); }
-.panel[data-view="live"] .phase { color: var(--fg); }
-.panel[data-view="live"] .phase i { background: var(--accent); border-color: var(--accent); }
-.panel[data-view="summary"] .phase i { background: var(--fg-dim); border-color: var(--fg-dim); }
+.brand[hidden] { visibility: hidden; }
+.phase { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.phase i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--fg-dim); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
+.kps[data-view="live"] .phase { color: var(--fg); }
+.kps[data-view="live"] .phase i { background: var(--hl); border-color: var(--hl); }
+.kps[data-view="summary"] .phase i { background: var(--fg-dim); }
 
-/* ---------------------------------------------------------------- readouts */
-/* Two baseline-aligned rows: labels, then values (big live figure + two secondary stats). */
-/* Fixed height keeps the canvas on whole pixels whatever the baseline maths does. */
 .readouts {
-  display: grid; grid-template-columns: 1fr 72px 72px; grid-template-rows: 12px 1fr; column-gap: var(--space-4); row-gap: 3px;
+  display: grid; grid-template-columns: 1fr 52px 52px; grid-template-rows: 14px 1fr; column-gap: 10px; row-gap: 2px;
   align-items: baseline;
-  height: 72px; padding: 10px 0 0; overflow: hidden;
+  height: 80px; margin: 6px 0 10px; overflow: hidden;
 }
 .label {
-  display: flex; align-items: center; gap: 6px;
-  font: 500 10px/12px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-  user-select: none;
+  display: flex; align-items: center; gap: 5px; white-space: nowrap;
+  font: 500 12px/14px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
 }
-.label[data-key]::before { content: ""; width: 12px; height: 0; border-top: 1px dashed var(--fg-dim); }
-.label[data-key="peak"]::before { border-top: 2px dotted var(--accent); }
+.label[data-key]::before { content: ""; flex: none; width: 10px; height: 0; border-top: 1px dashed var(--fg); }
+.label[data-key="peak"]::before { border-top: 2px dotted var(--hl); }
 .label[data-key="none"]::before { display: none; }
-
-.figure { display: flex; align-items: baseline; gap: 6px; }
+.label:empty { visibility: hidden; }
+.figure { display: flex; align-items: baseline; gap: 5px; }
 .figure b {
-  font: 600 44px/38px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  font: 600 60px/52px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em;
   color: var(--fg); min-width: 1.1ch;
 }
-.unit { font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.stat { font: 600 26px/24px var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.panel[data-hot] .figure b, .panel[data-hot] .stat[data-peak] { color: var(--accent); }
-.figure b[data-none], .stat[data-none] { color: var(--muted); font-weight: 500; }
+.unit { font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
+.stat { font: 600 30px/28px var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
+.kps[data-hot] .figure b, .kps[data-hot] .stat[data-peak] { color: var(--hl); }
+.figure b[data-none], .stat[data-none] { color: var(--fg-dim); font-weight: 500; }
 
-/* ---------------------------------------------------------------- chart */
-.plot { position: relative; height: var(--chart-h); }
-#chart { display: block; width: 100%; height: 100%; }
+/* ---------------------------------------------------------------- vertical chart
+   Time runs upward like the mania editor: upcoming density at the top falls toward the now line,
+   the trace you played trails below it. Amplitude grows away from the stage. */
+.plot { position: relative; display: flex; gap: 6px; height: var(--chart-h); }
+.kps[data-side="right"] .plot { flex-direction: row-reverse; }
+#chart { display: block; flex: none; width: 160px; height: 100%; }
+.axis {
+  position: relative; flex: none; width: 44px; height: 100%;
+  font: 500 12px/1 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.axis span { position: absolute; right: 0; transform: translateY(50%); }
+.kps[data-side="right"] .axis span { right: auto; left: 0; }
+#axisL { bottom: 0; transform: none; }
+#axisM { bottom: calc(var(--now) / 2); }
+#axisN { bottom: var(--now); color: var(--fg); text-transform: uppercase; letter-spacing: .08em; }
+#axisR { top: 0; bottom: auto; transform: none; }
+.kps:not([data-view="live"]) #axisM { bottom: calc((100% - var(--gutter)) / 2); }
+.kps:not([data-view="live"]) #axisN { display: none; }
+.kps:not([data-view="live"]) #axisR { top: var(--gutter); transform: translateY(-50%); }
+.kps { --now: 82%; --gutter: 0px; }
+.kps:not([data-view="live"]) { --gutter: 22px; }
+
+/* ---------------------------------------------------------------- horizontal (results header band)
+   osu!'s results screen leaves only the right of its header strip free, so the summary lies down:
+   readouts left, the whole run as a horizontal envelope right, time left → right. */
+.kps[data-orient="h"] { width: 880px; }
+.kps[data-orient="h"] .body { display: grid; grid-template-columns: 236px 1fr; grid-template-rows: 20px 86px; column-gap: 20px; }
+.kps[data-orient="h"] .head { grid-column: 1; grid-row: 1; }
+.kps[data-orient="h"] .readouts { grid-column: 1; grid-row: 2; margin: 6px 0 0; height: 80px; }
+.kps[data-orient="h"] .plot { grid-column: 2; grid-row: 1 / 3; flex-direction: column; gap: 2px; height: auto; }
+.kps[data-orient="h"] #chart { width: 100%; height: auto; flex: 1 1 0; min-height: 0; }
+.kps[data-orient="h"] .axis { width: 100%; height: 14px; }
+.kps[data-orient="h"] .axis span { top: 0; bottom: auto; right: auto; transform: translateX(-50%); }
+.kps[data-orient="h"] #axisL { left: 0; top: 0; bottom: auto; transform: none; }
+.kps[data-orient="h"] #axisM { left: calc((100% - var(--gutter)) / 2); top: 0; bottom: auto; transform: translateX(-50%); }
+.kps[data-orient="h"] #axisR { left: calc(100% - var(--gutter)); top: 0; bottom: auto; transform: translateX(-50%); }
+
 .note {
-  position: absolute; left: var(--space-2); top: 50%; margin: 0; transform: translateY(-50%);
-  padding: 3px var(--space-2);
-  background: var(--bg); border: 1px solid var(--rule);
-  font: 400 10px/1.3 var(--font-mono); color: var(--fg-dim); white-space: nowrap;
+  position: absolute; left: 0; right: 0; top: 30%; margin: 0;
+  font: 500 12px/1.35 var(--font-mono); color: var(--fg); white-space: normal; text-wrap: balance;
 }
 .note[hidden] { display: none; }
-
-.axis {
-  position: relative; height: 16px; margin-top: 3px;
-  font: 400 10px/16px var(--font-mono); letter-spacing: .04em; color: var(--muted); font-variant-numeric: tabular-nums;
-  user-select: none; white-space: nowrap;
-}
-.axis span { position: absolute; top: 0; }
-#axisL { left: 0; }
-#axisM { left: calc(var(--now) / 2); transform: translateX(-50%); }
-#axisN { left: var(--now); transform: translateX(-50%); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .08em; }
-#axisR { right: 0; }
-.panel:not([data-view="live"]) #axisM { left: 50%; }
-.panel:not([data-view="live"]) #axisN { display: none; }
-/* The summary's time axis ends where the scale gutter (22 px, overlay.js GUTTER) begins. */
-.panel[data-view="summary"] #axisM { left: calc((100% - 22px) / 2); }
-.panel[data-view="summary"] #axisR { right: 22px; transform: translateX(50%); }

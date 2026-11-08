@@ -3,67 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Results card · 18-LAB</title>
+<title>Results timing · 18-LAB</title>
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="stage">
-  <p id="chip" class="chip" hidden><i></i><span id="chipText">vosu offline</span></p>
-  <article id="card" class="card" data-mode="osu" aria-label="Results" aria-hidden="true">
-    <header class="head">
-      <span id="brand" class="brand">18—LAB</span>
-      <span class="label">Results</span>
-      <span id="mode" class="label mode">—</span>
-      <span class="spacer"></span>
-      <span id="player" class="player"></span>
-      <span id="mods" class="mods"></span>
-      <span id="rate" class="rate"></span>
-    </header>
-
-    <section id="map" class="map">
-      <h1 id="title" class="title">—</h1>
-      <p class="meta"><span id="artist">—</span><span id="version" class="version"></span><span id="mapper"></span><span id="stars" class="stars"></span></p>
-    </section>
-
-    <section class="hero">
-      <div id="grade" class="grade" data-grade="">
-        <span id="gradeCap" class="label grade-cap">Grade</span>
-        <span id="gradeLetter" class="grade-letter">—</span>
+  <div id="zone" class="zone" data-layout="strip">
+    <section id="card" class="card" aria-label="Results timing and performance" aria-hidden="true">
+      <div class="cell c-ur timing">
+        <p class="label"><span class="brand">18—LAB</span>UR</p>
+        <b id="ur" class="big">—</b>
       </div>
-      <div class="figures">
-        <div class="score">
-          <span class="label">Score</span>
-          <b id="score" class="score-value">—</b>
-        </div>
-        <dl class="facts">
-          <div><dt class="label">Accuracy</dt><dd><span id="acc">—</span><small id="accUnit">%</small></dd></div>
-          <div><dt class="label">Max combo</dt><dd><span id="combo">—</span><small id="comboMax"></small><em id="fc" class="fc" hidden>FC</em></dd></div>
-          <div><dt class="label">Performance</dt><dd><span id="pp">—</span><small>pp</small><small id="ppFc" class="pp-fc"></small></dd></div>
-        </dl>
+      <div class="cell c-mean timing">
+        <p class="label">Mean</p>
+        <p class="value"><b id="mean">—</b><small>ms</small></p>
+      </div>
+      <div class="cell c-hist timing">
+        <p class="label axis"><span class="early">Early <b id="early">—</b></span><span class="late"><b id="late">—</b> Late</span></p>
+        <div class="hist"><canvas id="hist" aria-label="Hit error histogram"></canvas></div>
+      </div>
+      <div id="perf" class="cell c-pp">
+        <p class="label">Performance</p>
+        <p class="value"><b id="pp" class="big">—</b><small>pp</small></p>
+      </div>
+      <div id="ifFc" class="cell c-fc">
+        <p class="label">If FC</p>
+        <p class="value"><b id="ppFc">—</b><small id="ppGap"></small></p>
       </div>
     </section>
-
-    <section class="lower">
-      <div class="judge">
-        <div class="sec-head"><span class="label">Judgements</span><span id="total" class="label total"></span></div>
-        <ol id="rows" class="rows"></ol>
-        <p id="breaks" class="breaks" hidden><span class="label">Slider breaks</span><b id="breakCount">—</b></p>
-      </div>
-      <div id="timing" class="timing">
-        <div class="sec-head"><span class="label">Timing</span><span class="ur"><span class="label">UR</span><b id="ur">—</b></span></div>
-        <div class="hist">
-          <canvas id="hist" aria-label="Hit error histogram"></canvas>
-          <p id="noTiming" class="no-timing" hidden>No timing captured for this score</p>
-        </div>
-        <div class="axis">
-          <span class="early"><span class="label">Early</span><b id="early">—</b></span>
-          <span class="mean"><b id="mean">—</b><span class="label">ms mean</span></span>
-          <span class="late"><b id="late">—</b><span class="label">Late</span></span>
-        </div>
-      </div>
-    </section>
-  </article>
+    <p id="chip" class="chip" hidden><i></i><span id="chipText">vosu offline</span></p>
+  </div>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

@@ -1,5 +1,5 @@
 name = Session tracker
 author = 18-LAB
-version = 0.1.0
-description = Session ledger for every ruleset: plays, play time, pass / fail / retry strip, best pp, average pass accuracy, grade tally and profile pp / rank movement since the session began.
-resolution = [320,440]
+version = 0.2.0
+description = Session ledger in song select's free centre column (plays, play time, pass / fail / retry strip, best pp, average accuracy, grades, profile change), a minimal attempt counter beside the playfield, and one line of session context on results. All rulesets.
+resolution = [1920,1080]

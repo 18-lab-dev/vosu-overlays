@@ -9,51 +9,29 @@
 </head>
 <body>
 <div id="stage">
-  <article id="card" data-layout="full" data-phase="none" aria-label="Now playing">
-    <div class="top">
-      <div class="band" id="band" aria-hidden="true"></div>
-      <header class="head">
-        <span class="status" id="status" data-f="status" hidden></span>
-        <span class="ruleset" data-f="ruleset"></span>
-        <span class="spacer"></span>
-        <span class="conn" id="conn" hidden><i></i><span data-f="conn"></span></span>
-        <span class="phase" id="phase"><i></i><span data-f="phase"></span></span>
-        <span class="brand" id="brand">18—LAB</span>
-      </header>
-      <div class="ident" id="ident">
-        <div class="names">
-          <h1 class="title" data-f="title">—</h1>
-          <p class="artist" data-f="artist"></p>
-        </div>
-        <div class="stars" id="stars">
-          <span class="label" data-f="starsLabel">Star rating</span>
-          <span class="sr"><b data-f="stars">—</b><i>★</i></span>
-          <span class="of" data-f="starsOf"></span>
-        </div>
-      </div>
-      <div class="diff" id="diff">
-        <span class="version" data-f="version"></span>
-        <span class="mapper" id="mapperWrap"><span class="by">by</span> <span data-f="mapper"></span></span>
-        <span class="spacer"></span>
-        <span class="mods" id="mods"></span>
-      </div>
+  <p class="chip" id="chip" hidden><i></i><span data-f="chip"></span></p>
+  <section id="np" data-align="start" data-layout="full" data-backing="none" aria-label="Now playing">
+    <div class="ident" id="ident">
+      <h1 class="title" data-f="title"></h1>
+      <p class="artist" data-f="artist"></p>
+      <p class="diff"><span class="version" data-f="version"></span><span class="mapper" id="mapperWrap"> <span class="by">by</span> <span data-f="mapper"></span></span></p>
+    </div>
+    <div class="mods" id="mods"></div>
+    <div class="prog">
+      <div class="track" aria-hidden="true"><i id="bar"></i></div>
+      <div class="row"><span class="time"><b data-f="elapsed">0:00</b><span class="of"> / <span data-f="total">—</span></span></span><span class="brand" id="brand">18—LAB</span></div>
+    </div>
+    <div class="read">
+      <div class="r"><span class="label">Stars</span><span class="v"><b data-f="stars">—</b><i class="star">★</i></span><span class="sub" data-f="starsOf"></span></div>
+      <div class="r"><span class="label">BPM</span><span class="v"><b data-f="bpm">—</b></span><span class="sub" data-f="bpmRange"></span></div>
     </div>
     <div class="stats" id="stats">
-      <div class="cell" data-k="ar"><span class="label">AR</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="cs"><span class="label">CS</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="od"><span class="label">OD</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="hp"><span class="label">HP</span><span class="val"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell wide" data-k="bpm"><span class="label">BPM</span><span class="val"><b class="to">—</b><span class="aux"></span></span></div>
-      <div class="cell wide" data-k="len"><span class="label">Length</span><span class="val"><b class="to">—</b><span class="aux"></span></span></div>
+      <div class="cell" data-k="ar"><span class="label">AR</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="cs"><span class="label">CS</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="od"><span class="label">OD</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+      <div class="cell" data-k="hp"><span class="label">HP</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
     </div>
-    <div class="counts" id="counts">
-      <span class="label">Objects</span><b data-f="objects">—</b>
-      <span class="parts"><span data-c="0"><b></b> <span></span></span><span data-c="1"><b></b> <span></span></span><span data-c="2"><b></b> <span></span></span></span>
-      <span class="spacer"></span>
-      <span class="label">Max combo</span><b data-f="combo">—</b>
-    </div>
-    <div class="progress" aria-hidden="true"><i id="bar"></i></div>
-  </article>
+  </section>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

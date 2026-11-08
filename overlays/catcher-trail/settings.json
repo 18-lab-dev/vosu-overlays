@@ -1,6 +1,13 @@
 [
+ {"uniqueID":"zone","type":"options","title":"Zone","options":["auto","left","right"],"description":"Which side band beside the catch playfield holds the trace. auto = left (the right band carries the input overlay on many skins). The cluster hugs the playfield edge with its ruler level with the catcher.","value":"auto"},
+ {"uniqueID":"x","type":"number","title":"Nudge x / px","description":"Moves the cluster horizontally from its zone position (1080p pixels).","value":0},
+ {"uniqueID":"y","type":"number","title":"Nudge y / px","description":"Moves the cluster vertically; negative is up.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–2. Grows away from the playfield.","value":1},
  {"uniqueID":"window","type":"number","title":"Window / seconds","description":"How much gameplay time the trace shows, newest at the ruler. Clamped to 2–30 s.","value":6},
- {"uniqueID":"orientation","type":"options","title":"Orientation","options":["vertical","horizontal"],"description":"vertical: a tall strip, the ruler along the bottom like the playfield and older movement rising away from it. horizontal: a wide strip, newest movement at the right, playfield 0 at the top.","value":"vertical"},
+ {"uniqueID":"orientation","type":"options","title":"Orientation","options":["vertical","horizontal"],"description":"vertical: the ruler runs left to right like the playfield and older movement rises away from it. horizontal: a shorter block, newest movement at the right, playfield 0 at the top.","value":"vertical"},
  {"uniqueID":"showStats","type":"checkbox","title":"Show stats","description":"Dash share of active play time (breaks excluded), distance travelled in screens (one screen = the 512 px playfield width) and direction changes per minute.","value":true},
+ {"uniqueID":"showOnResults","type":"checkbox","title":"Hold on results","description":"Keep the final trace and stats on the results screen; osu! does not show movement stats there. Turn off if it covers your results layout.","value":true},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: marks float on the game with a text shadow. scrim: a soft dark fade behind the cluster. panel: a graphite 18-LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"Colour of the dash marks and live markers. map: a tone taken from the current map's background; falls back to 18-LAB amber when the map has none.","value":"map"},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

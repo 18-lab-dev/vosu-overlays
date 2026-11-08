@@ -1,64 +1,69 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
 :root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Identity colour: the map's tonal accent when loaded (accent = map), else 18-LAB amber. */
+:root { --hl: var(--map-accent, var(--accent)); }
 /* tokens.css sets color-scheme: dark; a host page with another scheme would otherwise get an opaque backdrop. */
 html[data-theme] { color-scheme: normal; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { color: var(--fg); font: 400 13px/1 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
+body { color: var(--fg); font: 400 14px/1 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
 
-#stage { position: absolute; left: 0; top: 0; width: 400px; height: 360px; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
 
-/* Geometry (size, position) is written by overlay.js from the dial settings; the panel's content
-   box is exactly the dial so canvas and DOM share one coordinate frame. */
-.panel {
+/* Floating on the game: legibility comes from weight and a tight dark shadow, not a box. */
+.dial, .final, .chip { text-shadow: 0 1px 2px rgb(0 0 0 / .7); }
+
+/* Size and translate are written by overlay.js from the free region of osu!'s layout. */
+.dial {
   position: absolute;
+  left: 0;
+  top: 0;
   box-sizing: content-box;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--accent);
-  border-radius: var(--radius);
   contain: layout paint;
   opacity: 0;
   transition: opacity 200ms var(--ease-draft);
 }
-.panel[data-shown="true"] { opacity: 1; }
+.dial[data-shown="true"] { opacity: 1; }
+
+/* backing = scrim: a soft disc of shade that fades out, no edges. */
+.dial[data-backing="scrim"]::before, .final[data-backing="scrim"]::before {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .42) 62%, transparent);
+  pointer-events: none;
+}
+/* backing = panel: the 18-LAB graphite panel for users who want one. */
+.dial[data-backing="panel"], .final[data-backing="panel"] {
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--hl);
+  border-radius: var(--radius);
+  text-shadow: none;
+}
 
 canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
 
 .label {
-  font: 500 10px/1 var(--font-mono);
+  font: 500 12px/1 var(--font-mono);
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--fg-dim);
 }
+.label--early { color: var(--signal); }
+.label--late { color: var(--accent); }
 
-.corner {
+/* Brand tag: left/top are written by overlay.js in the dial's hollow. */
+.brand {
   position: absolute;
-  top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: 500 10px/1 var(--font-mono);
-  letter-spacing: .08em;
+  transform: translate(-50%, -50%);
+  font: 600 12px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--fg-dim);
   white-space: nowrap;
 }
-.corner--left { left: 10px; }
-.corner--right { right: 10px; color: var(--muted); }
-.brand { color: var(--fg-dim); font-weight: 600; letter-spacing: .04em; }
 .brand[hidden] { display: none; }
-#mode { text-transform: none; letter-spacing: .02em; }
-
-.live-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity 160ms var(--ease-draft);
-}
-.panel[data-phase="play"] .live-dot { opacity: 1; }
-.panel[data-phase="results"] #mode { color: var(--accent); }
 
 /* Big readout: left/top are written by overlay.js at the dial's optical centre. */
 .readout {
@@ -81,45 +86,66 @@ canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display
   white-space: nowrap;
 }
 .ur__frac { font-size: .5em; color: var(--fg-dim); margin-left: 1px; }
+.dial[data-empty="true"] .ur { color: var(--fg-dim); font-size: calc(var(--ur-size, 54px) * .62); line-height: 1.45; }
 
 .foot {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 9px;
+  left: 2px;
+  right: 2px;
+  bottom: 6px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   white-space: nowrap;
 }
-.label--early { color: var(--signal); }
-.label--late { color: var(--accent); }
+.dial[data-backing="panel"] .foot { left: 10px; right: 10px; bottom: 9px; }
 .mean { display: flex; align-items: baseline; gap: 6px; }
-#mean {
-  font: 500 12px/1 var(--font-mono);
+#mean, #final-mean {
+  font: 500 15px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--fg-dim);
+  color: var(--fg);
   min-width: 5ch;
   text-align: right;
 }
-.unit { font: 400 10px/1 var(--font-mono); color: var(--muted); margin-left: -3px; }
-.panel[data-empty="true"] .unit { visibility: hidden; }
-.panel[data-empty="true"] .ur { color: var(--muted); font-size: calc(var(--ur-size, 54px) * .62); line-height: 1.45; }
+.unit { font: 400 12px/1 var(--font-mono); color: var(--fg-dim); margin-left: -3px; }
+.dial[data-empty="true"] .unit { visibility: hidden; }
 
-/* Connection chip: the only thing on screen while vosu is unreachable. */
-.chip {
+/* Results (osu!stable): the attempt's final distribution in the free right of the header strip. */
+.final {
   position: absolute;
-  left: 50%;
-  bottom: 0;
+  right: 40px;
+  top: 22px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 24px;
+  padding: 8px 12px;
+  contain: layout paint;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+}
+.final[data-shown="true"] { opacity: 1; }
+.final__dist { position: relative; display: flex; flex-direction: column; gap: 6px; }
+#final-hist { position: static; width: 300px; height: 48px; }
+.final__axis { display: flex; justify-content: space-between; }
+.final__nums { position: relative; display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 10px; row-gap: 6px; }
+.final__ur {
+  font: 600 44px/.9 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.final__mean { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
+
+/* Connection chip: tiny, in the dial's zone. Translate is written by overlay.js. */
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   height: 22px;
-  padding: 0 9px;
-  transform: translateX(-50%);
-  background: rgb(17 18 20 / .86);
-  border-radius: var(--radius);
-  font: 500 10px/1 var(--font-mono);
+  padding: 0 4px;
+  font: 500 12px/1 var(--font-mono);
   letter-spacing: .04em;
   color: var(--fg-dim);
   opacity: 0;
@@ -127,5 +153,5 @@ canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display
   white-space: nowrap;
 }
 .chip[data-shown="true"] { opacity: 1; }
-.chip__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 2px rgb(0 0 0 / .7); }
 .chip[data-state="offline"] .chip__dot { background: var(--danger); }

@@ -1,5 +1,5 @@
-name = Results card
+name = Results timing
 author = 18-LAB
-version = 0.1.0
-description = Results splash for every ruleset: typographic grade, score, accuracy, combo, pp and if-FC, ruleset-correct judgement breakdown, mods and rate, and a hit-error histogram with UR captured during the attempt. Transparent outside the results screen.
-resolution = [760,448]
+version = 0.2.0
+description = Results-screen addition that shows only what osu! leaves out there: UR, timing mean, early/late split and a hit-error histogram captured during the attempt, plus pp and the if-FC gap. Floats in the empty space of the results screen; renders nothing in other states.
+resolution = [1920,1080]

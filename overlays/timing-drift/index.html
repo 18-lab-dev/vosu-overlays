@@ -9,33 +9,31 @@
 </head>
 <body>
 <div id="stage">
-  <section class="panel" id="panel" aria-label="Timing drift" data-show="true" data-phase="offline" data-ur="true">
+  <section class="block" id="block" aria-label="Timing drift" data-view="status" data-status="connecting" data-ur="true" data-backing="none">
     <header class="head">
       <span class="brand" id="brand">18—LAB</span>
       <span class="title">Timing drift</span>
       <span class="phase" id="phase"></span>
-      <span class="chip" id="chip"><i></i><span id="chipText">Connecting to vosu</span></span>
+      <span class="status" id="status"><i></i><span id="statusText">Connecting to vosu</span></span>
       <span class="meta" id="meta"></span>
     </header>
-    <div class="body">
-      <div class="rail">
-        <div class="cell" id="meanCell">
-          <div class="row"><span class="label">Mean</span><span class="all"><i></i>All <b id="meanAll">—</b></span></div>
-          <div class="value"><span class="num" id="meanNow">—</span><span class="unit">ms</span></div>
-          <span class="dir" id="dir" data-dir="none">—</span>
-        </div>
-        <div class="cell" id="urCell">
-          <div class="row"><span class="label">UR</span><span class="all"><i></i>All <b id="urAll">—</b></span></div>
-          <div class="value"><span class="num" id="urNow">—</span></div>
-        </div>
+    <div class="readouts">
+      <div class="cell">
+        <div class="row"><span class="label">Mean</span><span class="dir" id="dir" data-dir="none"></span></div>
+        <div class="value" id="meanValue" data-empty="true"><span class="num" id="meanNow">—</span><span class="unit">ms</span></div>
+        <span class="all"><i></i>All <b id="meanAll">—</b></span>
       </div>
-      <div class="plot">
-        <canvas id="chart" role="img" aria-label="Rolling mean hit error and unstable rate over the attempt"></canvas>
-        <p class="empty" id="empty"></p>
+      <div class="cell" id="urCell">
+        <div class="row"><span class="label">UR</span></div>
+        <div class="value" id="urValue" data-empty="true"><span class="num" id="urNow">—</span></div>
+        <span class="all"><i></i>All <b id="urAll">—</b></span>
       </div>
-      <span class="count" id="count"></span>
-      <div class="axis"><span id="t0"></span><span id="t1"></span></div>
     </div>
+    <div class="plot">
+      <canvas id="chart" role="img" aria-label="Rolling mean hit error and unstable rate over the attempt"></canvas>
+      <p class="empty" id="empty"></p>
+    </div>
+    <div class="axis"><span id="t0"></span><span id="count"></span><span id="t1"></span></div>
   </section>
 </div>
 <script type="module" src="overlay.js"></script>

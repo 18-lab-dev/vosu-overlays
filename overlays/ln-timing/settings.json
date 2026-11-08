@@ -1,5 +1,14 @@
 [
+ {"uniqueID":"zone","type":"options","title":"Placement","options":["right","left"],"description":"Which side of the mania stage the gameplay cluster floats on. It sits against that screen edge, a little above centre, clear of the stage, score and HP bar.","value":"right"},
+ {"uniqueID":"offsetX","type":"number","title":"Nudge X / px","description":"Moves the cluster (gameplay) or the results strip horizontally, in 1080p pixels.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Nudge Y / px","description":"Moves the cluster (gameplay) or the results strip vertically, in 1080p pixels.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–1.6. The cluster still shrinks to fit if its region is narrower.","value":1},
+ {"uniqueID":"columnWidth","type":"number","title":"Stage column width","description":"Your skin's mania ColumnWidth (osu! virtual px; default skin 30). Used with Column start to find the free space beside the stage.","value":30},
+ {"uniqueID":"columnStart","type":"number","title":"Stage column start","description":"Your skin's mania ColumnStart (osu!stable virtual px; default skin 136). osu!lazer centres the stage and ignores this.","value":136},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: floats on the game with a text shadow. scrim: adds a soft dark shade that fades out. panel: a graphite 18-LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"Tints the brand mark with the current map's colour (map) or keeps 18-LAB amber. Early/late colours never change.","value":"map"},
  {"uniqueID":"bins","type":"number","title":"Histogram bins","description":"Number of bins across the chart (the mania 100 window either side of 0 ms). Rounded up to an odd count so one bin sits on 0 ms; clamped to 9–61.","value":31},
- {"uniqueID":"perColumn","type":"checkbox","title":"Per-column release","description":"Shows each column's mean release error under the chart. Needs ENABLE_MANIA_KEY_HIT_ERRORS = true in the vosu config; without it a one-line note names the setting.","value":true},
- {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the panel header.","value":true}
+ {"uniqueID":"perColumn","type":"checkbox","title":"Per-column release","description":"Shows each column's mean release error under the chart during gameplay. Needs ENABLE_MANIA_KEY_HIT_ERRORS = true in the vosu config; without it a one-line note names the setting.","value":true},
+ {"uniqueID":"showOnResults","type":"checkbox","title":"Results strip","description":"On the results screen, shows the final press/release split in the header band (osu! only shows press and release combined).","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the header.","value":true}
 ]

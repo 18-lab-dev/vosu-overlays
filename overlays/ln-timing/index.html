@@ -9,14 +9,12 @@
 </head>
 <body>
 <div id="stage">
-  <section id="panel" class="panel" data-view="offline" aria-label="Long note press and release timing">
+  <section id="cluster" class="cluster" data-view="offline" data-backing="none" aria-label="Long note press and release timing">
     <header class="head">
-      <span class="brand" id="brand">18—LAB</span>
-      <span class="label">LN timing</span>
-      <span class="spacer"></span>
-      <span class="chip" id="chip"><i></i><span id="chip-text">Connecting</span></span>
-      <span class="final" id="final">Result</span>
-      <span class="count" id="count"><b id="count-done"></b><b id="count-total">—</b> LN</span>
+      <span class="head__title"><span class="brand" id="brand">18—LAB</span><span class="label">LN timing</span></span>
+      <span class="chip" id="chip"><i></i><span id="chip-text">Connecting to vosu</span></span>
+      <span class="final">Result</span>
+      <span class="count"><b id="count-done"></b><b id="count-total">—</b> LN</span>
     </header>
 
     <div class="body">
@@ -38,14 +36,13 @@
     <div class="lanes" id="lanes">
       <canvas id="lane-canvas" class="lane-canvas" aria-label="Mean release error per column"></canvas>
       <span class="label lanes__label">Release<br>by column</span>
-      <p class="lanes__note" id="lanes-note">Per-column release needs <code>ENABLE_MANIA_KEY_HIT_ERRORS</code></p>
+      <p class="lanes__note">Per-column release needs <code>ENABLE_MANIA_KEY_HIT_ERRORS</code></p>
     </div>
 
     <footer class="foot">
       <div class="split">
         <div class="split__row">
           <span><span class="label">Early</span> <b id="early-pct">—</b></span>
-          <span class="label">Release split</span>
           <span><b id="late-pct">—</b> <span class="label">Late</span></span>
         </div>
         <div class="split__bar"><i id="early-bar"></i><i id="late-bar"></i></div>
@@ -55,12 +52,6 @@
         <span class="great__value"><b id="great-pct">—</b><small>%</small></span>
       </div>
     </footer>
-
-    <div class="summary">
-      <div><b id="s-lns">—</b><span class="label">Long notes</span></div>
-      <div><b id="s-ratio">—</b><span class="label">Of objects</span></div>
-      <div><span class="summary__num"><b id="s-win">—</b><small>ms</small></span><span class="label">Release great</span></div>
-    </div>
 
     <p class="noln">No long notes on this map</p>
   </section>

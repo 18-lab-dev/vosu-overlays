@@ -9,18 +9,17 @@
 <script type="module" src="overlay.js"></script>
 </head>
 <body>
-<div id="stage" data-view="connecting" data-orient="vertical">
-  <p class="chip" role="status"><i></i><span id="chip-text">Connecting</span></p>
-  <section class="panel" aria-label="Catcher trail">
+<div id="stage" data-view="connecting" data-orient="vertical" data-zone="left" data-backing="none">
+  <section class="cluster" id="cluster" aria-label="Catcher trail">
     <header class="head">
       <b class="brand" id="brand">18—LAB</b>
       <span class="title">Catcher trail</span>
-      <span class="status"><i></i><span id="status-text">Idle</span></span>
+      <span class="status"><i></i><span id="status-text">Live</span></span>
     </header>
     <dl class="stats" id="stats">
-      <div class="stat"><dt><i class="key"></i>Dash</dt><dd><span id="dash">—</span><small>%</small></dd></div>
-      <div class="stat"><dt>Travel</dt><dd><span id="travel">—</span><small>screens</small></dd></div>
-      <div class="stat"><dt>Turns</dt><dd><span id="turns">—</span><small>/min</small></dd></div>
+      <div class="stat"><dt><i class="key"></i>Dash</dt><dd id="dash">—</dd><dd class="unit">%</dd></div>
+      <div class="stat"><dt>Travel</dt><dd id="travel">—</dd><dd class="unit">screens</dd></div>
+      <div class="stat"><dt>Turns</dt><dd id="turns">—</dd><dd class="unit">/min</dd></div>
     </dl>
     <div class="plot">
       <canvas id="trace" aria-label="Catcher position over time"></canvas>
@@ -28,6 +27,7 @@
       <span class="span" id="span">−6 s</span>
     </div>
     <p class="note">Catcher position needs vosu</p>
+    <p class="chip" role="status"><i></i><span id="chip-text">Connecting</span></p>
   </section>
 </div>
 </body>

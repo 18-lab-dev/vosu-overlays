@@ -1,5 +1,5 @@
 name = Key counter
 author = 18-LAB
-version = 0.1.0
-description = Minimal key counter for every ruleset: key caps that light on press, per-key counts with a balance meter, total taps, and KPS with a 10 s history. Holds the attempt's peak and average on the results screen.
-resolution = [640,200]
+version = 0.2.0
+description = Floating key caps for every ruleset that light on press, with per-key counts and share bars, total taps, and keys per second with a 10 s history. Sits beside the playfield or stage; on the results screen it adds the attempt's peak and average KPS, which osu! does not show.
+resolution = [1920,1080]

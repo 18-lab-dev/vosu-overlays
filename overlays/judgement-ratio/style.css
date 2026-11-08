@@ -13,69 +13,111 @@ b { font-weight: inherit; }
 
 #stage { position: absolute; left: 0; top: 0; }
 
-/* ------------------------------------------------------------------ panel */
-.panel {
+/* ------------------------------------------------------------------ placement
+   overlay.js sets --edge (inset from the screen edge), --cy (vertical centre), --nx/--ny (user
+   nudge) and --scale from osuLayout()'s free band beside the mania stage. */
+.hud, .chip {
   position: absolute;
+  top: var(--cy, 540px);
+  transform: translate(var(--nx, 0px), calc(-50% + var(--ny, 0px))) scale(var(--scale, 1));
+}
+.hud[data-side="right"], .chip[data-side="right"] { right: var(--edge, 48px); transform-origin: right center; }
+.hud[data-side="left"], .chip[data-side="left"] { left: var(--edge, 48px); transform-origin: left center; }
+
+/* ------------------------------------------------------------------ cluster */
+.hud {
+  --tint: var(--map-accent, var(--accent));
+  --label: rgb(235 232 225 / .72);
+  width: 240px;
   display: grid;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--accent);
-  border-radius: var(--radius);
-  contain: layout paint;
+  isolation: isolate;
+  contain: layout style;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(4px);
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s linear 200ms;
+  transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms;
 }
-.panel[data-visible="true"] { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
-.panel[data-anchor="top-left"] { left: 0; top: 0; }
-.panel[data-anchor="top-right"] { right: 0; top: 0; }
-.panel[data-anchor="bottom-left"] { left: 0; bottom: 0; }
-.panel[data-anchor="bottom-right"] { right: 0; bottom: 0; }
-.panel[data-anchor$="-right"] { transform-origin: right; }
+.hud[data-accent="18-lab"] { --tint: var(--accent); }
+.hud[data-visible="true"] { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+/* Optional backing for users who want one; the default floats on the game. */
+.hud[data-backing="scrim"]::before {
+  content: "";
+  position: absolute;
+  inset: -40px -48px;
+  z-index: -1;
+  background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .4) 62%, rgb(8 9 10 / 0));
+  pointer-events: none;
+}
+.hud[data-backing="panel"] {
+  width: 268px;
+  padding: 10px 14px 12px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--tint);
+  border-radius: var(--radius);
+  text-shadow: none;
+}
 
 .label, .head, .name, .share, .note, .chip {
   font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 12px;
+  font-size: 12px;
+  line-height: 14px;
   letter-spacing: .08em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.label { color: var(--muted); }
+.label { color: var(--label); }
 .big { display: flex; align-items: baseline; white-space: nowrap; font-family: var(--font-display); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .big b { color: var(--fg); }
-.unit { color: var(--muted); font-weight: 500; margin-left: 2px; }
+.unit { color: var(--label); font-weight: 500; margin-left: 2px; }
 .j-max { color: var(--j-max); }
 .j-great { color: var(--j-great); }
-.colon { color: var(--muted); }
+.colon { color: var(--label); }
 
-/* header */
-.head { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.brand { color: var(--accent); font-weight: 500; letter-spacing: .06em; }
-.panel[data-brand="false"] .brand { display: none; }
-.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--fg-dim); }
-.keys { color: var(--muted); min-width: 0; }
+/* header: a short tinted rule leads the cluster in place of a panel edge */
+.head { display: flex; align-items: center; gap: 10px; height: 18px; color: var(--label); }
+.head::before { content: ""; width: 16px; height: 2px; background: var(--tint); box-shadow: 0 1px 2px rgb(0 0 0 / .5); flex: none; }
+.hud[data-backing="panel"] .head::before { display: none; }
+.brand { color: var(--tint); font-weight: 500; letter-spacing: .06em; }
+.hud[data-brand="false"] .brand { display: none; }
+.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .keys:empty { display: none; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
-.panel[data-phase="live"] .status .dot { background: var(--accent); }
-.panel[data-phase="results"] .status .dot { background: var(--ok); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-dim); flex: none; }
+.hud[data-phase="live"] .status .dot { background: var(--tint); }
+.hud[data-phase="results"] .status .dot { background: var(--ok); }
 
-/* hero readouts: labels share one line, numerals share one baseline */
-.hero { display: grid; grid-auto-flow: column; grid-template-rows: auto auto; row-gap: 6px; align-items: last baseline; }
+/* hero: labels share one line, numerals share one baseline */
+.hero { display: grid; grid-template-columns: 1fr auto; grid-auto-flow: column; grid-template-rows: auto auto; row-gap: 4px; align-items: last baseline; height: 86px; padding-top: 14px; contain: strict; }
 .readout { display: contents; }
-.panel[data-ratio="false"] .ratio { display: none; }
+.acc > * { justify-self: end; }
+.hud[data-ratio="false"] .ratio { display: none; }
+.hud[data-ratio="false"] .acc > * { justify-self: start; }
+.ratio .big { font-size: 52px; }
+.ratio .unit { font-size: 22px; }
+.acc .big { font-size: 32px; }
+.acc .unit { font-size: 17px; }
 
 /* proportional bar (canvas) */
-.bar { display: block; width: 100%; }
+.bar { display: block; width: 100%; height: 14px; margin-top: 8px; }
 
 /* judgement rows */
-.row { position: relative; font-variant-numeric: tabular-nums; }
+.rows { padding: 6px 0 2px; }
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 3px 1fr auto 46px;
+  align-items: center;
+  column-gap: 8px;
+  height: 28px;
+  contain: strict;
+  font-variant-numeric: tabular-nums;
+}
 .row .name { color: var(--j); }
-.row .count { font-family: var(--font-display); font-weight: 600; line-height: 1; color: var(--fg); text-align: right; }
-.row .share { color: var(--muted); text-align: right; }
-.tick { background: var(--j); }
-.flash { position: absolute; inset: 0; background: var(--j); opacity: 0; pointer-events: none; }
+.row .count { font-family: var(--font-display); font-weight: 600; font-size: 24px; line-height: 1; color: var(--fg); text-align: right; }
+.row .share { color: var(--label); text-align: right; }
+.tick { height: 14px; background: var(--j); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.flash { position: absolute; inset: 2px 0; background: var(--j); opacity: 0; pointer-events: none; }
 .row[data-j="max"] { --j: var(--j-max); }
 .row[data-j="great"] { --j: var(--j-great); }
 .row[data-j="good"] { --j: var(--j-good); }
@@ -85,100 +127,45 @@ b { font-weight: inherit; }
 .row[data-j="miss"][data-hot="true"] .count { color: var(--j-miss); }
 
 /* footer stats */
-.stats { display: flex; }
-.stat { display: grid; gap: 6px; align-content: start; }
-.panel[data-kps="false"] .kps, .panel[data-kps="false"] .peak { display: none; }
-.note { color: var(--caution); text-transform: none; letter-spacing: .02em; }
+.stats { display: flex; margin-top: 10px; }
+.stat { flex: 1 1 0; display: grid; gap: 4px; align-content: start; height: 52px; contain: strict; }
+.stat + .stat { padding-left: 14px; box-shadow: inset 1px 0 rgb(235 232 225 / .16); }
+.stats .big { font-size: 28px; }
+.stats .unit { font-size: 17px; }
+.hud[data-kps="false"] .kps, .hud[data-kps="false"] .peak { display: none; }
+.note { margin-top: 8px; color: var(--caution); text-transform: none; letter-spacing: .02em; }
 .note code { font: inherit; color: var(--fg-dim); }
-.panel[data-kps="false"] .note { display: none; }
+.hud[data-kps="false"] .note { display: none; }
 
-/* held / empty phases: values step back so live play reads loudest */
-.panel[data-phase="held"] .big b, .panel[data-phase="held"] .row .count { color: var(--fg-dim); }
-.panel[data-phase="none"] .big b, .panel[data-phase="none"] .row .count { color: var(--muted); }
-.panel[data-phase="none"] .unit { visibility: hidden; }
-
-/* ------------------------------------------------------------------ vertical */
-.panel[data-layout="vertical"] {
-  width: 288px;
-  padding: 0 12px;
-  grid-template-areas: "head" "hero" "bar" "rows" "stats" "note";
+/* results: osu! already shows counts, accuracy and combo there, so only what it lacks stays, as one
+   row in the free right part of the ranking screen's header strip (stable: x≈1000–1900, y≈8–130). */
+.hud[data-phase="results"] {
+  top: 69px;
+  right: var(--edge, 48px);
+  left: auto;
+  width: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  transform-origin: right center;
 }
-[data-layout="vertical"] .head { grid-area: head; height: 28px; border-bottom: 1px solid var(--rule); }
-[data-layout="vertical"] .hero { grid-area: hero; grid-template-columns: 1fr auto; height: 84px; padding: 12px 0 10px; contain: strict; }
-[data-layout="vertical"] .acc > * { justify-self: end; }
-[data-layout="vertical"][data-ratio="false"] .acc > * { justify-self: start; }
-[data-layout="vertical"] .big { font-size: 30px; }
-[data-layout="vertical"] .hero .unit { font-size: 16px; }
-[data-layout="vertical"] .ratio .big { font-size: 44px; }
-[data-layout="vertical"] .ratio .unit { font-size: 20px; }
-[data-layout="vertical"] .bar { grid-area: bar; height: 12px; }
-[data-layout="vertical"] .rows { grid-area: rows; padding: 6px 0 4px; }
-[data-layout="vertical"] .row {
-  display: grid;
-  grid-template-columns: 3px 1fr auto 48px;
-  align-items: center;
-  column-gap: 8px;
-  height: 24px;
-  contain: strict;
-}
-[data-layout="vertical"] .row + .row { border-top: 1px solid var(--rule); }
-[data-layout="vertical"] .tick { height: 12px; }
-[data-layout="vertical"] .row .count { font-size: 20px; }
-[data-layout="vertical"] .flash { inset: 0; }
-[data-layout="vertical"] .stats { grid-area: stats; margin: 0 -12px; border-top: 1px solid var(--rule-strong); }
-[data-layout="vertical"] .stat { flex: 1 1 0; height: 66px; padding: 10px 12px 12px; contain: strict; }
-[data-layout="vertical"] .stat + .stat { border-left: 1px solid var(--rule); }
-[data-layout="vertical"] .stats .big { font-size: 26px; }
-[data-layout="vertical"] .stats .unit { font-size: 16px; }
-[data-layout="vertical"] .note { grid-area: note; margin: 0 -12px; padding: 7px 12px 8px; border-top: 1px solid var(--rule); }
-
-/* ------------------------------------------------------------------ horizontal */
-.panel[data-layout="horizontal"] {
-  grid-template-columns: auto auto auto auto;
-  grid-template-areas: "head hero rows stats" "note note note note" "bar bar bar bar";
-}
-[data-layout="horizontal"] .head {
-  grid-area: head;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 14px 0 12px;
-  border-right: 1px solid var(--rule);
-}
-[data-layout="horizontal"] .status { margin-left: 0; }
-[data-layout="horizontal"] .title { display: none; }
-[data-layout="horizontal"] .hero { grid-area: hero; grid-template-columns: auto auto; column-gap: 20px; align-content: center; height: 76px; padding: 0 16px; border-right: 1px solid var(--rule); }
-[data-layout="horizontal"] .big { font-size: 28px; }
-[data-layout="horizontal"] .hero .unit { font-size: 15px; }
-[data-layout="horizontal"] .ratio .big { font-size: 38px; }
-[data-layout="horizontal"] .ratio .unit { font-size: 18px; }
-[data-layout="horizontal"] .rows { grid-area: rows; display: flex; padding: 0 6px; border-right: 1px solid var(--rule); }
-[data-layout="horizontal"] .row { display: grid; align-content: center; gap: 6px; min-width: 66px; height: 76px; padding: 0 12px 0 16px; }
-[data-layout="horizontal"] .tick { position: absolute; left: 8px; top: 16px; bottom: 16px; width: 2px; }
-[data-layout="horizontal"] .row .count { font-size: 26px; text-align: left; }
-[data-layout="horizontal"] .row .share { display: none; }
-[data-layout="horizontal"] .stats { grid-area: stats; padding: 0 4px; align-items: center; }
-[data-layout="horizontal"] .stat { height: 76px; min-width: 56px; padding: 0 12px; align-content: center; }
-[data-layout="horizontal"] .stat.combo { min-width: 88px; }
-[data-layout="horizontal"] .stat + .stat { border-left: 1px solid var(--rule); }
-[data-layout="horizontal"] .stats .big { font-size: 26px; }
-[data-layout="horizontal"] .stats .unit { font-size: 16px; }
-[data-layout="horizontal"] .note { grid-area: note; padding: 0 12px 6px; text-align: right; }
-[data-layout="horizontal"] .bar { grid-area: bar; height: 4px; }
+.hud[data-phase="results"] :is(.head, .acc, .bar, .rows, .combo, .kps, .note) { display: none; }
+.hud[data-phase="results"] .hero { display: grid; grid-template-columns: auto; height: auto; padding: 0; contain: layout; }
+.hud[data-phase="results"] .ratio .big { font-size: 44px; }
+.hud[data-phase="results"] .stats { margin: 0; }
+.hud[data-phase="results"] .stat { flex: none; height: auto; padding: 0; box-shadow: none; contain: layout; }
+.hud[data-phase="results"] .stats .big { font-size: 44px; }
 
 /* ------------------------------------------------------------------ status chip */
+/* The chip can show while osu! is in any ruleset (vosu down), so it sits low at the screen edge,
+   below osu!'s key counter and taiko's lane and above the combo counter. */
 .chip {
-  position: absolute;
+  top: 820px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 8px;
   color: var(--fg-dim);
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   opacity: 0;
   visibility: hidden;
   transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms;
@@ -186,7 +173,3 @@ b { font-weight: inherit; }
 /* Appear after a beat so a normal connect never flashes the chip. */
 .chip[data-shown="true"] { opacity: 1; visibility: visible; transition-delay: 400ms; }
 .chip[data-state="offline"] .dot { background: var(--danger); }
-.chip[data-anchor="top-left"] { left: 0; top: 0; }
-.chip[data-anchor="top-right"] { right: 0; top: 0; }
-.chip[data-anchor="bottom-left"] { left: 0; bottom: 0; }
-.chip[data-anchor="bottom-right"] { right: 0; bottom: 0; }

@@ -3,30 +3,35 @@
 // accuracy, grade tally and profile pp / rank movement, counted in the page from state
 // transitions (vosu's /session/playCount is always 0 and /session/playTime is osu!'s game
 // clock, so neither measures a streaming session).
-import { subscribe, settings, fit } from './vosu-overlay.js';
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const W = 320;
-const H = 440;
+const W = 1920;
+const H = 1080;
 const PLAY = 2;
 const RESULTS = 7;
+const SONG_SELECT = new Set([5, 13]); // solo and multiplayer song select
 const MAX_ATTEMPTS = 2000;
 const SCHEMA = 1;
 
 const $ = id => document.getElementById(id);
-const panel = $('panel');
-fit($('stage'), W, H);
+const stage = $('stage');
+fit(stage, W, H);
 
 const POINTERS = [
   '/state/number', '/play/source', '/play/failed', '/play/score', '/play/hits/0',
   '/play/accuracy', '/play/rank/current', '/play/pp/current',
   '/resultsScreen/score', '/resultsScreen/accuracy', '/resultsScreen/rank', '/resultsScreen/pp/current',
-  '/beatmap/title', '/beatmap/version',
+  '/beatmap/title', '/beatmap/version', '/beatmap/checksum', '/beatmap/stats/cs/converted',
+  '/play/mode/number', '/settings/mode/number', '/client',
   '/profile/id', '/profile/mode/number', '/profile/pp', '/profile/globalRank',
 ];
 
 const DEFAULTS = {
+  inSelect: 'ledger', inPlay: 'minimal', inResults: 'line', side: 'right', scale: 1,
+  playX: 0, playY: 0, selectX: 0, selectY: 0, resultX: 0, resultY: 0,
+  backing: 'none', accent: 'map',
   rowPlays: true, rowTape: true, rowBest: true, rowAccuracy: true, rowGrades: true, rowProfile: true,
-  hideInPlay: false, showBrand: true, persist: 'reload', resetHour: 6, resetEpoch: 0,
+  showBrand: true, persist: 'reload', resetHour: 6, resetEpoch: 0,
 };
 
 // ----------------------------------------------------------------------------- session store
@@ -222,6 +227,18 @@ function onFrame(v) {
   if (pending) { if (state === RESULTS) refine(v); else pending = null; }
   profile(v);
   if (state !== gameState) { gameState = state; dirty(); }
+  const mode = activeMode(state, v['/play/mode/number'], v['/settings/mode/number']);
+  const keys = Math.round(num(v['/beatmap/stats/cs/converted'])) || 4;
+  const client = v['/client'] === 'lazer' ? 'lazer' : 'stable';
+  if (mode !== view.mode || client !== view.client || (mode === 'mania' && keys !== view.keys)) {
+    view.mode = mode;
+    view.keys = keys;
+    view.client = client;
+    placeDirty = true;
+    dirty();
+  }
+  const checksum = v['/beatmap/checksum'];
+  if (checksum !== view.checksum) { view.checksum = checksum; tint(); }
 }
 
 function profile(v) {
@@ -297,137 +314,231 @@ function duration(ms) {
 }
 
 const el = Object.fromEntries([
-  'clock', 'chip', 'chipText', 'brand', 'rowPlays', 'plays', 'ptH', 'ptHu', 'ptM', 'rate', 'rateU',
-  'rowTape', 'tape', 'tapeEmpty', 'nPass', 'nFail', 'nRetry', 'rowPasses', 'cellBest', 'cellAcc', 'newBest',
-  'best', 'bestU', 'bestSub', 'bestGrade', 'bestAcc', 'bestMap', 'acc', 'accU', 'accSub', 'rowGrades', 'rowProfile',
-  'ppNow', 'ppDelta', 'rankNow', 'rankDelta',
+  'ledger', 'mini', 'result', 'chip', 'chipText', 'clock', 'brand',
+  'rowPlays', 'plays', 'ptH', 'ptHu', 'ptM', 'rate', 'rateU',
+  'rowTape', 'tape', 'tapeEmpty', 'nPass', 'nFail', 'nRetry',
+  'rowBest', 'best', 'bestU', 'bestGrade', 'bestAcc', 'newBest', 'bestMap',
+  'rowAccuracy', 'acc', 'accU', 'accSub', 'rowGrades', 'rowProfile', 'ppDelta', 'rankDelta',
+  'miniLbl', 'miniNum', 'miniClock', 'miniTape', 'mPass', 'mFail', 'mRetry',
+  'rPlays', 'rPass', 'rBestBox', 'rBest', 'rNew', 'rDelta',
 ].map(id => [id, $(id)]));
-const gradeEls = Object.fromEntries(Object.keys(model.grades).map(g => [g, { count: $(`g${g}`), bar: $(`b${g}`), col: $(`g${g}`).parentElement }]));
+const gradeEls = Object.fromEntries(Object.keys(model.grades).map(g => [g, { count: $(`g${g}`), box: $(`g${g}`).parentElement }]));
 
-function render() {
-  frame = 0;
-  const m = model;
-  const now = Date.now();
+// ----------------------------------------------------------------------------- placement
+// Shared stable 1920×1080 free regions: song select's centre column (x 540–1160, y 190–930,
+// between the local leaderboard and the carousel, above the bottom bar) and the right part of
+// the results header strip (x 1000–1900, y 8–130). Gameplay uses osuLayout() per ruleset.
+const SELECT_CENTRE_X = 850;
+const SELECT_CENTRE_Y = 560;
+const SELECT_BOTTOM = 930;
+const RESULT_RIGHT = 1900;
+const RESULT_TOP = 54;
+const LEDGER_W = 320;
+const MINI_W = 216;
+const EDGE = 24;
+const view = { mode: null, keys: 4, client: 'stable', checksum: undefined };
+let placeDirty = true;
 
-  // Header: session length and connection / attempt chip.
-  const s = duration(now - session.start);
-  text(el.clock, s.h ? `${s.h}h ${pad2(s.m)}m` : `${s.m}m`);
-  let chip = 'idle';
-  let chipText = '';
-  if (socketState === 'offline') { chip = 'offline'; chipText = 'vosu offline'; }
-  else if (socketState === 'connecting') { chip = 'connecting'; chipText = 'Connecting'; }
-  else if (gameState === undefined) { chip = 'nogame'; chipText = 'osu! closed'; }
-  else if (active) { chip = 'live'; chipText = 'Live'; }
-  attr(el.chip, 'data-state', chip);
-  if (chipText) text(el.chipText, chipText);
-  klass(panel, 'is-away', cfg.hideInPlay && !!active);
+const scaleOf = () => Math.min(1.6, Math.max(0.6, Number(cfg.scale) || 1));
 
-  // Plays.
-  text(el.plays, int.format(m.plays));
-  const p = duration(session.playMs + (active ? now - active.start : 0));
-  show(el.ptH, p.h > 0);
-  show(el.ptHu, p.h > 0);
-  text(el.ptH, String(p.h));
-  text(el.ptM, p.h ? pad2(p.m) : String(p.m));
-  text(el.rate, m.plays ? String(Math.round((m.pass / m.plays) * 100)) : '—');
-  show(el.rateU, m.plays > 0);
-
-  // Outcomes.
-  text(el.nPass, String(m.pass));
-  text(el.nFail, String(m.fail));
-  text(el.nRetry, String(m.retry));
-  show(el.tapeEmpty, m.plays === 0 && !active);
-  if (tapeDirty || tapeLive !== !!active) drawTape();
-
-  // Passes.
-  const best = m.best;
-  text(el.best, best ? pp1.format(best.pp).replace(/\.0$/, '') : '—');
-  show(el.bestU, !!best);
-  klass(el.newBest, 'on', m.newBest && !!best);
-  show(el.bestSub, !!best);
-  if (best) {
-    text(el.bestGrade, best.rank || '');
-    attr(el.bestGrade, 'data-g', best.rank || null);
-    text(el.bestAcc, typeof best.acc === 'number' ? `${acc2(best.acc)}%` : '');
-  }
-  text(el.bestMap, best && cfg.rowBest ? best.map || '' : '');
-  text(el.acc, m.accN ? acc2(m.accSum / m.accN) : '—');
-  show(el.accU, m.accN > 0);
-  text(el.accSub, m.accN ? `${m.accN} pass${m.accN === 1 ? '' : 'es'}` : '');
-
-  // Grades: bars scale against the most common grade.
-  let top = 0;
-  for (const g in m.grades) top = Math.max(top, m.grades[g]);
-  for (const g in m.grades) {
-    const n = m.grades[g];
-    const ui = gradeEls[g];
-    text(ui.count, String(n));
-    klass(ui.col, 'zero', n === 0);
-    const scale = top ? (n / top).toFixed(3) : '0';
-    if (ui.bar._sc !== scale) { ui.bar._sc = scale; ui.bar.style.transform = `scaleY(${scale})`; }
-  }
-
-  // Profile movement since the session began, per account and ruleset.
-  const base = m.profileKey ? session.base[m.profileKey] : null;
-  text(el.ppNow, m.pp === null ? '—' : pp1.format(m.pp));
-  text(el.rankNow, m.rank === null ? '—' : `#${int.format(m.rank)}`);
-  delta(el.ppDelta, m.pp !== null && base ? m.pp - base.pp : null, value => pp1.format(value), 0.05);
-  delta(el.rankDelta, m.rank !== null && base?.rank ? base.rank - m.rank : null, value => int.format(value), 0.5);
+function put(node, { left = null, right = null, top = null, bottom = null }, origin, shift = '') {
+  const style = node.style;
+  style.left = left === null ? 'auto' : `${left}px`;
+  style.right = right === null ? 'auto' : `${right}px`;
+  style.top = top === null ? 'auto' : `${top}px`;
+  style.bottom = bottom === null ? 'auto' : `${bottom}px`;
+  style.transformOrigin = origin;
+  style.setProperty('--place', `${shift} scale(${scaleOf()})`);
 }
 
+function place() {
+  placeDirty = false;
+  const s = scaleOf();
+  const ledgerLeft = Math.round(SELECT_CENTRE_X - LEDGER_W / 2 + cfg.selectX);
+  // Centred in the column whatever rows are enabled (no layout read: the box shifts itself up by half).
+  put(el.ledger, { left: ledgerLeft, top: Math.round(SELECT_CENTRE_Y + cfg.selectY) }, '50% 0', 'translateY(-50%)');
+  put(el.chip, { left: ledgerLeft, bottom: Math.round(H - SELECT_BOTTOM - cfg.selectY) }, '0 100%');
+  put(el.result, { right: Math.round(W - RESULT_RIGHT - cfg.resultX), top: Math.round(RESULT_TOP + cfg.resultY) }, '100% 0');
+
+  // Gameplay: beside the playfield (osu!/catch side bands, mania beside the stage, taiko below the lane).
+  const mode = view.mode || 'osu';
+  const { busy } = osuLayout(mode, { keys: view.keys, client: view.client });
+  const width = MINI_W * s;
+  // Clear the stable skip button / lazer key counter in the bottom corners.
+  const bottom = (view.client === 'lazer' ? 200 : 140) - cfg.playY;
+  const leftRoom = mode === 'taiko' ? W : busy.x;
+  const rightRoom = mode === 'taiko' ? W : W - busy.x - busy.w;
+  let side = cfg.side === 'left' ? 'left' : 'right';
+  if (side === 'left' && leftRoom < width + EDGE * 2 && rightRoom >= width + EDGE * 2) side = 'right';
+  if (side === 'right' && rightRoom < width + EDGE * 2 && leftRoom >= width + EDGE * 2) side = 'left';
+  if (side === 'right') put(el.mini, { right: EDGE - cfg.playX, bottom }, '100% 100%');
+  else put(el.mini, { left: EDGE + cfg.playX, bottom }, '0 100%');
+  klass(el.mini, 'end', side === 'right');
+  tapes.forEach(t => { t.ratio = 0; });
+  resizeTapes();
+}
+
+// ----------------------------------------------------------------------------- map tint
+let palette = null;
+function tint() {
+  const checksum = view.checksum;
+  if (cfg.accent !== 'map' || !checksum) { palette = null; applyPalette(document.documentElement, null); tapeDirty = true; dirty(); return; }
+  mapPalette(checksum).then(result => {
+    if (view.checksum !== checksum || cfg.accent !== 'map') return;
+    palette = result;
+    applyPalette(document.documentElement, result);
+    tapeDirty = true;
+    dirty();
+  });
+}
+
+// ----------------------------------------------------------------------------- rendering
+function render() {
+  frame = 0;
+  if (placeDirty) place();
+  const m = model;
+  const now = Date.now();
+  const live = socketState === 'live' && gameState !== undefined;
+  const showLedger = live && cfg.inSelect === 'ledger' && SONG_SELECT.has(gameState);
+  const showMini = live && cfg.inPlay === 'minimal' && gameState === PLAY;
+  const showResult = live && cfg.inResults === 'line' && gameState === RESULTS;
+  show(el.ledger, showLedger);
+  show(el.mini, showMini);
+  show(el.result, showResult);
+  show(el.chip, !live);
+  if (!live) {
+    const state = socketState === 'offline' ? 'offline' : socketState === 'connecting' ? 'connecting' : 'nogame';
+    attr(el.chip, 'data-state', state);
+    text(el.chipText, state === 'offline' ? 'vosu offline' : state === 'connecting' ? 'Connecting' : 'osu! closed');
+  }
+
+  const s = duration(now - session.start);
+  const clock = s.h ? `${s.h}h ${pad2(s.m)}m` : `${s.m}m`;
+  const p = duration(session.playMs + (active ? now - active.start : 0));
+  const best = m.best;
+  const base = m.profileKey ? session.base[m.profileKey] : null;
+  const ppMove = m.pp !== null && base ? m.pp - base.pp : null;
+
+  if (showLedger) {
+    text(el.clock, clock);
+    text(el.plays, int.format(m.plays));
+    show(el.ptH, p.h > 0);
+    show(el.ptHu, p.h > 0);
+    text(el.ptH, String(p.h));
+    text(el.ptM, p.h ? pad2(p.m) : String(p.m));
+    text(el.rate, m.plays ? String(Math.round((m.pass / m.plays) * 100)) : '—');
+    show(el.rateU, m.plays > 0);
+    text(el.nPass, String(m.pass));
+    text(el.nFail, String(m.fail));
+    text(el.nRetry, String(m.retry));
+    show(el.tapeEmpty, m.plays === 0);
+    text(el.best, best ? ppText(best.pp) : '—');
+    show(el.bestU, !!best);
+    text(el.bestGrade, best?.rank || '');
+    attr(el.bestGrade, 'data-g', best?.rank || null);
+    text(el.bestAcc, best && typeof best.acc === 'number' ? `${acc2(best.acc)}%` : '');
+    klass(el.newBest, 'on', m.newBest && !!best);
+    text(el.bestMap, best?.map || '');
+    text(el.acc, m.accN ? acc2(m.accSum / m.accN) : '—');
+    show(el.accU, m.accN > 0);
+    text(el.accSub, m.accN ? `${m.accN} pass${m.accN === 1 ? '' : 'es'}` : '');
+    for (const g in m.grades) {
+      text(gradeEls[g].count, String(m.grades[g]));
+      klass(gradeEls[g].box, 'zero', m.grades[g] === 0);
+    }
+    delta(el.ppDelta, ppMove, value => `${pp1.format(value)} pp`, 0.05, 'pp');
+    delta(el.rankDelta, m.rank !== null && base?.rank ? base.rank - m.rank : null, value => `${int.format(value)} rank`, 0.5, 'rank');
+  }
+  if (showMini) {
+    text(el.miniLbl, active ? 'Attempt' : 'Plays');
+    text(el.miniNum, int.format(active ? m.plays + 1 : m.plays));
+    text(el.miniClock, clock);
+    text(el.mPass, String(m.pass));
+    text(el.mFail, String(m.fail));
+    text(el.mRetry, String(m.retry));
+  }
+  if (showResult) {
+    text(el.rPlays, int.format(m.plays));
+    text(el.rPass, int.format(m.pass));
+    show(el.rBestBox, !!best);
+    if (best) text(el.rBest, ppText(best.pp));
+    klass(el.rNew, 'on', m.newBest && !!best);
+    delta(el.rDelta, ppMove, value => `${pp1.format(value)} pp`, 0.05, 'pp');
+  }
+  const liveBar = !!active;
+  for (const t of tapes) if (tapeDirty || t.live !== liveBar) drawTape(t, liveBar);
+  tapeDirty = false;
+}
+
+const ppText = value => pp1.format(value).replace(/\.0$/, '');
+
 /** ▲ = better. Rank deltas arrive pre-inverted (fewer is better). */
-function delta(node, value, format, epsilon) {
-  if (value === null) { text(node, ''); attr(node, 'data-dir', null); return; }
-  if (Math.abs(value) < epsilon) { text(node, '±0'); attr(node, 'data-dir', 'flat'); return; }
+function delta(node, value, format, epsilon, unit) {
+  if (value === null) { text(node, `— ${unit}`); attr(node, 'data-dir', null); return; }
+  if (Math.abs(value) < epsilon) { text(node, `±0 ${unit}`); attr(node, 'data-dir', 'flat'); return; }
   const up = value > 0;
   text(node, `${up ? '▲' : '▼'} ${format(Math.abs(value))}`);
   attr(node, 'data-dir', up ? 'up' : 'down');
 }
 
-// ----------------------------------------------------------------------------- attempt tape (canvas)
-const tape = el.tape;
-const ctx = tape.getContext('2d', { alpha: true });
+// ----------------------------------------------------------------------------- attempt tapes (canvas)
 const css = getComputedStyle(document.documentElement);
 const ink = name => css.getPropertyValue(name).trim();
 const COLORS = {
-  SS: ink('--j-max'), S: ink('--j-meh'), A: ink('--j-good'), B: ink('--j-great'), C: ink('--g-c'), D: ink('--j-miss'),
-  pass: ink('--fg-dim'), miss: ink('--j-miss'), muted: ink('--muted'), rule: ink('--rule-strong'), accent: ink('--accent'),
+  SS: ink('--g-ss'), S: ink('--g-s'), A: ink('--g-a'), B: ink('--g-b'), C: ink('--g-c'), D: ink('--g-d'),
+  pass: ink('--fg-dim'), miss: ink('--j-miss'), retry: '#a3a6ab', rule: 'rgba(235,232,225,.4)', accent: ink('--accent'),
 };
-let tapeW = 0;
-let tapeH = 0;
-let dpr = 1;
-let tapeLive = false;
 const PITCH = 6;
 const BAR = 4;
+const tapes = [el.tape, el.miniTape].map(node => ({ node, ctx: node.getContext('2d', { alpha: true }), w: 0, h: 0, ratio: 0, live: false }));
 
-new ResizeObserver(entries => {
-  const box = entries[0].contentRect;
-  dpr = window.devicePixelRatio || 1;
-  tapeW = Math.round(box.width);
-  tapeH = Math.round(box.height);
-  tape.width = Math.round(tapeW * dpr);
-  tape.height = Math.round(tapeH * dpr);
+function resizeTapes() {
+  for (const t of tapes) {
+    const ratio = (window.devicePixelRatio || 1) * scaleOf();
+    if (!t.w || t.ratio === ratio) continue;
+    t.ratio = ratio;
+    t.node.width = Math.round(t.w * ratio);
+    t.node.height = Math.round(t.h * ratio);
+  }
   tapeDirty = true;
   dirty();
-}).observe(tape);
+}
 
-function drawTape() {
-  tapeDirty = false;
-  tapeLive = !!active;
-  if (!tapeW) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, tapeW, tapeH);
-  const line = 1;
-  const floor = tapeH - 1;
+const observer = new ResizeObserver(entries => {
+  for (const entry of entries) {
+    const t = tapes.find(item => item.node === entry.target);
+    t.w = Math.round(entry.contentRect.width);
+    t.h = Math.round(entry.contentRect.height);
+    t.ratio = 0;
+  }
+  resizeTapes();
+});
+for (const t of tapes) observer.observe(t.node);
+
+function drawTape(t, liveBar) {
+  t.live = liveBar;
+  const { ctx, w, h, ratio } = t;
+  if (!w || !ratio) return;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  // A soft dark under-shadow keeps thin bars legible on bright map backgrounds.
+  const shadow = cfg.backing !== 'panel';
+  ctx.shadowColor = shadow ? 'rgba(0,0,0,.6)' : 'transparent';
+  ctx.shadowBlur = shadow ? 2 * ratio : 0;
+  ctx.shadowOffsetY = shadow ? 0.5 * ratio : 0;
+  const floor = h - 1;
   ctx.fillStyle = COLORS.rule;
-  ctx.fillRect(0, floor, tapeW, 1);
+  ctx.fillRect(0, floor, w, 1);
+  const tall = floor - 3;
+  const failH = Math.round(floor * 0.55);
+  const retryH = Math.max(4, Math.round(floor * 0.24));
   // Newest at the right edge (last bar flush with it); the live attempt takes the last slot.
   const attempts = session.attempts;
-  const slots = Math.floor((tapeW + PITCH - BAR) / PITCH);
-  const offset = tapeW - (slots - 1) * PITCH - BAR;
+  const slots = Math.floor((w + PITCH - BAR) / PITCH);
+  const offset = w - (slots - 1) * PITCH - BAR;
   let slot = slots - 1;
-  if (tapeLive) {
-    ctx.fillStyle = COLORS.accent;
+  if (liveBar) {
+    ctx.fillStyle = (cfg.accent === 'map' && palette?.accent) || COLORS.accent;
     ctx.fillRect(slot * PITCH + offset, 0, BAR, floor);
     slot--;
   }
@@ -436,22 +547,21 @@ function drawTape() {
     const x = slot * PITCH + offset;
     if (a.o === 'p') {
       ctx.fillStyle = COLORS[a.rank] || COLORS.pass;
-      ctx.fillRect(x, 4, BAR, floor - 4);
+      ctx.fillRect(x, floor - tall, BAR, tall);
     } else if (a.o === 'f') {
-      const h = 14;
       ctx.fillStyle = COLORS.miss;
-      ctx.fillRect(x, floor - h, BAR, line);
-      ctx.fillRect(x, floor - h, line, h);
-      ctx.fillRect(x + BAR - line, floor - h, line, h);
+      ctx.fillRect(x, floor - failH, BAR, 1);
+      ctx.fillRect(x, floor - failH, 1, failH);
+      ctx.fillRect(x + BAR - 1, floor - failH, 1, failH);
     } else {
-      ctx.fillStyle = COLORS.muted;
-      ctx.fillRect(x, floor - 6, BAR, 6);
+      ctx.fillStyle = COLORS.retry;
+      ctx.fillRect(x, floor - retryH, BAR, retryH);
     }
   }
 }
 
 // ----------------------------------------------------------------------------- settings
-const ROWS = ['rowPlays', 'rowTape', 'rowGrades', 'rowProfile'];
+const ROWS = ['rowPlays', 'rowTape', 'rowBest', 'rowAccuracy', 'rowGrades', 'rowProfile'];
 let settingsCalls = 0;
 settings(DEFAULTS, next => {
   settingsCalls++;
@@ -464,11 +574,12 @@ settings(DEFAULTS, next => {
   if (prev.resetHour !== cfg.resetHour) { session.day = dayKey(); save(); }
   checkEpoch();
   for (const row of ROWS) show(el[row], !!cfg[row]);
-  show(el.cellBest, !!cfg.rowBest);
-  show(el.cellAcc, !!cfg.rowAccuracy);
-  show(el.rowPasses, !!(cfg.rowBest || cfg.rowAccuracy));
-  el.rowPasses.style.gridTemplateColumns = cfg.rowBest && cfg.rowAccuracy ? '' : '1fr';
   show(el.brand, !!cfg.showBrand);
+  stage.dataset.backing = ['scrim', 'panel'].includes(cfg.backing) ? cfg.backing : 'none';
+  document.documentElement.dataset.accent = cfg.accent === '18-lab' ? '18-lab' : 'map';
+  if (prev.accent !== cfg.accent || settingsCalls === 1) tint();
+  placeDirty = true;
+  tapeDirty = true;
   dirty();
 });
 // vosu unreachable at load: keep counting and adopt the stored session with what we know.

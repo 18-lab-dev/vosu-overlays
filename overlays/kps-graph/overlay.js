@@ -1,40 +1,45 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// KPS graph: osu!mania keys per second over the attempt. Live KPS is the sum of /keys/all count
-// deltas over a rolling one-second (real time) window, plotted as a scrolling area chart over the
-// map's strain density, with the attempt's peak and average. Results hold the whole attempt.
-import { subscribe, settings, fit, activeMode, isPlaying, formatDuration } from './vosu-overlay.js';
+// KPS graph: osu!mania keys per second, floating beside the stage. Live KPS is the sum of
+// /keys/all count deltas over a rolling one-second (real time) window, drawn as a vertical
+// chart-recorder strip: time runs upward like the mania editor, so the map's strain density falls
+// toward the now line from above and the trace you played trails below it. Results hold the whole
+// run; song select shows the map's density and note rate, which osu! does not.
+import { subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 480;
-const HEIGHT = 276;     // panel = 132 px of chrome + chart (48–144 px)
-const BIN = 50;         // map ms per histogram bin
-const ORIGIN = -10000;  // map time of bin 0, covers lead-in
-const NOW_AT = 0.82;    // share of the plot that is history; the rest previews upcoming density
-const HOLD = 250;       // ms the clock may run past the last vosu time sample (pauses stop it)
-const RESULTS = 7;
-const GUTTER = 22;      // px kept free at the summary's right edge for scale labels
+const BIN = 50;          // map ms per histogram bin
+const ORIGIN = -10000;   // map time of bin 0, covers lead-in
+const NOW_AT = 0.82;     // share of the strip that is history; the rest previews upcoming density
+const HOLD = 250;        // ms the clock may run past the last vosu time sample (pauses stop it)
+const GUTTER = 22;       // px kept free at the overview's top for scale labels (style.css --gutter)
+const BLOCK_W = 210;     // style.css: axis 44 + gap 6 + chart 160
+const HEAD_H = 116;      // style.css: head 20 + readouts 6 + 80 + 10
+const STAGE_GAP = 28;    // px between the block and the stage when aligned to it
+const HP_CLEAR = 56;     // stable draws its HP bar against the stage's right edge
+const SELECT = new Set([4, 5, 12, 13]);   // song select (edit, play, match setup, multi)
+const RESULTS = new Set([7, 14, 18]);     // results (solo, vs, team)
 
 const POINTERS = [
-  '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source',
+  '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source', '/client',
   '/keys/all', '/beatmap/time/live', '/beatmap/time/rate', '/play/mods/rate',
   '/beatmap/time/firstObject', '/beatmap/time/lastObject', '/beatmap/time/mp3Length',
-  '/beatmap/checksum', '/beatmap/stats/cs/converted',
+  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total',
   '/performance/graph/series', '/performance/graph/xaxis',
 ];
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
-const panel = $('panel');
+const block = $('kps');
 const chip = $('chip');
 const canvas = $('chart');
 const note = $('note');
 const el = {
-  chip: $('chipText'), meta: $('meta'), phase: $('phase'), brand: $('brand'),
-  pLabel: $('pLabel'), pValue: $('pValue'), aLabel: $('aLabel'), aValue: $('aValue'), bLabel: $('bLabel'), bValue: $('bValue'),
-  axisL: $('axisL'), axisM: $('axisM'), axisN: $('axisN'), axisR: $('axisR'), note,
+  chip: $('chipText'), phase: $('phase'), brand: $('brand'),
+  pLabel: $('pLabel'), pValue: $('pValue'), pUnit: $('pUnit'), aLabel: $('aLabel'), aValue: $('aValue'), bLabel: $('bLabel'), bValue: $('bValue'),
+  axisL: $('axisL'), axisM: $('axisM'), axisN: $('axisN'), axisR: $('axisR'),
 };
 const ctx = canvas.getContext('2d', { alpha: true });
 
-fit(stage, WIDTH, HEIGHT);
+fit(stage, 1920, 1080);
 
 /** textContent only when the formatted string changed. */
 function put(node, value) {
@@ -46,9 +51,9 @@ function attr(node, name, value) {
   if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
 }
 
-// ---------------------------------------------------------------- palette (read once from tokens)
+// ---------------------------------------------------------------- palette
 function rgb(hex, fallback) {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim()) || /^#([0-9a-f]{6})$/i.exec(fallback);
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim()) || /^#([0-9a-f]{6})$/i.exec(fallback);
   const n = parseInt(m[1], 16);
   return `${n >> 16} ${(n >> 8) & 255} ${n & 255}`;
 }
@@ -56,68 +61,169 @@ const css = getComputedStyle(document.documentElement);
 const tok = (name, fallback) => rgb(css.getPropertyValue(name) || fallback, fallback);
 const FG = tok('--fg', '#ebe8e1');
 const FG_DIM = tok('--fg-dim', '#b8b5ad');
-const MUTED = tok('--muted', '#7e8288');
-const ACCENT = tok('--accent', '#ff963f');
-const SIGNAL = tok('--signal', '#7fa6cf');
-const SUNKEN = tok('--bg-sunken', '#0b0c0d');
+const ACCENT = '#ff963f';
+const SIGNAL = '#7fa6cf';
 const C = {
-  future: `rgb(${SUNKEN} / .42)`,
-  gridMinor: `rgb(${FG} / .035)`,
-  gridMajor: `rgb(${FG} / .075)`,
-  gridH: `rgb(${FG} / .06)`,
-  base: `rgb(${MUTED} / .55)`,
-  now: `rgb(${FG_DIM} / .5)`,
-  label: `rgb(${MUTED} / .95)`,
-  strainFill: `rgb(${SIGNAL} / .2)`,
-  strainEdge: `rgb(${SIGNAL} / .5)`,
-  line: `rgb(${FG} / .95)`,
-  ghost: `rgb(${FG} / .55)`,
-  avg: `rgb(${FG_DIM} / .6)`,
-  peak: `rgb(${ACCENT} / .85)`,
-  accent: `rgb(${ACCENT})`,
-  halo: `rgb(${ACCENT} / .22)`,
+  gridMinor: `rgb(${FG} / .05)`,
+  gridMajor: `rgb(${FG} / .11)`,
+  gridH: `rgb(${FG} / .08)`,
+  base: `rgb(${FG} / .55)`,
+  now: `rgb(${FG} / .7)`,
+  label: `rgb(${FG_DIM})`,
+  under: 'rgb(0 0 0 / .45)',
+  line: `rgb(${FG} / .97)`,
+  ghost: `rgb(${FG} / .7)`,
+  avg: `rgb(${FG} / .62)`,
+  strainFill: '', strainEdge: '', peak: '', hl: '', halo: '',
 };
+let palette = null;
+/** Highlight (peak, live head) follows the map's tonal spot; density takes its secondary role. */
+function recolor() {
+  const hl = rgb(palette?.accent ?? ACCENT, ACCENT);
+  const soft = rgb(palette?.secondary ?? SIGNAL, SIGNAL);
+  C.strainFill = `rgb(${soft} / .2)`;
+  C.strainEdge = `rgb(${soft} / .62)`;
+  C.peak = `rgb(${hl} / .9)`;
+  C.hl = `rgb(${hl})`;
+  C.halo = `rgb(${hl} / .25)`;
+  dirty = true;
+}
 const DASH_AVG = [4, 3];
 const DASH_PEAK = [1, 3];
 const DASH_NONE = [];
-const MONO = '10px "IBM Plex Mono", ui-monospace, monospace';
+const MONO = '500 12px "IBM Plex Mono", ui-monospace, monospace';
 
 // ---------------------------------------------------------------- settings (applied at the end of the module)
-const DEFAULTS = { window: 20, height: 96, strain: true, brand: true };
+const DEFAULTS = {
+  window: 20, height: 560, strain: true, side: 'left', align: 'centre', columnStart: 136, columnWidth: 30,
+  x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', brand: true,
+};
 let opt = DEFAULTS;
 let spanS = 20;
+let length = 560;
+const clamp = (v, lo, hi, fallback) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
+let optKey = '';
 function applySettings(next) {
+  const accentChanged = next.accent !== opt.accent;
   opt = next;
-  spanS = Math.min(60, Math.max(5, Math.round(next.window) || 20));
-  const height = Math.min(144, Math.max(48, Math.round(next.height) || 96));
-  panel.style.setProperty('--chart-h', `${height}px`);
+  optKey = JSON.stringify(next);
+  spanS = Math.round(clamp(next.window, 5, 60, 20));
+  length = Math.round(clamp(next.height, 240, 760, 560));
+  attr(block, 'data-side', next.side === 'right' ? 'right' : 'left');
+  attr(block, 'data-backing', ['scrim', 'panel'].includes(next.backing) ? next.backing : 'none');
   el.brand.hidden = !next.brand;
+  if (accentChanged) loadPalette();
+  place();
+  measure();
   axisDirty = true;
   dirty = true;
   kick();
 }
 
+// ---------------------------------------------------------------- placement in osu!'s free regions
+// Song select: the centre column between local ranking and carousel. Results: the right of the
+// header strip (title/mapper text sits on its left). Gameplay: the band beside the mania stage,
+// from osuLayout(), with the user's side/alignment/nudge/scale settings.
+const SELECT_ZONE = { x: 540, y: 190, w: 620, h: 740 };
+const RESULTS_ZONE = { x: 1010, y: 14, w: 880, h: 110 };
+let placeKey = '';
+function place() {
+  const keys = columns() ?? 4;
+  const client = values['/client'] === 'lazer' ? 'lazer' : 'stable';
+  const key = `${view}|${keys}|${client}|${length}|${optKey}`;
+  if (key === placeKey) return;
+  placeKey = key;
+  if (view === 'summary') {
+    block.style.transform = `translate(${RESULTS_ZONE.x}px, ${RESULTS_ZONE.y}px)`;
+    return;
+  }
+  if (view === 'select') {
+    const len = Math.min(length, SELECT_ZONE.h - HEAD_H);
+    block.style.setProperty('--chart-h', `${len}px`);
+    const x = SELECT_ZONE.x + (SELECT_ZONE.w - BLOCK_W) / 2;
+    const y = SELECT_ZONE.y + (SELECT_ZONE.h - HEAD_H - len) / 2;
+    block.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    return;
+  }
+  block.style.setProperty('--chart-h', `${length}px`);
+  const layout = osuLayout('mania', {
+    keys, client,
+    columnWidth: clamp(opt.columnWidth, 10, 200, 30),
+    columnStart: clamp(opt.columnStart, 0, 600, 136),
+  });
+  const s = clamp(opt.scale, 0.5, 2, 1);
+  const w = BLOCK_W * s;
+  const h = (HEAD_H + length) * s;
+  const stageBox = layout.busy;
+  const right = stageBox.x + stageBox.w;
+  let x;
+  if (opt.side === 'right') {
+    x = opt.align === 'stage' ? right + HP_CLEAR : right + HP_CLEAR + (layout.width - right - HP_CLEAR - w) / 2;
+  } else {
+    x = opt.align === 'stage' ? stageBox.x - STAGE_GAP - w : (stageBox.x - w) / 2;
+  }
+  const top = layout.hud.health.y + layout.hud.health.h + 24;
+  const y = Math.max(top, (layout.height - h) / 2);
+  x = Math.round(x + clamp(opt.x, -1920, 1920, 0));
+  block.style.transform = `translate(${x}px, ${Math.round(y + clamp(opt.y, -1080, 1080, 0))}px) scale(${s})`;
+}
+
+// ---------------------------------------------------------------- map tint
+let paletteFor = null;
+function loadPalette() {
+  const checksum = values['/beatmap/checksum'] ?? null;
+  if (opt.accent !== 'map' || !checksum) {
+    paletteFor = null; palette = null; applyPalette(block, null); recolor(); kick();
+    return;
+  }
+  if (checksum === paletteFor) return;
+  paletteFor = checksum;
+  mapPalette(checksum).then(result => {
+    if (paletteFor !== checksum) return;
+    palette = result;
+    applyPalette(block, result);
+    recolor();
+    kick();
+  });
+}
+
 // ---------------------------------------------------------------- canvas sizing
-let cw = 0, ch = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null;
+// The chart is drawn in a virtual horizontal frame (cw = time length, ch = amplitude thickness).
+// Gameplay and song select rotate it onto a vertical canvas (later time goes up, amplitude grows
+// away from the stage); the results header band uses it as is (orient 'h').
+let cw = 0, ch = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null, orient = 'v';
+let box = null;
 new ResizeObserver(([entry]) => {
-  const box = entry.contentRect;
+  box = entry.contentRect;
   dpr = window.devicePixelRatio || 1;
   half = Math.round(dpr) % 2 ? 0.5 : 0;
-  cw = box.width; ch = box.height;
-  canvas.width = Math.round(cw * dpr);
-  canvas.height = Math.round(ch * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  fillGrad = ctx.createLinearGradient(0, 0, 0, ch);
-  fillGrad.addColorStop(0, `rgb(${FG} / .24)`);
-  fillGrad.addColorStop(1, `rgb(${FG} / .02)`);
-  ghostGrad = ctx.createLinearGradient(0, 0, 0, ch);
-  ghostGrad.addColorStop(0, `rgb(${FG} / .16)`);
-  ghostGrad.addColorStop(1, `rgb(${FG} / .015)`);
+  canvas.width = Math.round(box.width * dpr);
+  canvas.height = Math.round(box.height * dpr);
+  measure();
   dirty = true;
   kick();
 }).observe(canvas);
 document.fonts?.load(MONO).then(() => { dirty = true; kick(); }, () => {});
 
+/** Virtual dimensions and gradients for the current orientation (no layout reads). */
+function measure() {
+  if (!box) return;
+  if (orient === 'h') { cw = box.width; ch = box.height; } else { ch = box.width; cw = box.height; }
+  frameTransform();
+  fillGrad = ctx.createLinearGradient(0, 0, 0, ch);
+  fillGrad.addColorStop(0, `rgb(${FG} / .3)`);
+  fillGrad.addColorStop(1, `rgb(${FG} / .04)`);
+  ghostGrad = ctx.createLinearGradient(0, 0, 0, ch);
+  ghostGrad.addColorStop(0, `rgb(${FG} / .2)`);
+  ghostGrad.addColorStop(1, `rgb(${FG} / .03)`);
+}
+
+/** Virtual (x = time, y = amplitude from the top) → canvas, for the current orientation and side. */
+function frameTransform() {
+  if (orient === 'h') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  else if (opt.side === 'right') ctx.setTransform(0, -dpr, -dpr, 0, ch * dpr, cw * dpr);
+  else ctx.setTransform(0, -dpr, dpr, 0, 0, cw * dpr);
+}
 const crisp = v => (Math.round(v * dpr) + half) / dpr;
 
 // ---------------------------------------------------------------- attempt record
@@ -125,22 +231,22 @@ const crisp = v => (Math.round(v * dpr) + half) / dpr;
 // second), maintained incrementally so a press costs w adds and drawing reads it directly.
 let counts = new Uint16Array(8192);
 let kps = new Uint16Array(8192);
-let used = 0, w = 20, total = 0, peak = 0, peakBin = -1, firstT = null, lastT = null;
+let used = 0, w = 20, total = 0, peak = 0, peakBin = -1, firstT = null;
 const prev = new Int32Array(64).fill(-1);
 let attemptChecksum = null;
 
 function ensure(size) {
   if (size < counts.length) return;
-  let length = counts.length;
-  while (length <= size) length *= 2;
-  const c = new Uint16Array(length); c.set(counts); counts = c;
-  const k = new Uint16Array(length); k.set(kps); kps = k;
+  let next = counts.length;
+  while (next <= size) next *= 2;
+  const c = new Uint16Array(next); c.set(counts); counts = c;
+  const k = new Uint16Array(next); k.set(kps); kps = k;
 }
 
 function resetAttempt() {
   counts.fill(0, 0, used + 1);
   kps.fill(0, 0, used + 1);
-  used = 0; total = 0; peak = 0; peakBin = -1; firstT = null; lastT = null;
+  used = 0; total = 0; peak = 0; peakBin = -1; firstT = null;
   w = Math.max(1, Math.round(1000 * rate / BIN));
   prev.fill(-1);
   attemptChecksum = values['/beatmap/checksum'] ?? null;
@@ -172,7 +278,6 @@ function addPresses(t, n) {
   if (end - 1 > used) used = end - 1;
   total += n;
   if (firstT === null || t < firstT) firstT = t;
-  if (lastT === null || t > lastT) lastT = t;
   dirty = true;
 }
 
@@ -246,31 +351,40 @@ function decideView() {
   if (status !== 'live') return 'offline';
   const state = values['/state/number'];
   const mode = activeMode(state, values['/play/mode/number'], values['/settings/mode/number']);
-  if (mode !== null && mode !== 'mania') return 'hidden';
   if (state === undefined || mode === null) return 'empty';
+  if (mode !== 'mania') return 'hidden';
   if (isPlaying(state)) return 'live';
-  if (total > 0 && (state === RESULTS || attemptChecksum === values['/beatmap/checksum'])) return 'summary';
-  return 'map';
+  const sameMap = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+  // Results: osu! shows judgements, not keys per second; without a recorded run there is nothing to add.
+  if (RESULTS.has(state)) return sameMap ? 'summary' : 'hidden';
+  // Song select: the map's density and note rate (osu! shows neither), plus the last run on it.
+  if (SELECT.has(state)) return sameMap || sn > 0 || mapRate() !== null ? 'select' : 'hidden';
+  return 'hidden';
 }
 
 function setView(next) {
   if (next === view) return;
   const from = view;
   view = next;
-  attr(panel, 'data-view', next);
+  attr(block, 'data-view', next);
+  const nextOrient = next === 'summary' ? 'h' : 'v';
+  if (nextOrient !== orient) { orient = nextOrient; attr(block, 'data-orient', orient); measure(); }
   if (next === 'live' && from !== 'live') { liveT = null; shownT = null; resetAttempt(); }
+  chip.hidden = next !== 'offline' && next !== 'empty';
   if (next === 'offline') {
     attr(chip, 'data-state', status);
-    put(el.chip, status === 'offline' ? 'vosu offline' : 'Connecting to vosu…');
+    put(el.chip, status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
+  } else if (next === 'empty') {
+    attr(chip, 'data-state', 'idle');
+    put(el.chip, 'osu! not running');
   }
-  chip.hidden = next !== 'offline';
+  place();
   axisDirty = true;
   dirty = true;
-  if ((from === 'live') !== (next === 'live') && from !== 'init' && from !== 'offline' && from !== 'hidden') {
+  if (from === 'live' || from === 'summary' || from === 'select') {
     canvas.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' });
   }
 }
-
 
 // ---------------------------------------------------------------- render loop
 let raf = 0;
@@ -294,16 +408,16 @@ function targetScale() {
   return Math.ceil(want / step) * step;
 }
 
-const chartTop = 8;
+const chartTop = 6;
 const yOf = v => ch - 1 - (v / scale) * (ch - 1 - chartTop);
 
 const NUMBERS = Array.from({ length: 401 }, (_, i) => String(i));
 const STEPS = [2, 5, 10, 20, 50, 100];
-/** Scale step for the current plot height: at least 16 px between lines so labels never crowd. */
+/** Scale step for the strip's thickness: at least 30 px between lines so labels never crowd. */
 function gridStep() {
   const usable = ch - 1 - chartTop;
   let i = STEPS.indexOf(niceStep(scale));
-  while (i < STEPS.length - 1 && (STEPS[i] / scale) * usable < 16) i++;
+  while (i < STEPS.length - 1 && (STEPS[i] / scale) * usable < 30) i++;
   return STEPS[i];
 }
 function drawGridH(x0, x1) {
@@ -318,19 +432,26 @@ function drawGridH(x0, x1) {
   }
   ctx.stroke();
 }
-/** KPS scale labels, right-aligned at the plot's edge (in the live view that is the calm future zone). */
+/** KPS scale values at the strip's future end (the overview's gutter), always drawn upright. */
 function drawGridLabels() {
   const step = gridStep();
-  ctx.fillStyle = C.label;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.font = MONO;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = orient === 'h' ? 'middle' : 'top';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = C.under;
+  ctx.fillStyle = C.label;
   for (let v = step; v < scale + 0.001 && v < NUMBERS.length; v += step) {
-    const y = Math.round(yOf(v));
-    if (y - 11 < 0) break;
-    ctx.fillText(NUMBERS[v], cw - 3, y - 2);
+    const y = yOf(v);
+    if (y < 10) break;
+    let x = cw - GUTTER / 2, top = y;
+    if (orient !== 'h') { x = opt.side === 'right' ? ch - y : y; top = 3; }
+    ctx.strokeText(NUMBERS[v], x, top);
+    ctx.fillText(NUMBERS[v], x, top);
   }
-  ctx.textAlign = 'left';
+  frameTransform();
 }
 
 function drawBase() {
@@ -346,7 +467,7 @@ function drawBase() {
 function drawStrain(t0, t1, k) {
   if (!opt.strain || !sn || smax <= 0) return;
   const top = (ch - 1 - chartTop) * 0.92;
-  let i = Math.max(0, strainIndex(t0) - 1);
+  const i = Math.max(0, strainIndex(t0) - 1);
   const end = Math.min(sn, strainIndex(t1) + 2);
   if (end - i < 2) return;
   const base = ch - 1;
@@ -378,9 +499,9 @@ function drawLevel(v, color, dash, x0, x1) {
 
 function drawPeakMark(x) {
   const y = yOf(peak);
-  ctx.fillStyle = C.accent;
+  ctx.fillStyle = C.hl;
   ctx.beginPath();
-  ctx.moveTo(x - 4, y - 8); ctx.lineTo(x + 4, y - 8); ctx.lineTo(x, y - 3.5);
+  ctx.moveTo(x - 4.5, y - 9); ctx.lineTo(x + 4.5, y - 9); ctx.lineTo(x, y - 3.5);
   ctx.closePath();
   ctx.fill();
 }
@@ -394,7 +515,7 @@ function tracePath(n, smooth) {
   for (let i = 1; i < n - 1; i++) ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[i + 1]) / 2, (py[i] + py[i + 1]) / 2);
   ctx.lineTo(px[n - 1], py[n - 1]);
 }
-/** Area + line through the first n buffered points; `smooth` rounds through midpoints. */
+/** Area + line through the first n buffered points, with a dark underlay so it reads on any map. */
 function drawCurve(n, fill, stroke, width, smooth) {
   if (n < 2) return;
   const base = ch - 1;
@@ -408,6 +529,9 @@ function drawCurve(n, fill, stroke, width, smooth) {
   ctx.beginPath();
   tracePath(n, smooth);
   ctx.lineJoin = 'round';
+  ctx.lineWidth = width + 2.5;
+  ctx.strokeStyle = C.under;
+  ctx.stroke();
   ctx.lineWidth = width;
   ctx.strokeStyle = stroke;
   ctx.stroke();
@@ -421,18 +545,23 @@ function meanTo(e, m) {
   return sum / m;
 }
 
+function clearCanvas() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  frameTransform();
+}
+
 function renderLive(now, dt) {
   const est = estimate(now);
   let t = est;
   if (t !== null && shownT !== null && t < shownT && shownT - t < 400) t = shownT; // never jitter backwards
   shownT = t;
   scaleTarget = targetScale();
-  const easing = 1 - Math.exp(-dt / 140);
-  scale += (scaleTarget - scale) * easing;
+  scale += (scaleTarget - scale) * (1 - Math.exp(-dt / 140));
   if (Math.abs(scaleTarget - scale) < 0.01) scale = scaleTarget;
   const scaling = scale !== scaleTarget;
 
-  ctx.clearRect(0, 0, cw, ch);
+  clearCanvas();
   const nowX = Math.round(cw * NOW_AT);
   const keysPresent = Array.isArray(values['/keys/all']);
   if (t === null || !cw) {
@@ -445,21 +574,17 @@ function renderLive(now, dt) {
   const t0 = t - span;
   const t1 = t + (cw - nowX) / k;
 
-  // Future zone: the map's upcoming density, no player data yet.
-  ctx.fillStyle = C.future;
-  ctx.fillRect(nowX, 0, cw - nowX, ch);
-
   // Chart-recorder grid anchored to time: 1 s minor, 5 s (or 10 s) major.
   const second = 1000 * rate;
   const major = spanS > 30 ? 10 : 5;
   ctx.lineWidth = 1;
-  if (k * second >= 7) {
+  if (k * second >= 8) {
     ctx.strokeStyle = C.gridMinor;
     ctx.beginPath();
     for (let s = Math.ceil(t0 / second); s * second <= t1; s++) {
       if (s % major === 0) continue;
       const x = crisp((s * second - t0) * k);
-      ctx.moveTo(x, 0); ctx.lineTo(x, ch - 1);
+      ctx.moveTo(x, chartTop); ctx.lineTo(x, ch - 1);
     }
     ctx.stroke();
   }
@@ -467,7 +592,7 @@ function renderLive(now, dt) {
   ctx.beginPath();
   for (let s = Math.ceil(t0 / (second * major)); s * second * major <= t1; s++) {
     const x = crisp((s * second * major - t0) * k);
-    ctx.moveTo(x, 0); ctx.lineTo(x, ch - 1);
+    ctx.moveTo(x, chartTop); ctx.lineTo(x, ch - 1);
   }
   ctx.stroke();
 
@@ -477,8 +602,8 @@ function renderLive(now, dt) {
   const nowBin = binOf(t);
   const current = keysPresent && nowBin <= used ? kps[nowBin] : 0;
   const avg = average(t);
-  if (avg !== null) drawLevel(avg, C.avg, DASH_AVG, 0, cw);
-  if (peak > 0) drawLevel(peak, C.peak, DASH_PEAK, 0, cw);
+  if (keysPresent && avg !== null) drawLevel(avg, C.avg, DASH_AVG, 0, nowX);
+  if (keysPresent && peak > 0) drawLevel(peak, C.peak, DASH_PEAK, 0, nowX);
 
   // KPS trace: points every `stride` bins, anchored to absolute bins so the shape never shimmers;
   // each point averages the last SMOOTH bins of window values so ±1 count flicker reads as a line.
@@ -499,7 +624,7 @@ function renderLive(now, dt) {
     px[n] = nowX; py[n] = headY; n++;
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, nowX, ch); ctx.clip();
-    drawCurve(n, fillGrad, C.line, 1.5, true);
+    drawCurve(n, fillGrad, C.line, 1.75, true);
     ctx.restore();
     if (peakBin >= 0) {
       const x = (timeOf(peakBin) - t0) * k;
@@ -515,11 +640,10 @@ function renderLive(now, dt) {
   ctx.moveTo(nx, 0); ctx.lineTo(nx, ch - 1);
   ctx.stroke();
   if (keysPresent) {
-    const y = headY;
     ctx.fillStyle = C.halo;
-    ctx.beginPath(); ctx.arc(nowX, y, 5.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.accent;
-    ctx.beginPath(); ctx.arc(nowX, y, 2.75, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(nowX, headY, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = C.hl;
+    ctx.beginPath(); ctx.arc(nowX, headY, 3, 0, Math.PI * 2); ctx.fill();
   }
   drawBase();
   if (keysPresent) drawGridLabels();
@@ -536,50 +660,57 @@ function average(t) {
   return seconds >= 1 ? total / seconds : null;
 }
 
+/** The map's average note rate in notes per real second (one press per mania object). */
+function mapRate() {
+  const objects = values['/beatmap/stats/objects/total'];
+  const first = values['/beatmap/time/firstObject'];
+  const last = values['/beatmap/time/lastObject'];
+  if (typeof objects !== 'number' || typeof first !== 'number' || typeof last !== 'number' || last - first < 1000 || objects < 1) return null;
+  return objects / ((last - first) / rate / 1000);
+}
+
 function renderStill() {
+  clearCanvas();
+  if (!cw || (view !== 'summary' && view !== 'select')) { readouts(null, true); return; }
+  const run = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
   scale = scaleTarget = targetScale();
-  ctx.clearRect(0, 0, cw, ch);
-  if (!cw) return;
   const mp3 = values['/beatmap/time/mp3Length'];
   let t0 = sn ? Math.min(0, sx[0]) : 0;
   let t1 = typeof mp3 === 'number' && mp3 > 0 ? mp3 : 0;
   if (sn) t1 = Math.max(t1, sx[sn - 1]);
-  const showRun = view === 'summary';
-  if (showRun && total) { t0 = Math.min(t0, firstT - 1000); t1 = Math.max(t1, timeOf(used)); }
-  if (view === 'map' || view === 'summary') {
-    if (t1 > t0) {
-      // The summary keeps a right gutter for the KPS scale so labels never sit on the trace.
-      const k = (cw - (showRun ? GUTTER : 0)) / (t1 - t0);
-      drawStrain(t0, t1, k);
-      drawGridH(0, cw);
-      if (showRun) {
-        const avg = average(Infinity);
-        if (avg !== null) drawLevel(avg, C.avg, DASH_AVG, 0, cw);
-        drawLevel(peak, C.peak, DASH_PEAK, 0, cw);
-        // Whole attempt, ~2 px per point: the column's highest window value, so the envelope
-        // meets the peak marker exactly.
-        const per = Math.max(1, Math.round(2 / (k * BIN)));
-        let n = 0;
-        let b = binOf(firstT - 1000 * rate);
-        b -= b % per;
-        for (; b <= used && n < px.length - 1; b += per) {
-          let top = 0;
-          for (let j = b; j < b + per; j++) if (kps[j] > top) top = kps[j];
-          px[n] = (timeOf(b + per - 1) - t0) * k;
-          py[n] = yOf(top);
-          n++;
-        }
-        px[n] = px[n - 1] + 1; py[n] = ch - 1; n++; // the run ends on the baseline
-        drawCurve(n, ghostGrad, C.ghost, 1.25, false);
-        if (peakBin >= 0) drawPeakMark((timeOf(peakBin - (peakBin % per) + per - 1) - t0) * k);
+  if (run) { t0 = Math.min(t0, firstT - 1000); t1 = Math.max(t1, timeOf(used)); }
+  if (t1 > t0) {
+    // Time runs upward over the whole map; the top GUTTER px hold the KPS scale.
+    const k = (cw - GUTTER) / (t1 - t0);
+    drawStrain(t0, t1, k);
+    if (run) {
+      drawGridH(0, cw - GUTTER);
+      const avg = average(Infinity);
+      if (avg !== null) drawLevel(avg, C.avg, DASH_AVG, 0, cw - GUTTER);
+      drawLevel(peak, C.peak, DASH_PEAK, 0, cw - GUTTER);
+      // Whole attempt, ~2 px per point: the highest window value in each slice, so the envelope
+      // meets the peak marker exactly.
+      const per = Math.max(1, Math.round(2 / (k * BIN)));
+      let n = 0;
+      let b = binOf(firstT - 1000 * rate);
+      b -= b % per;
+      for (; b <= used && n < px.length - 1; b += per) {
+        let top = 0;
+        for (let j = b; j < b + per; j++) if (kps[j] > top) top = kps[j];
+        px[n] = (timeOf(b + per - 1) - t0) * k;
+        py[n] = yOf(top);
+        n++;
       }
-    } else drawGridH(0, cw);
-  } else if (view === 'empty') drawGridH(0, cw);
+      px[n] = px[n - 1] + 1; py[n] = ch - 1; n++; // the run ends on the baseline
+      drawCurve(n, ghostGrad, C.ghost, 1.5, false);
+      if (peakBin >= 0) drawPeakMark((timeOf(peakBin - (peakBin % per) + per - 1) - t0) * k);
+    }
+  }
   drawBase();
-  if (showRun) drawGridLabels();
+  if (run) drawGridLabels();
   if (axisDirty) {
     axisDirty = false;
-    const has = t1 > t0 && view !== 'empty';
+    const has = t1 > t0;
     put(el.axisL, has ? formatDuration(Math.max(0, t0) / rate) : '');
     put(el.axisM, has ? formatDuration(Math.max(0, (t0 + t1) / 2) / rate) : '');
     put(el.axisR, has ? formatDuration(t1 / rate) : '');
@@ -591,81 +722,98 @@ function renderStill() {
 // ---------------------------------------------------------------- DOM readouts
 function columns() {
   const keys = values['/keys/all'];
-  if (Array.isArray(keys) && keys.length) return keys.length;
+  if (isPlaying(values['/state/number']) && Array.isArray(keys) && keys.length) return keys.length;
   const cs = values['/beatmap/stats/cs/converted'];
   return typeof cs === 'number' && cs > 0 ? Math.round(cs) : null;
 }
 
 const SOURCES = { replay: 'Replay', spectator: 'Spectating', watching: 'Watching', autoplay: 'Autoplay' };
-
 const NONE = '—';
-/** A readout value; placeholders render muted. */
+/** A readout value; placeholders render dimmed. */
 function show(node, value) {
   if (node._text === value) return;
   put(node, value);
   attr(node, 'data-none', value === NONE ? '' : null);
 }
 const intText = v => (v >= 0 && v < NUMBERS.length ? NUMBERS[v] : String(v));
-// One-decimal text cached by tenths so a steady average allocates nothing per frame.
-const tenths = { key: NaN, text: NONE };
-function decimal(v) {
+// One-decimal text cached by tenths per slot so a steady average allocates nothing per frame.
+function decimal(cache, v) {
   if (v === null || v === undefined) return NONE;
   const key = Math.round(v * 10);
-  if (key !== tenths.key) { tenths.key = key; tenths.text = (key / 10).toFixed(1); }
-  return tenths.text;
+  if (key !== cache.key) { cache.key = key; cache.text = (key / 10).toFixed(1); }
+  return cache.text;
 }
-let metaKey = '';
+const avgText = { key: NaN, text: NONE };
+const mapText = { key: NaN, text: NONE };
+let phaseKey = '';
+
+function phase(label) {
+  const keyCount = columns();
+  const rateText = Math.abs(rate - 1) > 0.001 ? ` · ${rate.toFixed(2)}×` : '';
+  const key = `${label}|${keyCount}|${rateText}`;
+  if (key === phaseKey) return;
+  phaseKey = key;
+  put(el.phase, keyCount ? `${label} · ${keyCount}K${rateText}` : `${label}${rateText}`);
+}
+
+function labels(p, a, b, aKey, bKey, unit) {
+  put(el.pLabel, p); put(el.aLabel, a); put(el.bLabel, b);
+  attr(el.aLabel, 'data-key', aKey); attr(el.bLabel, 'data-key', bKey);
+  put(el.pUnit, unit);
+}
 
 function readouts(current, keysPresent, avg) {
-  const keyCount = view === 'empty' ? 0 : columns() ?? 0;
-  if (metaKey !== keyCount * 1000 + rate) {
-    metaKey = keyCount * 1000 + rate;
-    const rateText = Math.abs(rate - 1) > 0.001 ? `${rate.toFixed(2)}×` : '';
-    put(el.meta, keyCount ? (rateText ? `${keyCount}K · ${rateText}` : `${keyCount}K`) : rateText);
-  }
-
   if (view === 'live') {
-    put(el.phase, SOURCES[values['/play/source']] ?? 'Live');
-    put(el.pLabel, 'Now'); put(el.aLabel, 'Peak'); put(el.bLabel, 'Avg');
-    attr(el.aLabel, 'data-key', 'peak'); attr(el.bLabel, 'data-key', 'avg');
+    phase(SOURCES[values['/play/source']] ?? 'Live');
+    labels('Now', 'Peak', 'Avg', 'peak', 'avg', 'kps');
     attr(el.aValue, 'data-peak', '');
     const live = keysPresent && current !== null;
     show(el.pValue, live ? intText(current) : NONE);
     show(el.aValue, live && peak > 0 ? intText(peak) : NONE);
-    show(el.bValue, live ? decimal(avg) : NONE);
-    attr(panel, 'data-hot', live && peak >= 5 && current === peak ? '' : null);
+    show(el.bValue, live ? decimal(avgText, avg) : NONE);
+    attr(block, 'data-hot', live && peak >= 5 && current === peak ? '' : null);
     note.hidden = keysPresent;
-    if (!keysPresent) put(note, 'No key data · enable ENABLE_KEY_OVERLAY in vosu');
+    if (!keysPresent) put(note, 'No key data. Enable ENABLE_KEY_OVERLAY in vosu.');
     if (axisDirty) {
       axisDirty = false;
-      put(el.axisL, `−${spanS} s`);
-      put(el.axisM, `−${spanS / 2} s`);
+      put(el.axisL, `−${spanS}s`);
+      put(el.axisM, `−${spanS / 2}s`);
       put(el.axisN, 'Now');
       const ahead = spanS * (1 - NOW_AT) / NOW_AT;
-      put(el.axisR, `+${ahead < 10 ? ahead.toFixed(1) : Math.round(ahead)} s`);
+      put(el.axisR, `+${ahead < 10 ? ahead.toFixed(1) : Math.round(ahead)}s`);
     }
     return;
   }
   note.hidden = true;
-  attr(panel, 'data-hot', null);
-  const results = values['/state/number'] === RESULTS;
+  attr(block, 'data-hot', null);
+  attr(el.aValue, 'data-peak', null);
   if (view === 'summary') {
-    put(el.phase, results ? 'Result' : 'Last run');
-    put(el.pLabel, 'Peak'); put(el.aLabel, 'Avg'); put(el.bLabel, 'Keys');
-    attr(el.aLabel, 'data-key', 'avg'); attr(el.bLabel, 'data-key', 'none');
-    attr(el.aValue, 'data-peak', null);
+    phase('Result');
+    labels('Peak', 'Avg', 'Keys', 'avg', 'none', 'kps');
     show(el.pValue, intText(peak));
-    show(el.aValue, decimal(average(Infinity)));
+    show(el.aValue, decimal(avgText, average(Infinity)));
     show(el.bValue, intText(total));
     return;
   }
-  put(el.phase, view === 'map' ? (results ? 'Result' : 'Map') : 'Idle');
-  put(el.pLabel, 'Now'); put(el.aLabel, 'Peak'); put(el.bLabel, 'Avg');
-  attr(el.aLabel, 'data-key', 'peak'); attr(el.bLabel, 'data-key', 'avg');
-  show(el.pValue, NONE); show(el.aValue, NONE); show(el.bValue, NONE);
+  if (view === 'select') {
+    // osu! shows object counts and length, not the rate they add up to, nor where it peaks.
+    const run = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+    phase(RESULTS.has(values['/state/number']) ? 'Result' : 'Map');
+    if (run) {
+      labels('Map avg', 'Peak', 'Avg', 'peak', 'avg', 'nps');
+      show(el.aValue, intText(peak));
+      show(el.bValue, decimal(avgText, average(Infinity)));
+    } else {
+      labels('Map avg', '', '', 'none', 'none', 'nps');
+      put(el.aValue, ''); put(el.bValue, '');
+    }
+    show(el.pValue, decimal(mapText, mapRate()));
+  }
 }
 
 // ---------------------------------------------------------------- wiring
+recolor();
+let lastKeyCount = -1;
 settings(DEFAULTS, applySettings);
 subscribe(POINTERS, (next, changed) => {
   values = next;
@@ -673,8 +821,9 @@ subscribe(POINTERS, (next, changed) => {
   if (changed.has('/beatmap/time/rate') || changed.has('/play/mods/rate')) {
     const r = values['/beatmap/time/rate'] ?? values['/play/mods/rate'];
     const fresh = typeof r === 'number' && r > 0 ? r : 1;
-    if (fresh !== rate) { rate = fresh; takeStrain(); if (total === 0) w = Math.max(1, Math.round(1000 * rate / BIN)); }
+    if (fresh !== rate) { rate = fresh; takeStrain(); if (total === 0) w = Math.max(1, Math.round(1000 * rate / BIN)); dirty = axisDirty = true; }
   }
+  if (changed.has('/performance/graph/series') || changed.has('/performance/graph/xaxis')) { takeStrain(); dirty = axisDirty = true; }
   setView(decideView());
   if (changed.has('/beatmap/time/live')) {
     const t = values['/beatmap/time/live'];
@@ -685,9 +834,10 @@ subscribe(POINTERS, (next, changed) => {
     } else liveT = null;
   }
   if (view === 'live' && changed.has('/keys/all')) takeKeys(now);
-  if (changed.has('/performance/graph/series') || changed.has('/performance/graph/xaxis')) { takeStrain(); dirty = true; axisDirty = true; }
-  if (changed.has('/beatmap/checksum') || changed.has('/beatmap/stats/cs/converted') || changed.has('/keys/all') || changed.has('/play/source')) dirty = true;
-  if (changed.has('/beatmap/time/mp3Length') && view !== 'live') axisDirty = dirty = true;
+  if (changed.has('/beatmap/checksum')) { loadPalette(); dirty = axisDirty = true; }
+  const keyCount = Array.isArray(values['/keys/all']) ? values['/keys/all'].length : -1;
+  if (keyCount !== lastKeyCount || changed.has('/beatmap/stats/cs/converted') || changed.has('/client')) { lastKeyCount = keyCount; place(); dirty = true; }
+  if (changed.has('/beatmap/time/mp3Length') || changed.has('/beatmap/stats/objects/total') || changed.has('/beatmap/time/lastObject') || changed.has('/play/source')) dirty = axisDirty = true;
   if (view === 'live' || dirty) kick();
 }, {
   onStatus: next => {

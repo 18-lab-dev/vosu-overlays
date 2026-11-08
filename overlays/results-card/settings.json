@@ -1,6 +1,12 @@
 [
- {"uniqueID":"showHistogram","type":"checkbox","title":"Show hit-error histogram","description":"Timing histogram with UR, mean and early/late split, captured while the attempt was played. osu!catch has no timing and never shows it.","value":true},
- {"uniqueID":"showMap","type":"checkbox","title":"Show map","description":"Title, artist, difficulty, mapper and star rating above the score.","value":true},
- {"uniqueID":"hold","type":"number","title":"Hold duration / s","description":"Seconds the card stays up after the results screen opens. 0 keeps it up for as long as the results screen is open.","value":0},
- {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Brand tag in the card header.","value":true}
+ {"uniqueID": "zone", "type": "options", "title": "Position", "options": ["header", "center"], "description": "header: a one-row strip in the right part of the results header band (osu!stable's title bar; free on lazer too). center: a stacked block between stable's score panel and grade, for skins whose grade art leaves that column empty.", "value": "header"},
+ {"uniqueID": "x", "type": "number", "title": "Horizontal nudge / px", "description": "Shifts the block right (negative: left) from the chosen position, in 1080p pixels.", "value": 0},
+ {"uniqueID": "y", "type": "number", "title": "Vertical nudge / px", "description": "Shifts the block down (negative: up) from the chosen position, in 1080p pixels.", "value": 0},
+ {"uniqueID": "scale", "type": "number", "title": "Scale", "description": "Size multiplier, 0.5–2.", "value": 1},
+ {"uniqueID": "backing", "type": "options", "title": "Backing", "options": ["none", "scrim", "panel"], "description": "none floats the numbers on the game; scrim adds a soft dark fade behind them; panel draws the 18-LAB graphite panel.", "value": "none"},
+ {"uniqueID": "accent", "type": "options", "title": "Accent", "options": ["map", "18-lab"], "description": "map tints the highlight (UR, mean marker, pp gap) with a colour derived from the beatmap background; 18-lab keeps the amber accent. Judgement and early/late colours never change.", "value": "map"},
+ {"uniqueID": "showHistogram", "type": "checkbox", "title": "Show hit-error histogram", "description": "Timing histogram and early/late split. UR and mean stay when it is off. osu!catch has no timing, so only pp shows there.", "value": true},
+ {"uniqueID": "showPp", "type": "checkbox", "title": "Show pp and if-FC", "description": "pp of the score and, when combo was lost, the pp a full combo would have given and the gap. osu!stable's results screen shows no pp.", "value": true},
+ {"uniqueID": "hold", "type": "number", "title": "Hold duration / s", "description": "Seconds it stays up after the results screen opens. 0 keeps it up for as long as the results screen is open.", "value": 0},
+ {"uniqueID": "showBrand", "type": "checkbox", "title": "Show 18—LAB tag", "description": "Brand tag in the header line.", "value": true}
 ]

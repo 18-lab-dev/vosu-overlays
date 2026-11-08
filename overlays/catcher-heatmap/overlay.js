@@ -1,16 +1,21 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Catcher heatmap: where the osu!catch catcher spends its time this attempt, on a top-down
-// 0–512 playfield strip. Time-weighted from vosu's /play/catcher samples on the map clock.
-import { subscribe, settings, fit, activeMode, isPlaying, formatDuration } from './vosu-overlay.js';
+// Catcher heatmap: where the osu!catch catcher spends its time this attempt, as a top-down
+// 0–512 playfield strip floating in a side band beside osu!'s playfield. Time-weighted from
+// vosu's /play/catcher samples on the map clock.
+import {
+  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette,
+} from './vosu-overlay.js';
 
-const W = 640;
-const H = 208;
+const W = 1920;
+const H = 1080;
+const ZONE_W = 336;
 const FIELD = 512;
 const BIN_CHOICES = [16, 32, 64, 128];
 const MISSING_AFTER_MS = 1500;   // grace before calling /play/catcher absent during play
 const MAX_STEP_MS = 3000;        // larger clock gaps are seeks/hitches: resync, don't smear
 const RETRY_JUMP_MS = 1500;      // clock jumping back this far mid-play = a new attempt
 const TEXT_INTERVAL_MS = 200;    // readouts don't need 60 Hz; keeps layout/style idle
+const RESULTS = 7;
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', selMode: '/settings/mode/number',
@@ -20,18 +25,18 @@ const P = {
 };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
-const panel = $('panel');
+const root = document.documentElement;
+const zone = $('zone');
+const hud = $('hud');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  brand: $('brand'), clock: $('clock'), tag: $('tag'), dash: $('dash'), note: $('note'),
+  brand: $('brand'), clock: $('clock'), dash: $('dash'),
   cog: $('cog'), cogSide: $('cogSide'), spread: $('spread'), dashShare: $('dashShare'),
-  left: $('left'), right: $('right'), travel: $('travel'), leftFill: $('leftFill'),
-  status: $('status'), statusText: $('statusText'),
+  left: $('left'), right: $('right'), status: $('status'), statusText: $('statusText'),
 };
 
-fit(stage, W, H);
+fit($('stage'), W, H);
 
 // ---------------------------------------------------------------- attempt accumulator
 // 1 px columns of the playfield; display bins are summed from these, so the bin setting
@@ -42,14 +47,13 @@ let total = 0;        // ms recorded
 let sumX = 0;         // ∫x dt
 let sumX2 = 0;        // ∫x² dt
 let dashTime = 0;
-let travel = 0;       // px moved
 let prevT = NaN;
 let prevX = 0;
 let prevDash = false;
 
 function resetAttempt() {
   hist.fill(0);
-  total = sumX = sumX2 = dashTime = travel = 0;
+  total = sumX = sumX2 = dashTime = 0;
   prevT = NaN;
 }
 
@@ -61,7 +65,6 @@ function accumulate(a, b, dt, dashing) {
   sumX += dt * (a + b) / 2;
   sumX2 += dt * (a * a + a * b + b * b) / 3;
   if (dashing) dashTime += dt;
-  travel += Math.abs(b - a);
   let lo = a < b ? a : b;
   const hi = a < b ? b : a;
   const span = hi - lo;
@@ -78,9 +81,10 @@ function accumulate(a, b, dt, dashing) {
 
 // ---------------------------------------------------------------- live state
 let status = 'connecting';
+let statusDetail = '';
+let state;
 let mode = null;
 let playing = false;
-let resultsState = false;
 let checksum;
 let catcherX = NaN;   // NaN = no live catcher sample
 let dashingNow = false;
@@ -92,8 +96,12 @@ let raf = 0;
 let textDue = true;
 let textTimer = 0;
 let lastTextAt = -Infinity;
+let placementDue = true;
 
-const opts = { bins: 64, intensity: 1, showMarker: true, showBrand: true };
+const opts = {
+  zone: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map',
+  bins: 64, intensity: 1, showMarker: true, showOnResults: true, showBrand: true,
+};
 
 /** osu!catch catch range (lazer Catcher.CalculateCatchWidth): 106.75 × CS scale × 0.8. */
 function catchRange(cs) {
@@ -101,18 +109,17 @@ function catchRange(cs) {
 }
 
 function onFrame(values, changed) {
-  const state = values[P.state];
+  state = values[P.state];
   const nowPlaying = isPlaying(state);
   const nextMode = activeMode(state, values[P.playMode], values[P.selMode]);
-  let visualChange = false;
-  if ((state === 7) !== resultsState) { resultsState = state === 7; visualChange = true; }
+  let visualChange = changed.has(P.state);
 
   if (changed.has(P.checksum)) {
     const next = values[P.checksum];
     if (next !== undefined && checksum !== undefined && next !== checksum) { resetAttempt(); visualChange = true; }
-    if (next !== undefined) checksum = next;
+    if (next !== undefined && next !== checksum) { checksum = next; loadPalette(); }
   }
-  if (nextMode === null && total > 0 && state === undefined) { resetAttempt(); visualChange = true; } // osu! closed
+  if (state === undefined && total > 0) { resetAttempt(); visualChange = true; } // osu! closed
   if (nowPlaying && !playing) { resetAttempt(); playSince = performance.now(); missing = false; visualChange = true; }
   if (nextMode !== mode || nowPlaying !== playing) visualChange = true;
   playing = nowPlaying;
@@ -160,7 +167,6 @@ function onFrame(values, changed) {
   if (visualChange) markDirty(false);
 }
 
-let statusDetail = '';
 function onStatus(next, detail) {
   statusDetail = detail;
   if (next === status) return;
@@ -168,20 +174,9 @@ function onStatus(next, detail) {
   markDirty(true);
 }
 
-subscribe(Object.values(P), onFrame, { onStatus });
-
-// `bins` defaults to a number so both vosu's option strings and numeric pushes coerce.
-settings({ bins: 64, intensity: 1, showMarker: true, showBrand: true }, s => {
-  opts.bins = BIN_CHOICES.includes(s.bins) ? s.bins : 64;
-  opts.intensity = Math.min(4, Math.max(0.25, s.intensity));
-  opts.showMarker = s.showMarker;
-  opts.showBrand = s.showBrand;
-  markDirty(true);
-});
-
 // ---------------------------------------------------------------- colour
-// Cool steel heat ramp (graphite → --signal → --j-max) so the amber live marker stays the one
-// warm thing on the strip. 256 precomputed CSS strings: no per-frame allocation.
+// Cool steel heat ramp (graphite → --signal → --j-max): data, not identity. The live catcher and
+// dash state carry the highlight colour (the map's tonal accent, or 18-LAB amber).
 const RAMP = [[0, 30, 33, 37], [0.18, 38, 55, 74], [0.45, 63, 100, 140], [0.72, 127, 166, 207], [1, 235, 232, 225]];
 const LUT = Array.from({ length: 256 }, (_, i) => {
   const u = i / 255;
@@ -192,30 +187,75 @@ const LUT = Array.from({ length: 256 }, (_, i) => {
   const f = (u - u0) / (u1 - u0 || 1);
   return `rgb(${Math.round(r0 + (r1 - r0) * f)} ${Math.round(g0 + (g1 - g0) * f)} ${Math.round(b0 + (b1 - b0) * f)})`;
 });
-const BAR_FLOOR = 46; // weakest bar still reads against the panel
+const BAR_FLOOR = 46; // weakest bar still reads against the ground
 
-const css = getComputedStyle(document.documentElement);
+const css = getComputedStyle(root);
 const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+const AMBER = token('--accent', '#ff963f');
 const C = {
-  accent: token('--accent', '#ff963f'),
-  accentSoft: 'rgb(255 150 63 / .22)',
+  hl: AMBER,
+  hlSoft: 'rgb(255 150 63 / .22)',
   fg: token('--j-max', '#ebe8e1'),
-  muted: token('--muted', '#7e8288'),
-  rule: token('--rule-strong', '#3b3f45'),
-  gridMajor: 'rgb(235 232 225 / .10)',
-  gridMinor: 'rgb(235 232 225 / .045)',
-  halo: 'rgb(17 18 20 / .8)',
+  tick: 'rgb(235 232 225 / .55)',
+  rail: 'rgb(235 232 225 / .3)',
+  gridMajor: 'rgb(235 232 225 / .12)',
+  gridMinor: 'rgb(235 232 225 / .05)',
+  halo: 'rgb(10 11 12 / .8)',
 };
 
+function setHighlight(hex) {
+  C.hl = hex;
+  const n = Number.parseInt(hex.slice(1), 16);
+  C.hlSoft = `rgb(${n >> 16} ${(n >> 8) & 255} ${n & 255} / .22)`;
+}
+
+// Map tint: loaded per checksum off the hot path; null (no usable background) keeps amber.
+let paletteFor = null;
+function loadPalette() {
+  const want = opts.accent === 'map' && checksum ? checksum : null;
+  if (want === paletteFor) return;
+  paletteFor = want;
+  if (!want) { applyPalette(root, null); setHighlight(AMBER); markDirty(false); return; }
+  mapPalette(want).then(palette => {
+    if (paletteFor !== want) return;
+    applyPalette(root, palette);
+    setHighlight(palette?.accent || AMBER);
+    markDirty(false);
+  });
+}
+
+// ---------------------------------------------------------------- placement
+// Gameplay default: the right side band of osu!'s 4:3 catch playfield, right-aligned with the
+// score readout and below score/accuracy, above where skins put the key counter; `left` mirrors
+// it under the health bar. Results: osu!stable's ranking screen fills the screen except the right
+// of its header strip (title/mapper sit on the left), so the held attempt lies flat there.
+// x/y nudge and scale apply to both, for other skins.
+const RESULTS_W = 696;
+function place(name) {
+  const s = opts.scale;
+  let left;
+  let top;
+  if (name === 'held') {
+    left = W - 20 - RESULTS_W * s;
+    top = 8;
+  } else {
+    const { score, accuracy, health } = osuLayout('fruits').hud;
+    top = Math.max(accuracy.y + accuracy.h, health.y + health.h) + 40;
+    left = opts.zone === 'left' ? health.x : score.x + score.w - ZONE_W * s;
+  }
+  zone.style.transform = `translate(${Math.round(left + opts.x)}px, ${Math.round(top + opts.y)}px) scale(${s})`;
+  size();
+}
+
 // ---------------------------------------------------------------- canvas geometry (CSS px)
-const LANE = { cgTop: 0, cgBottom: 6, histTop: 9, histBottom: 61, bandTop: 64, bandBottom: 71, plateTop: 74, plateBottom: 80, tickBottom: 86 };
-let k = 1;   // device px per CSS px (DPR × stage scale)
+const LANE = { cgTop: 0, cgBottom: 6, histTop: 9, histBottom: 56, bandTop: 59, bandBottom: 66, plateTop: 69, plateBottom: 75, tickBottom: 80 };
+let k = 1;   // device px per CSS px (DPR × stage fit × zone scale)
 let cw = 0;
 let ch = 0;
 
 function size() {
-  const scale = Math.min(innerWidth / W, innerHeight / H) || 1;
-  k = (devicePixelRatio || 1) * scale;
+  const fitScale = Math.min(innerWidth / W, innerHeight / H) || 1;
+  k = (devicePixelRatio || 1) * fitScale * opts.scale;
   const w = Math.max(1, Math.round(canvas.clientWidth * k));
   const h = Math.max(1, Math.round(canvas.clientHeight * k));
   if (w !== cw || h !== ch) { cw = canvas.width = w; ch = canvas.height = h; }
@@ -228,17 +268,17 @@ const Y = v => Math.round(v * k);
 const X = x => Math.round(x / FIELD * cw);
 
 /** Vertical rule (`width` css px) at playfield x from y0..y1 (css px), optionally dashed, with a dark halo. */
-function vline(x, y0, y1, colour, dashed, halo, width) {
+function vline(x, y0, y1, colour, dashed, width) {
   const lw = Math.max(width, Math.round(k * width));
+  const hw = Math.max(1, Math.round(k));
   const px = Math.min(cw - lw, Math.max(0, X(x) - (lw >> 1)));
   const top = Y(y0);
   const bottom = Y(y1);
-  if (halo) { const hw = Math.max(1, Math.round(k)); ctx.fillStyle = C.halo; ctx.fillRect(px - hw, top, lw + hw * 2, bottom - top); }
+  ctx.fillStyle = C.halo;
+  ctx.fillRect(px - hw, top, lw + hw * 2, bottom - top);
   ctx.fillStyle = colour;
   if (!dashed) { ctx.fillRect(px, top, lw, bottom - top); return; }
-  const on = 3 * Math.max(1, Math.round(k));
-  const period = 5 * Math.max(1, Math.round(k));
-  for (let y = top; y < bottom; y += period) ctx.fillRect(px, y, lw, Math.min(on, bottom - y));
+  for (let y = top; y < bottom; y += 5 * hw) ctx.fillRect(px, y, lw, Math.min(3 * hw, bottom - y));
 }
 
 function drawGrid() {
@@ -249,14 +289,14 @@ function drawGrid() {
     ctx.fillStyle = x === 256 ? C.gridMajor : C.gridMinor;
     ctx.fillRect(X(x) - (lw >> 1), top, lw, bottom - top);
   }
-  // Rail: hairline under the catcher lane with 64 px ticks, majors at the edges and centre.
-  ctx.fillStyle = C.rule;
-  ctx.fillRect(0, Y(LANE.plateBottom) + lw, cw, lw);
-  ctx.fillStyle = C.muted;
+  // Rail under the catcher lane, 64 px ticks, majors at the edges and centre.
+  const rail = Y(LANE.plateBottom) + lw;
+  ctx.fillStyle = C.rail;
+  ctx.fillRect(0, rail, cw, lw);
+  ctx.fillStyle = C.tick;
   for (let x = 0; x <= FIELD; x += 64) {
-    const major = x % 256 === 0;
     const px = Math.min(cw - lw, Math.max(0, X(x) - (lw >> 1)));
-    ctx.fillRect(px, Y(LANE.plateBottom) + lw, lw, Y(major ? LANE.tickBottom : LANE.tickBottom - 2.5) - Y(LANE.plateBottom) - lw);
+    ctx.fillRect(px, rail, lw, Y(x % 256 === 0 ? LANE.tickBottom : LANE.tickBottom - 2) - rail);
   }
 }
 
@@ -268,9 +308,8 @@ function drawHeat() {
   let max = 0;
   for (let i = 0; i < bins; i++) if (view[i] > max) max = view[i];
   const gap = cw / bins >= 4 * k ? Math.max(1, Math.round(k)) : 0;
-  const histTop = Y(LANE.histTop);
   const histBottom = Y(LANE.histBottom);
-  const histH = histBottom - histTop;
+  const histH = histBottom - Y(LANE.histTop);
   const bandTop = Y(LANE.bandTop);
   const bandH = Y(LANE.bandBottom) - bandTop;
   const minH = Math.max(1, Math.round(k));
@@ -291,7 +330,7 @@ function drawHeat() {
 }
 
 function drawCentreOfGravity(cog) {
-  vline(cog, LANE.histTop, LANE.bandBottom, C.fg, true, true, 1);
+  vline(cog, LANE.histTop, LANE.bandBottom, C.fg, true, 1);
   const cx = X(cog);
   const half = Y(4);
   ctx.fillStyle = C.fg;
@@ -304,7 +343,7 @@ function drawCentreOfGravity(cog) {
 }
 
 function drawCatcher() {
-  vline(catcherX, LANE.histTop, LANE.bandBottom, C.accent, false, true, 2);
+  vline(catcherX, LANE.histTop, LANE.bandBottom, C.hl, false, 2);
   const lw = Math.max(1, Math.round(k));
   const half = (catchWidth || 24) / 2;
   const x0 = Math.max(0, X(catcherX - half));
@@ -312,12 +351,12 @@ function drawCatcher() {
   const top = Y(LANE.plateTop);
   const h = Y(LANE.plateBottom) - top;
   if (dashingNow) {
-    ctx.fillStyle = C.accent;
+    ctx.fillStyle = C.hl;
     ctx.fillRect(x0, top, x1 - x0, h);
   } else {
-    ctx.fillStyle = C.accentSoft;
+    ctx.fillStyle = C.hlSoft;
     ctx.fillRect(x0, top, x1 - x0, h);
-    ctx.fillStyle = C.accent;
+    ctx.fillStyle = C.hl;
     ctx.fillRect(x0, top, x1 - x0, lw);
     ctx.fillRect(x0, top + h - lw, x1 - x0, lw);
     ctx.fillRect(x0, top, lw, h);
@@ -332,49 +371,39 @@ function setText(node, text) {
   shown.set(node, text);
   node.textContent = text;
 }
-let leftScale = -1;
-let viewName = '';
-let dashOn = null;
-let tagLive = null;
+const DASHES = [el.cog, el.spread, el.dashShare, el.left, el.right];
 
-function compactPx(px) {
-  return px >= 9999.5 ? `${(px / 1000).toFixed(px >= 99950 ? 0 : 1)}k px` : `${Math.round(px)} px`;
-}
-
+/** What the zone shows: the strip during catch play, the held attempt on results, else nothing. */
 function currentView() {
-  if (status !== 'live') return 'hidden';
-  if (mode === null) return 'nodata';
-  if (mode !== 'fruits') return 'hidden';
-  if (playing) return 'live';
-  return total > 0 ? 'held' : 'waiting';
+  if (status !== 'live' || mode !== 'fruits') return 'hidden';
+  if (playing) return missing ? 'hidden' : 'live';
+  if (state === RESULTS && opts.showOnResults && total > 0) return 'held';
+  return 'hidden';
 }
 
-function writeText(name) {
-  const has = total > 0;
-  setText(el.tag, name === 'held' || (name === 'waiting' && resultsState) ? (resultsState ? 'Result' : 'Last attempt') : TAGS[name]);
-  const live = name === 'live';
-  if (live !== tagLive) { tagLive = live; el.tag.toggleAttribute('data-live', live); }
-  setText(el.clock, has ? formatDuration(total) : '');
+/** The one tiny line for connection / no-data / missing-extension states. */
+function statusLine() {
+  if (status === 'offline') return 'offline';
+  if (status === 'connecting') return 'connecting';
+  if (state === undefined) return 'osu';
+  if (playing && mode === 'fruits' && missing) return 'missing';
+  return 'hidden';
+}
+const STATUS_TEXT = { offline: 'vosu offline', connecting: 'connecting', osu: 'osu! not running', missing: 'No catcher data — needs vosu', hidden: '' };
+const STATUS_DOT = { offline: 'offline', connecting: 'connecting', osu: 'idle', missing: 'idle', hidden: 'hidden' };
 
-  let note = '';
-  if (name === 'nodata') note = 'Waiting for osu!';
-  else if (name === 'waiting') note = resultsState ? 'No positions recorded for this attempt' : 'Waiting for a catch attempt';
-  else if (live && missing) note = 'No catcher data — needs vosu (not tosu)';
-  setText(el.note, note);
-  if (el.note.hidden === !!note) el.note.hidden = !note;
-
-  if (!has) {
-    for (const node of [el.cog, el.spread, el.dashShare, el.left, el.right]) setText(node, '—');
+function writeText() {
+  setText(el.clock, total > 0 ? formatDuration(total) : '');
+  if (!(total > 0)) {
+    for (const node of DASHES) setText(node, '—');
     setText(el.cogSide, '');
-    setText(el.travel, '');
-    if (leftScale !== 0) { leftScale = 0; el.leftFill.style.transform = 'scaleX(0)'; }
     return;
   }
   const mean = sumX / total;
   const sigma = Math.sqrt(Math.max(0, sumX2 / total - mean * mean));
   const offset = Math.round(mean - FIELD / 2);
   setText(el.cog, String(Math.round(mean)));
-  setText(el.cogSide, offset === 0 ? 'centred' : `${Math.abs(offset)} ${offset < 0 ? 'left' : 'right'}`);
+  setText(el.cogSide, offset === 0 ? 'mid' : `${Math.abs(offset)} ${offset < 0 ? 'L' : 'R'}`);
   setText(el.spread, String(Math.round(sigma)));
   setText(el.dashShare, String(Math.round(dashTime / total * 100)));
   let leftTime = 0;
@@ -382,14 +411,14 @@ function writeText(name) {
   const left = Math.round(leftTime / total * 100);
   setText(el.left, String(left));
   setText(el.right, String(100 - left));
-  setText(el.travel, `travel ${compactPx(travel)}`);
-  const scale = Math.round(leftTime / total * 1000) / 1000;
-  if (scale !== leftScale) { leftScale = scale; el.leftFill.style.transform = `scaleX(${scale})`; }
 }
 
-const TAGS = { live: 'Live', waiting: 'Idle', nodata: 'No data', hidden: '' };
-
 // ---------------------------------------------------------------- render loop (runs only when dirty)
+let viewName = '';
+let lineName = '';
+let dashOn = null;
+let placedAs = 'live';
+
 function markDirty(text) {
   if (text) textDue = true;
   dirty = true;
@@ -401,17 +430,24 @@ function render(now) {
   if (!dirty) return;
   dirty = false;
   const name = currentView();
-  if (name !== viewName) {
-    viewName = name;
-    panel.dataset.view = name;
-    textDue = true;
+  // Re-place only for a visible layout; while fading out the zone stays where it was.
+  const layoutName = name === 'hidden' ? placedAs : name;
+  if (placementDue || layoutName !== placedAs) {
+    placementDue = false;
+    placedAs = layoutName;
+    place(layoutName);
+    root.dataset.accent = opts.accent;
+    hud.dataset.backing = opts.backing;
+    el.brand.hidden = !opts.showBrand;
   }
-  if (status !== el.status.dataset.state) {
-    el.status.dataset.state = status;
-    el.statusText.textContent = status === 'offline' ? 'vosu offline' : status === 'connecting' ? 'connecting' : 'live';
+  if (name !== viewName) { viewName = name; hud.dataset.view = name; textDue = true; }
+  const line = statusLine();
+  if (line !== lineName) {
+    lineName = line;
+    el.status.dataset.state = STATUS_DOT[line];
+    if (line !== 'hidden') el.statusText.textContent = STATUS_TEXT[line];
     el.status.title = statusDetail;
   }
-  if (el.brand.hidden === opts.showBrand) el.brand.hidden = !opts.showBrand;
   const on = name === 'live' && dashingNow;
   if (on !== dashOn) { dashOn = on; el.dash.toggleAttribute('data-on', on); }
   if (name !== 'hidden' && cw > 0) {
@@ -427,8 +463,30 @@ function render(now) {
     lastTextAt = now;
     clearTimeout(textTimer);
     textTimer = 0;
-    writeText(name);
+    writeText();
   } else if (!textTimer) {
     textTimer = setTimeout(() => { textTimer = 0; markDirty(true); }, TEXT_INTERVAL_MS);
   }
 }
+
+// ---------------------------------------------------------------- wiring
+subscribe(Object.values(P), onFrame, { onStatus });
+
+// Numeric defaults (bins too) so both vosu's option strings and numeric pushes coerce.
+settings({ ...opts }, s => {
+  opts.zone = s.zone === 'left' ? 'left' : 'right';
+  opts.x = s.x;
+  opts.y = s.y;
+  opts.scale = Math.min(2, Math.max(0.5, s.scale));
+  opts.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
+  opts.accent = s.accent === '18-lab' ? '18-lab' : 'map';
+  opts.bins = BIN_CHOICES.includes(s.bins) ? s.bins : 64;
+  opts.intensity = Math.min(4, Math.max(0.25, s.intensity));
+  opts.showMarker = s.showMarker;
+  opts.showOnResults = s.showOnResults;
+  opts.showBrand = s.showBrand;
+  placementDue = true;
+  loadPalette();
+  markDirty(true);
+});
+

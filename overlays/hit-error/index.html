@@ -9,18 +9,19 @@
 </head>
 <body>
 <div id="stage">
-  <div id="dock" data-anchor="bottom" data-orient="h">
+  <div id="dock" data-orient="h" data-align="start" data-zone="right" data-accent="map">
     <p class="chip" id="chip" data-show="0"><i></i><span id="chip-text">Connecting</span></p>
-    <section class="panel" id="panel" data-show="0" aria-label="Hit error">
+    <section class="cluster" id="panel" data-show="0" data-backing="none" aria-label="Hit error">
       <header class="head">
         <span class="label">Hit error</span>
         <span class="mode" id="mode">—</span>
-        <span class="final" id="final">Final</span>
         <span class="brand" id="brand">18—LAB</span>
       </header>
       <div class="readouts" id="readouts">
-        <p class="stat ur" id="ur-stat"><b id="ur">—</b><span class="label">UR</span></p>
-        <p class="stat mean" id="mean-stat"><b id="mean">—</b><span class="unit">ms</span><span class="dir" id="dir"></span></p>
+        <p class="stat ur"><b id="ur">—</b><span class="label">UR</span></p>
+        <p class="stat mean"><b id="mean">—</b><span class="unit">ms</span><span class="dir" id="dir"></span></p>
+        <p class="relsum"><span class="label">Release</span><span class="sub"><b id="rs-ur">—</b> UR</span><span class="sub"><b id="rs-mean">—</b> ms</span></p>
+        <span class="final">Final</span>
       </div>
       <div class="rows">
         <div class="row" id="row-main">
@@ -38,6 +39,7 @@
           <span class="missing">Release split needs vosu</span>
         </div>
       </div>
+      <p class="legend" id="legend"></p>
     </section>
   </div>
 </div>

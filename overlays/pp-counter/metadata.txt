@@ -1,5 +1,5 @@
 name = Performance counter
 author = 18-LAB
-version = 0.1.0
-description = Live pp with a count-up readout, if-FC and max-achievable markers on a rail scaled to the map's SS value, an accuracy→pp ladder in song select and final pp at results. All rulesets.
-resolution = [424,236]
+version = 0.2.0
+description = Floating pp readout beside osu!'s score: live pp with a count-up, if-FC and max-achievable on a rail scaled to SS, and the pp breakdown. Song select gets an accuracy→pp ladder; results add the if-FC gap. All rulesets.
+resolution = [1920,1080]

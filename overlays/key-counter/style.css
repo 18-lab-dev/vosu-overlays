@@ -7,69 +7,60 @@ html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { font: 400 14px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; }
 
-/* ---------- panel ---------- */
-.panel {
+/* Transparent 1920×1080 overlay; the cluster floats in a free region of osu!'s layout. */
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; }
+#hud { --hl: var(--accent); position: absolute; inset: 0; user-select: none; }
+#hud[data-accent="map"] { --hl: var(--map-accent, var(--accent)); }
+
+#cluster {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  padding: 8px 12px 12px;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+  contain: layout;
+}
+#hud[data-phase="play"] #cluster,
+#hud[data-phase="results"] #cluster { opacity: 1; }
+#keys { position: relative; display: block; }
+
+/* Optional backing behind the tiles: a soft scrim that fades out, or an 18-LAB panel. */
+#backing { position: absolute; display: none; pointer-events: none; }
+#hud[data-backing="scrim"] #backing {
+  display: block;
+  inset: -56px -72px;
+  background: radial-gradient(closest-side, rgb(5 6 7 / .62), rgb(5 6 7 / .34) 55%, transparent);
+}
+#hud[data-backing="panel"] #backing {
+  display: block;
+  inset: -12px;
   background: rgb(17 18 20 / .86);
   border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--accent);
+  border-top: 2px solid var(--hl);
   border-radius: var(--radius);
-  contain: layout paint;
-  user-select: none;
 }
-.panel[data-anchor="top-left"] { left: 0; top: 0; transform-origin: 0 0; }
-.panel[data-anchor="top-right"] { right: 0; top: 0; transform-origin: 100% 0; }
-.panel[data-anchor="bottom-left"] { left: 0; bottom: 0; transform-origin: 0 100%; }
-.panel[data-anchor="bottom-right"] { right: 0; bottom: 0; transform-origin: 100% 100%; }
 
-.label {
-  font: 500 10px/1 var(--font-mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--muted);
+/* Connection and no-data states: one small chip at the cluster's anchor. */
+#chip {
+  position: absolute;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  background: rgb(17 18 20 / .84);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: .02em;
+  color: var(--fg-dim);
   white-space: nowrap;
 }
-
-/* ---------- header ---------- */
-.head { display: flex; align-items: center; gap: 8px; height: 14px; }
-.brand { font: 500 10px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg); white-space: nowrap; }
-.brand[hidden] { display: none; }
-.mode { margin-left: auto; color: var(--fg-dim); }
-.status { display: none; margin-left: auto; align-items: center; gap: 6px; }
+#chip[data-anchor="bottom"] { translate: 0 -100%; }
+#chip[data-align="end"] { transform: translateX(-100%); }
+#chip[data-align="centre"] { transform: translateX(-50%); }
+#hud[data-phase="connecting"] #chip,
+#hud[data-phase="offline"] #chip,
+#hud[data-phase="absent"] #chip,
+#hud[data-phase="nokeys"] #chip { display: flex; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-#status-text { font: 500 10px/1 var(--font-mono); letter-spacing: .04em; color: var(--fg-dim); white-space: nowrap; }
-
-.note { display: none; margin: 10px 0 0; font: 400 13px/1.3 var(--font-body); color: var(--fg-dim); white-space: nowrap; }
-.note b { font: 500 11px/1 var(--font-mono); color: var(--fg); letter-spacing: .02em; }
-
-.body { display: flex; gap: 16px; margin-top: 10px; }
-
-/* Phases: only the header strip when there is nothing to count. */
-.panel[data-phase="connecting"] .status,
-.panel[data-phase="offline"] .status { display: flex; }
-.panel[data-phase="connecting"] .mode,
-.panel[data-phase="offline"] .mode { display: none; }
-.panel[data-phase="offline"] .dot { background: var(--danger); }
-.panel[data-phase="connecting"] .body,
-.panel[data-phase="offline"] .body,
-.panel[data-phase="absent"] .body,
-.panel[data-phase="nokeys"] .body { display: none; }
-.panel[data-phase="connecting"],
-.panel[data-phase="offline"] { padding-bottom: 8px; }
-.panel[data-phase="absent"] .note,
-.panel[data-phase="nokeys"] .note { display: block; }
-
-/* ---------- caps + stats (both canvases are sized by overlay.js) ---------- */
-canvas { display: block; }
-#keys { flex: none; }
-.stats { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding-left: 16px; border-left: 1px solid var(--rule); }
-.stats-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.span { opacity: .8; }
-.panel[data-spark="off"] .span { display: none; }
-
-/* ---------- vertical ---------- */
-.panel[data-orient="vertical"] .body { flex-direction: column; gap: 12px; }
-.panel[data-orient="vertical"] .stats { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--rule); }
+#hud[data-phase="offline"] .dot { background: var(--danger); }
+#hud[data-phase="nokeys"] .dot { background: var(--caution); }

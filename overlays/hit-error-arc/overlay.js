@@ -1,36 +1,50 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Hit error arc: a precision dial. Judgement windows are arc segments, every hit is a fading tick,
-// an amber needle follows the moving average and the play's unstable rate sits in the hollow.
-import { subscribe, settings, fit, activeMode, MODE_LABELS } from './vosu-overlay.js';
+// Hit error arc: a precision dial floated into the empty space of osu!'s gameplay layout.
+// Judgement windows are arc segments, every hit is a fading tick, a needle follows the moving
+// average and the attempt's unstable rate sits in the hollow.
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const W = 400;
-const H = 360;
+const W = 1920;
+const H = 1080;
 const PLAY = 2;
 const RESULTS = 7;
 const SUPPORTED = new Set(['osu', 'taiko', 'mania']);
+const MARGIN = 24;
 
 const $ = id => document.getElementById(id);
+const root = document.documentElement;
 const stage = $('stage');
-const panel = $('panel');
+const dial = $('dial');
 const chip = $('chip');
 const chipText = $('chip-text');
 const brand = $('brand');
-const modeEl = $('mode');
 const readout = $('readout');
 const urInt = $('ur-int');
 const urFrac = $('ur-frac');
 const meanEl = $('mean');
 const canvases = [$('base'), $('hist'), $('live')];
+const finalEl = $('final');
+const finalCanvas = $('final-hist');
+const fctx = finalCanvas.getContext('2d', { alpha: true });
+const finalUr = $('final-ur');
+const finalMean = $('final-mean');
+const finalRange = $('final-range');
+const FINAL_W = 300;
+const FINAL_H = 48;
+const [bctx, hctx, lctx] = canvases.map(canvas => canvas.getContext('2d', { alpha: true }));
 
 // Render state lives above every handler that marks it dirty.
 let raf = 0;
 let domDirty = true;
+let placeDirty = true;
 let baseDirty = true;
 let histDirty = true;
 let textDirty = true;
 let lastFrame = 0;
 let shown = false;
-const [bctx, hctx, lctx] = canvases.map(canvas => canvas.getContext('2d', { alpha: true }));
+let finalShown = false;
+let finalDirty = false;
+let finalErrors = null;
 
 fit(stage, W, H);
 
@@ -38,11 +52,12 @@ fit(stage, W, H);
 let colors;
 let monoFont = 'monospace';
 function readTokens() {
-  const css = getComputedStyle(document.documentElement);
+  const css = getComputedStyle(root);
   const v = name => css.getPropertyValue(name).trim() || '#7e8288';
   colors = {
-    fg: v('--fg'), fgDim: v('--fg-dim'), muted: v('--muted'), rule: v('--rule'), ruleStrong: v('--rule-strong'),
-    accent: v('--accent'),
+    fg: v('--fg'), fgDim: v('--fg-dim'), muted: v('--muted'), ruleStrong: v('--rule-strong'),
+    // --hl is the identity colour: the map's tonal accent, or 18-LAB amber (see style.css).
+    hl: v('--hl'),
     // Class order: 0 max, 1 great, 2 good, 3 ok, 4 meh, 5 miss.
     judge: ['--j-max', '--j-great', '--j-good', '--j-ok', '--j-meh', '--j-miss'].map(v),
   };
@@ -50,38 +65,13 @@ function readTokens() {
 }
 readTokens();
 
-// ------------------------------------------------------------------ settings + geometry
-const DEFAULTS = { sweep: 240, tickLife: 4, histogram: true, histogramHits: 400, averageHits: 20, size: 100, showBrand: true };
+// ------------------------------------------------------------------ settings
+const DEFAULTS = {
+  side: 'auto', offsetX: 0, offsetY: 0, scale: 100, backing: 'none', accent: 'map',
+  sweep: 240, tickLife: 4, histogram: true, histogramHits: 400, averageHits: 20, showBrand: true,
+};
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
 let cfg = { ...DEFAULTS };
-const geo = { k: 1, w: 0, h: 0, cx: 0, cy: 0, half: 0, bandR: 0, bandW: 0, inner: 0, outer: 0, histR0: 0, histH: 0, needle0: 0 };
-
-function layout() {
-  const k = clamp(cfg.size, 60, 100) / 100;
-  const half = clamp(cfg.sweep, 90, 270) * Math.PI / 360;
-  const bandR = Math.round(138 * k);
-  const bandW = Math.max(6, Math.round(8 * k));
-  const inner = bandR - bandW / 2;
-  const outer = bandR + bandW / 2;
-  const histR0 = outer + Math.round(10 * k);
-  const histH = Math.round(24 * k);
-  const extent = cfg.histogram ? histR0 + histH : outer + 8;
-  const halfW = half >= Math.PI / 2 ? extent : extent * Math.sin(half);
-  // The footer (EARLY · mean · LATE) and corner labels need ~200 px whatever the sweep.
-  const w = 2 * Math.round(Math.max(halfW + 14, 132 * k, 106));
-  const cy = 14 + extent;
-  const below = Math.max(0, -Math.cos(half)) * extent;
-  const h = Math.round(cy + below + 34);
-  Object.assign(geo, { k, w, h, cx: w / 2, cy, half, bandR, bandW, inner, outer, histR0, histH, needle0: Math.round(bandR * 0.64) });
-
-  panel.style.width = `${w}px`;
-  panel.style.height = `${h}px`;
-  panel.style.left = `${Math.round((W - w - 2) / 2)}px`;
-  panel.style.top = `${H - h - 3}px`;
-  readout.style.left = `${w / 2}px`;
-  readout.style.top = `${Math.round(cy - bandR * (half > 1.9 ? 0.2 : 0.3))}px`;
-  readout.style.setProperty('--ur-size', `${Math.round(54 * k)}px`);
-}
 
 // ------------------------------------------------------------------ data model
 // Last CAP hit errors of the attempt; histogram and moving average evict from it incrementally.
@@ -110,20 +100,20 @@ const BUCKETS = 12;
 
 let segs = [];      // [{ edge, cls }] ascending |error| windows for the current ruleset
 let range = 0;      // outermost hittable window (ms); 0 = no windows known
-let scale = 100;    // ms at the arc ends (range, or a neutral fallback for the needle and ticks)
+let scale = 100;    // ms at the arc ends (range, or a neutral fallback)
 
 let conn = 'connecting';
 let state;
 let mode = null;
+let keys = 4;
+let client = 'stable';
+let checksum = '';
 let lastLen = 0;
 let firstValue;
 let needle = 0;
-let needleShown = false;
 
-const phase = () => (state === PLAY ? 'play' : state === RESULTS ? 'results' : 'idle');
 const angleOf = error => -Math.PI / 2 + clamp(error / scale, -1, 1) * geo.half;
 const binOf = error => clamp(Math.floor((error + scale) / (2 * scale) * BINS), 0, BINS - 1);
-const avgCount = () => Math.min(total, cfg.averageHits);
 
 function classify(error) {
   const a = Math.abs(error);
@@ -157,7 +147,7 @@ function resetData() {
   total = 0; sum = 0; sumSq = 0; avgSum = 0;
   bins.fill(0);
   tickStart = 0; tickCount = 0;
-  needle = 0; needleShown = false;
+  needle = 0;
   histDirty = textDirty = true;
 }
 
@@ -208,9 +198,9 @@ function ingest(errors) {
     lastLen = 0; firstValue = undefined;
     return;
   }
-  if (phase() === 'idle') {
-    // Menus may still carry the previous attempt's array: consume it without showing it, so a
-    // later play only draws hits made after it started.
+  if (state !== PLAY && state !== RESULTS) {
+    // Menus may still carry the last attempt's array: consume it without showing it, so the
+    // next play only draws hits made after it started.
     if (total || tickCount) resetData();
     lastLen = errors.length; firstValue = errors[0];
     return;
@@ -220,8 +210,8 @@ function ingest(errors) {
   const from = lastLen;
   lastLen = errors.length;
   if (from === errors.length) return;
-  // A page opened mid-attempt (or at results) gets the history without a burst of ticks.
-  const tickFrom = phase() === 'play' ? Math.max(from, errors.length - 32) : errors.length;
+  // A page opened mid-attempt gets the history without a burst of ticks; results get none.
+  const tickFrom = state === PLAY ? Math.max(from, errors.length - 32) : errors.length;
   const now = performance.now();
   for (let i = from; i < errors.length; i++) {
     const error = errors[i];
@@ -229,8 +219,25 @@ function ingest(errors) {
     push(error);
     if (i >= tickFrom) addTick(error, now);
   }
-  if (!needleShown && total) needleShown = true;
   histDirty = textDirty = true;
+}
+
+// ------------------------------------------------------------------ map tint
+let paletteFor = null;
+function loadPalette() {
+  const want = cfg.accent === 'map' ? checksum : '';
+  if (want === paletteFor) return;
+  paletteFor = want;
+  if (!want) { applyPalette(root, null); tintChanged(); return; }
+  mapPalette(want).then(palette => {
+    if (paletteFor !== want) return;
+    applyPalette(root, palette);
+    tintChanged();
+  });
+}
+function tintChanged() {
+  readTokens();
+  schedule();
 }
 
 // ------------------------------------------------------------------ vosu
@@ -239,14 +246,25 @@ const P_PLAY_MODE = '/play/mode/number';
 const P_SETTINGS_MODE = '/settings/mode/number';
 const P_ERRORS = '/play/hitErrorArray';
 const P_WINDOW = '/beatmap/stats/hitWindow';
+const P_KEYS = '/beatmap/stats/cs/converted';
+const P_CLIENT = '/client';
+const P_CHECKSUM = '/beatmap/checksum';
 
-subscribe([P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_WINDOW], (values, changed) => {
+subscribe([P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_WINDOW, P_KEYS, P_CLIENT, P_CHECKSUM], (values, changed) => {
   const nextState = values[P_STATE];
   const nextMode = activeMode(nextState, values[P_PLAY_MODE], values[P_SETTINGS_MODE]);
   const moved = nextState !== state || nextMode !== mode;
-  if (moved) { state = nextState; mode = nextMode; domDirty = true; }
+  if (moved) { state = nextState; mode = nextMode; domDirty = placeDirty = true; }
+  const nextKeys = Math.round(Number(values[P_KEYS])) || 4;
+  const nextClient = values[P_CLIENT] === 'lazer' ? 'lazer' : 'stable';
+  if (nextKeys !== keys || nextClient !== client) { keys = nextKeys; client = nextClient; placeDirty = domDirty = true; }
   if (moved || changed.has(P_WINDOW)) setWindows(values[P_WINDOW]);
-  if (moved || changed.has(P_ERRORS)) ingest(values[P_ERRORS]);
+  if (moved || changed.has(P_ERRORS)) {
+    ingest(values[P_ERRORS]);
+    finalErrors = state === RESULTS && Array.isArray(values[P_ERRORS]) ? values[P_ERRORS] : null;
+    finalDirty = true;
+  }
+  if (changed.has(P_CHECKSUM)) { checksum = values[P_CHECKSUM] || ''; loadPalette(); }
   schedule();
 }, {
   onStatus(next) {
@@ -261,21 +279,102 @@ settings(DEFAULTS, next => {
   const previous = cfg;
   cfg = {
     ...next,
+    side: ['auto', 'left', 'right'].includes(next.side) ? next.side : 'auto',
+    backing: ['none', 'scrim', 'panel'].includes(next.backing) ? next.backing : 'none',
+    accent: next.accent === '18-lab' ? '18-lab' : 'map',
+    scale: clamp(next.scale, 50, 150),
     sweep: clamp(Math.round(next.sweep), 90, 270),
     tickLife: clamp(next.tickLife, 0.5, 20),
     histogramHits: clamp(Math.round(next.histogramHits), 50, 2000),
     averageHits: clamp(Math.round(next.averageHits), 5, 200),
-    size: clamp(next.size, 60, 100),
   };
-  brand.hidden = !cfg.showBrand;
-  layout();
   if (cfg.histogramHits !== previous.histogramHits || cfg.averageHits !== previous.averageHits) rebuild();
-  aimTicks();
-  baseDirty = histDirty = textDirty = true;
+  loadPalette();
+  placeDirty = baseDirty = histDirty = textDirty = domDirty = true;
   schedule();
 });
 
-// ------------------------------------------------------------------ canvas sizing
+// ------------------------------------------------------------------ placement + geometry
+const geo = { k: 1, w: 0, h: 0, cx: 0, cy: 0, half: 0, bandR: 0, bandW: 0, inner: 0, outer: 0, histR0: 0, histH: 0, needle0: 0 };
+
+/** Dial geometry at scale `k`: radii, and the box (w×h) holding arc, readout and footer. */
+function geometry(k) {
+  const half = cfg.sweep * Math.PI / 360;
+  const bandR = Math.round(138 * k);
+  const bandW = Math.max(6, Math.round(8 * k));
+  const inner = bandR - bandW / 2;
+  const outer = bandR + bandW / 2;
+  const histR0 = outer + Math.round(10 * k);
+  const histH = Math.round(24 * k);
+  const extent = cfg.histogram ? histR0 + histH : outer + Math.round(8 * k);
+  const halfW = half >= Math.PI / 2 ? extent : extent * Math.sin(half);
+  // The footer (EARLY · mean · LATE) needs ~230 px whatever the sweep.
+  const w = 2 * Math.round(Math.max(halfW + 12, 116));
+  const cy = 18 + extent;
+  const below = Math.max(0, -Math.cos(half)) * extent;
+  const h = Math.round(cy + below + 36);
+  return { k, w, h, cx: w / 2, cy, half, bandR, bandW, inner, outer, histR0, histH, needle0: Math.round(bandR * 0.62) };
+}
+
+/**
+ * The free region of osu!'s layout the dial lives in, and how it sits there. osu!: the band
+ * right of the playfield (left: under the leaderboard); mania: beside the stage, hugging it;
+ * taiko: the empty area below the lane (centred, or at either end).
+ */
+function zone(m) {
+  const layout = osuLayout(m, { keys, client });
+  const { busy, hud } = layout;
+  const top = hud.health.y + hud.health.h + MARGIN;
+  if (m === 'taiko') {
+    const y = busy.y + busy.h + MARGIN;
+    const rect = { x: MARGIN, y, w: W - 2 * MARGIN, h: H - y - MARGIN };
+    return { rect, h: cfg.side === 'left' ? 'start' : cfg.side === 'right' ? 'end' : 'center', v: 'start' };
+  }
+  const side = cfg.side === 'auto' ? (m === 'osu' ? 'right' : 'left') : cfg.side;
+  if (side === 'left') {
+    const y = m === 'osu' ? hud.leaderboard.y + hud.leaderboard.h + MARGIN : top;
+    const bottom = hud.combo ? hud.combo.y - MARGIN : H - MARGIN;
+    return { rect: { x: MARGIN, y, w: busy.x - 2 * MARGIN, h: bottom - y }, h: m === 'mania' ? 'end' : 'center', v: 'end' };
+  }
+  const x = busy.x + busy.w + (m === 'mania' ? 2 * MARGIN : MARGIN); // mania: clear of the HP bar at the stage's edge
+  const y = hud.accuracy.y + hud.accuracy.h + MARGIN;
+  const right = hud.keys ? hud.keys.x - MARGIN : W - MARGIN;
+  return { rect: { x, y, w: right - x, h: H - MARGIN - y }, h: m === 'mania' ? 'start' : 'center', v: 'end' };
+}
+
+function place() {
+  placeDirty = false;
+  const { rect, h: alignX, v: alignY } = zone(SUPPORTED.has(mode) ? mode : 'osu');
+  // The default size fits the zone (stable's 4K/7K area left of the stage is ~300 px wide);
+  // the scale setting multiplies that fitted size, so users with roomier skins can grow it.
+  const natural = geometry(1);
+  const fitK = Math.min(1, rect.w / natural.w, rect.h / natural.h) * 0.995;
+  const g = geometry(fitK * cfg.scale / 100);
+  Object.assign(geo, g);
+  const align = (mode, start, span, size) => start + (mode === 'start' ? 0 : mode === 'end' ? span - size : (span - size) / 2);
+  const x = Math.round(align(alignX, rect.x, rect.w, g.w) + cfg.offsetX);
+  const y = Math.round(align(alignY, rect.y, rect.h, g.h) + cfg.offsetY);
+
+  dial.style.width = `${g.w}px`;
+  dial.style.height = `${g.h}px`;
+  dial.style.transform = `translate(${x}px, ${y}px)`;
+  dial.dataset.backing = cfg.backing;
+  const urSize = Math.max(26, Math.round(54 * g.k));
+  const readoutY = Math.round(g.cy - g.bandR * (g.half > 1.9 ? 0.2 : 0.3));
+  readout.style.left = `${g.w / 2}px`;
+  readout.style.top = `${readoutY}px`;
+  readout.style.setProperty('--ur-size', `${urSize}px`);
+  // Brand tag sits in the hollow under the readout, level with the end labels when they are lower.
+  const readoutBottom = readoutY + (14 + 0.9 * urSize) / 2;
+  const endLabelY = g.cy - Math.cos(g.half) * (g.inner - 2 - 9 * g.k - 6);
+  brand.style.left = `${g.w / 2}px`;
+  brand.style.top = `${Math.round(Math.min(g.h - 34, Math.max(readoutBottom + 14, endLabelY)))}px`;
+  chip.style.transform = `translate(${Math.round(x + g.w / 2)}px, ${y + g.h - 28}px) translateX(-50%)`;
+  brand.hidden = !cfg.showBrand;
+  size();
+  aimTicks();
+}
+
 let dpr = devicePixelRatio || 1;
 function size() {
   dpr = devicePixelRatio || 1;
@@ -286,12 +385,15 @@ function size() {
     [bctx, hctx, lctx][i].setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   baseDirty = histDirty = true;
-  schedule();
+  const fw = Math.round(FINAL_W * dpr);
+  const fh = Math.round(FINAL_H * dpr);
+  if (finalCanvas.width !== fw || finalCanvas.height !== fh) { finalCanvas.width = fw; finalCanvas.height = fh; }
+  fctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  finalDirty = true;
 }
-new ResizeObserver(size).observe(panel);
-const watchDpr = () => matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { size(); watchDpr(); }, { once: true });
+const watchDpr = () => matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { placeDirty = true; schedule(); watchDpr(); }, { once: true });
 watchDpr();
-document.fonts.load(`500 10px ${monoFont}`).then(() => { readTokens(); baseDirty = true; schedule(); }, () => {});
+document.fonts.load(`500 12px ${monoFont}`).then(() => { readTokens(); baseDirty = true; schedule(); }, () => {});
 
 // ------------------------------------------------------------------ render
 function schedule() {
@@ -302,7 +404,9 @@ function frame(now) {
   raf = 0;
   const dt = lastFrame && now - lastFrame < 100 ? now - lastFrame : 16;
   lastFrame = now;
+  if (placeDirty) place();
   if (domDirty) applyDom();
+  if (finalDirty && finalShown) drawFinal();
   if (!shown) { lastFrame = 0; return; }
   if (baseDirty) drawBase();
   if (histDirty) drawHist();
@@ -311,25 +415,29 @@ function frame(now) {
   else lastFrame = 0;
 }
 
-let lastPhase = '';
-let lastModeText = '';
 let lastChip = '';
 function applyDom() {
   domDirty = false;
   const live = conn === 'live';
-  const next = live && mode !== 'fruits';
+  // The dial is for gameplay. Song select already shows OD; lazer's results show a timing
+  // distribution and UR, stable's only on a graph hover, so stable results get the final strip.
+  const next = live && state === PLAY && SUPPORTED.has(mode);
   if (next !== shown) {
     shown = next;
-    panel.dataset.shown = String(next);
+    dial.dataset.shown = String(next);
     if (next) baseDirty = histDirty = textDirty = true;
   }
-  chip.dataset.shown = String(!live);
-  const chipLabel = conn === 'offline' ? 'vosu offline' : 'Connecting to vosu';
-  if (chipLabel !== lastChip) { lastChip = chipLabel; chipText.textContent = chipLabel; chip.dataset.state = conn; }
-  const p = state === undefined ? 'idle' : phase();
-  if (p !== lastPhase) { lastPhase = p; panel.dataset.phase = p; }
-  const label = !SUPPORTED.has(mode) ? 'No game' : p === 'results' ? `${MODE_LABELS[mode]} · final` : MODE_LABELS[mode];
-  if (label !== lastModeText) { lastModeText = label; modeEl.textContent = label; }
+  const nextFinal = live && state === RESULTS && SUPPORTED.has(mode) && client === 'stable' && total >= 2;
+  if (nextFinal !== finalShown) {
+    finalShown = nextFinal;
+    finalEl.dataset.shown = String(nextFinal);
+    if (nextFinal) finalDirty = true;
+  }
+  finalEl.dataset.backing = cfg.backing;
+  const label = !live ? (conn === 'offline' ? 'vosu offline' : 'Connecting to vosu') : state === undefined ? 'Waiting for osu!' : '';
+  chip.dataset.shown = String(Boolean(label));
+  chip.dataset.state = live ? 'idle' : conn;
+  if (label && label !== lastChip) { lastChip = label; chipText.textContent = label; }
 }
 
 const MINUS = '\u2212';
@@ -352,7 +460,7 @@ function writeText() {
     urFrac.textContent = dot < 0 ? '' : ur.slice(dot);
   }
   if (mean !== lastMean) {
-    if ((mean === '—') !== (lastMean === '—')) panel.dataset.empty = String(mean === '—');
+    if ((mean === '—') !== (lastMean === '—')) dial.dataset.empty = String(mean === '—');
     lastMean = mean;
     meanEl.textContent = mean;
   }
@@ -376,29 +484,45 @@ function rayLabel(c, text, a, r, gap) {
   const width = c.measureText(text).width;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
-  const d = r - gap - (Math.abs(cos) * width / 2 + Math.abs(sin) * 4);
+  const d = r - gap - (Math.abs(cos) * width / 2 + Math.abs(sin) * 5);
   c.fillText(text, Math.round(geo.cx + cos * d), Math.round(geo.cy + sin * d));
 }
 
+const SHADOW = 'rgb(0 0 0 / 0.7)';
 function drawBase() {
   baseDirty = false;
   const c = bctx;
   const { cx, cy, half, k, bandR, bandW, inner, outer } = geo;
+  const floating = cfg.backing !== 'panel';
   c.clearRect(0, 0, geo.w, geo.h);
   c.lineCap = 'butt';
+
+  // Floating on the game: a soft dark ring under the band and tick lane keeps the colours
+  // legible over bright maps without drawing a box. Static, so its blur costs nothing per frame.
+  if (floating) {
+    c.save();
+    c.strokeStyle = 'rgb(5 6 7 / 0.42)';
+    c.shadowColor = 'rgb(5 6 7 / 0.6)';
+    c.shadowBlur = 14 * k;
+    c.lineWidth = bandW + 16 * k;
+    c.beginPath();
+    c.arc(cx, cy, bandR - 5 * k, -Math.PI / 2 - half, -Math.PI / 2 + half);
+    c.stroke();
+    c.restore();
+  }
 
   // Window bands: one arc segment per judgement on each side, separated by a 1 px gap.
   c.lineWidth = bandW;
   if (!segs.length) {
-    c.globalAlpha = 1;
-    c.strokeStyle = colors.rule;
+    c.globalAlpha = 0.5;
+    c.strokeStyle = colors.muted;
     c.beginPath();
     c.arc(cx, cy, bandR, -Math.PI / 2 - half, -Math.PI / 2 + half);
     c.stroke();
   } else {
     const gap = 0.5 / bandR;
     let prev = 0;
-    c.globalAlpha = 0.42;
+    c.globalAlpha = floating ? 0.55 : 0.42;
     for (const seg of segs) {
       const end = seg.edge === range ? 0 : gap;
       const start = prev ? gap : 0;
@@ -413,11 +537,16 @@ function drawBase() {
     }
   }
 
+  if (floating) {
+    c.shadowColor = SHADOW;
+    c.shadowBlur = 2;
+    c.shadowOffsetY = 1;
+  }
   // Graduations inside the band: fine marks on a round step, longer marks on window edges.
   const g0 = inner - 2;
   c.lineWidth = 1;
-  c.globalAlpha = 0.6;
-  c.strokeStyle = colors.muted;
+  c.globalAlpha = 0.7;
+  c.strokeStyle = colors.fgDim;
   c.beginPath();
   const step = niceStep(scale);
   for (let v = step; v < scale - step * 0.25; v += step) {
@@ -425,8 +554,7 @@ function drawBase() {
     radial(c, angleOf(-v), g0, g0 - 4 * k);
   }
   c.stroke();
-  c.globalAlpha = 0.9;
-  c.strokeStyle = colors.fgDim;
+  c.globalAlpha = 1;
   c.beginPath();
   for (const seg of segs) {
     radial(c, angleOf(seg.edge), g0, g0 - 8 * k);
@@ -438,7 +566,6 @@ function drawBase() {
   }
   c.stroke();
   // Zero: the reference line crosses the band.
-  c.globalAlpha = 1;
   c.strokeStyle = colors.fg;
   c.lineWidth = 1.5;
   c.beginPath();
@@ -448,22 +575,25 @@ function drawBase() {
   // Histogram baseline.
   if (cfg.histogram) {
     c.lineWidth = 1;
-    c.strokeStyle = colors.ruleStrong;
+    c.strokeStyle = floating ? colors.muted : colors.ruleStrong;
     c.beginPath();
     c.arc(cx, cy, geo.histR0 - 0.5, -Math.PI / 2 - half, -Math.PI / 2 + half);
     c.stroke();
   }
 
-  // Scale labels: zero and the outermost window on each side.
-  c.font = `500 10px ${monoFont}`;
-  c.textAlign = 'center';
-  c.textBaseline = 'middle';
-  c.fillStyle = colors.muted;
+  // Scale labels: the outermost window on each side.
   if (range) {
+    c.font = `500 12px ${monoFont}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = colors.fgDim;
     const text = String(Math.round(range * 10) / 10);
     rayLabel(c, MINUS + text, angleOf(-range), g0, 9 * k);
     rayLabel(c, `+${text}`, angleOf(range), g0, 9 * k);
   }
+  c.shadowColor = 'transparent';
+  c.shadowBlur = 0;
+  c.shadowOffsetY = 0;
   c.globalAlpha = 1;
 }
 
@@ -479,10 +609,10 @@ function drawHist() {
   const cos = Math.cos(a);
   const sin = Math.sin(a);
   const tipR = outer + 1.5;
-  const baseR = outer + 1.5 + 5 * k;
-  const w = 3 * k;
+  const baseR = outer + 1.5 + 6 * k;
+  const w = 3.5 * k;
   c.globalAlpha = 1;
-  c.fillStyle = colors.fgDim;
+  c.fillStyle = colors.fg;
   c.beginPath();
   c.moveTo(cx + cos * tipR, cy + sin * tipR);
   c.lineTo(cx + cos * baseR - sin * w, cy + sin * baseR + cos * w);
@@ -502,21 +632,23 @@ function drawHist() {
   }
   if (!max) return;
   const unit = histH / max;
+  const binAngle = (2 * half) / BINS;
+  const start = -Math.PI / 2 - half;
   // A stepped envelope along the arc: a faint fill with a crisp top edge reads as one
   // distribution rather than a row of separate bars.
   c.beginPath();
   envelope(c, first, last, unit);
-  c.arc(cx, cy, histR0, -Math.PI / 2 - half + (last + 1) * (2 * half) / BINS, -Math.PI / 2 - half + first * (2 * half) / BINS, true);
+  c.arc(cx, cy, histR0, start + (last + 1) * binAngle, start + first * binAngle, true);
   c.closePath();
   c.fillStyle = colors.fgDim;
-  c.globalAlpha = 0.2;
+  c.globalAlpha = 0.24;
   c.fill();
   c.beginPath();
   envelope(c, first, last, unit);
-  c.lineWidth = 1;
+  c.lineWidth = 1.25;
   c.lineJoin = 'miter';
   c.strokeStyle = colors.fgDim;
-  c.globalAlpha = 0.85;
+  c.globalAlpha = 0.95;
   c.stroke();
   c.globalAlpha = 1;
 }
@@ -533,6 +665,76 @@ function envelope(c, first, last, unit) {
     c.arc(cx, cy, r, start + b * binAngle, start + (b + 1) * binAngle);
   }
   c.lineTo(cx + Math.cos(a1) * histR0, cy + Math.sin(a1) * histR0);
+}
+
+// Results strip: the whole attempt's distribution as a flat profile over the window bands.
+const FINAL_BINS = 61;
+const finalBins = new Uint32Array(FINAL_BINS);
+function drawFinal() {
+  finalDirty = false;
+  const c = fctx;
+  c.clearRect(0, 0, FINAL_W, FINAL_H);
+  finalBins.fill(0);
+  let max = 0;
+  if (finalErrors) {
+    for (const error of finalErrors) {
+      if (typeof error !== 'number' || !Number.isFinite(error)) continue;
+      const b = clamp(Math.floor((error + scale) / (2 * scale) * FINAL_BINS), 0, FINAL_BINS - 1);
+      if (++finalBins[b] > max) max = finalBins[b];
+    }
+  }
+  const xOf = error => (clamp(error, -scale, scale) + scale) / (2 * scale) * FINAL_W;
+  const base = FINAL_H - 6;
+  // Window bands as a thin strip under the profile.
+  c.globalAlpha = 0.75;
+  let prev = 0;
+  for (const seg of segs) {
+    c.fillStyle = colors.judge[seg.cls];
+    c.fillRect(xOf(prev), base + 2, xOf(seg.edge) - xOf(prev) - (seg.edge === range ? 0 : 1), 3);
+    c.fillRect(xOf(-seg.edge) + (seg.edge === range ? 0 : 1), base + 2, xOf(-prev) - xOf(-seg.edge) - (seg.edge === range ? 0 : 1), 3);
+    prev = seg.edge;
+  }
+  if (max) {
+    const unit = (base - 2) / max;
+    const step = FINAL_W / FINAL_BINS;
+    c.beginPath();
+    c.moveTo(0, base);
+    for (let b = 0; b < FINAL_BINS; b++) {
+      const y = base - finalBins[b] * unit;
+      c.lineTo(b * step, y);
+      c.lineTo((b + 1) * step, y);
+    }
+    c.lineTo(FINAL_W, base);
+    c.closePath();
+    c.fillStyle = colors.fgDim;
+    c.globalAlpha = 0.24;
+    c.fill();
+    c.globalAlpha = 0.95;
+    c.strokeStyle = colors.fgDim;
+    c.lineWidth = 1.25;
+    c.lineJoin = 'miter';
+    c.stroke();
+  }
+  // Zero line and the attempt's mean.
+  c.globalAlpha = 1;
+  c.fillStyle = colors.fg;
+  c.fillRect(Math.round(FINAL_W / 2), 0, 1, base + 5);
+  if (total) {
+    const x = xOf(sum / total);
+    c.fillStyle = colors.hl;
+    c.beginPath();
+    c.moveTo(x, base - 7);
+    c.lineTo(x - 4, base + 1);
+    c.lineTo(x + 4, base + 1);
+    c.closePath();
+    c.fill();
+  }
+  const ur = total >= 2 ? (Math.sqrt(Math.max(0, sumSq / total - (sum / total) ** 2)) * 10).toFixed(2) : '—';
+  const mean = total >= 2 ? signed(sum / total, 1) : '—';
+  const span = range ? `±${Math.round(range * 10) / 10} ms` : '';
+  if (finalUr.textContent !== ur) finalUr.textContent = ur;
+  if (finalMean.textContent !== mean) finalMean.textContent = mean;
+  if (finalRange.textContent !== span) finalRange.textContent = span;
 }
 
 const fade = x => (1 - x) ** 1.6;
@@ -591,8 +793,8 @@ function drawLive(now, dt) {
 
   // Needle: moving average of the last N hits, eased so it reads as a damped instrument.
   let moving = false;
-  if (needleShown && total) {
-    const target = avgSum / avgCount();
+  if (total) {
+    const target = avgSum / Math.min(total, cfg.averageHits);
     needle += (target - needle) * (1 - Math.exp(-dt / 90));
     if (Math.abs(target - needle) < 0.02) needle = target;
     else moving = true;
@@ -601,9 +803,9 @@ function drawLive(now, dt) {
     const sin = Math.sin(a);
     const n0 = geo.needle0;
     const n1 = inner - 12 * k;
-    const w0 = 2.5 * k;
+    const w0 = 2.75 * k;
     const w1 = 0.6;
-    c.fillStyle = colors.accent;
+    c.fillStyle = colors.hl;
     c.beginPath();
     c.moveTo(cx + cos * n0 - sin * w0, cy + sin * n0 + cos * w0);
     c.lineTo(cx + cos * n1 - sin * w1, cy + sin * n1 + cos * w1);

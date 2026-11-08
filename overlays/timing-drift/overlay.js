@@ -1,11 +1,16 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Timing drift: rolling mean hit error and rolling unstable rate across the attempt, so a
 // player can see whether they slide early or late (and loosen up) as the map goes on.
-import { subscribe, settings, fit, activeMode, isPlaying, formatDuration, MODE_LABELS } from './vosu-overlay.js';
+// Floats in a free region of osu!'s own layout (osuLayout) instead of taking screen space.
+import {
+  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette,
+} from './vosu-overlay.js';
 
-const STAGE_W = 640;
-const STAGE_H = 300;
+const STAGE_W = 1920;
+const STAGE_H = 1080;
 const RESULTS = 7;
+const BLOCK_W = 288;        // content width of the cluster, CSS px at scale 1
+const BLOCK_CHROME = 126;   // header + readouts + gaps + axis around the chart
 const LANE_GAP = 8;
 const MIN_POINTS = 10;      // a rolling value is drawn once this many hits back it
 const BREAK_MS = 3000;      // silences longer than this (breaks) open the trace
@@ -23,16 +28,18 @@ const P_GREAT = '/beatmap/stats/hitWindow/great';
 const P_LIVE = '/beatmap/time/live';
 const P_FIRST = '/beatmap/time/firstObject';
 const P_LAST = '/beatmap/time/lastObject';
-const POINTERS = [P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_GREAT, P_LIVE, P_FIRST, P_LAST];
+const P_CHECKSUM = '/beatmap/checksum';
+const POINTERS = [P_STATE, P_PLAY_MODE, P_SETTINGS_MODE, P_ERRORS, P_GREAT, P_LIVE, P_FIRST, P_LAST, P_CHECKSUM];
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
-const panel = $('panel');
+const block = $('block');
 const canvas = $('chart');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  brand: $('brand'), phase: $('phase'), chipText: $('chipText'), meta: $('meta'),
-  meanNow: $('meanNow'), meanAll: $('meanAll'), dir: $('dir'), urNow: $('urNow'), urAll: $('urAll'),
+  brand: $('brand'), phase: $('phase'), statusText: $('statusText'), meta: $('meta'),
+  meanNow: $('meanNow'), meanValue: $('meanValue'), meanAll: $('meanAll'), dir: $('dir'),
+  urNow: $('urNow'), urValue: $('urValue'), urAll: $('urAll'),
   empty: $('empty'), count: $('count'), t0: $('t0'), t1: $('t1'),
 };
 
@@ -46,21 +53,21 @@ function rgba(hex, alpha) {
 const FG = token('--fg', '#ebe8e1');
 const LATE = token('--accent', '#ff963f');
 const EARLY = token('--signal', '#7fa6cf');
+// Early/late colours carry meaning and stay fixed; only the live marker takes the map tint.
 const C = {
-  well: 'rgba(11,12,13,0.5)',
-  rule: token('--rule', '#25282c'),
-  band: rgba(FG, 0.045),
-  bandEdge: rgba(FG, 0.16),
-  zero: rgba(FG, 0.42),
-  grid: rgba(FG, 0.06),
-  overall: rgba(token('--fg-dim', '#b8b5ad'), 0.6),
-  label: token('--muted', '#7e8288'),
-  late: LATE, lateFill: rgba(LATE, 0.17), lateLabel: rgba(LATE, 0.85),
-  early: EARLY, earlyFill: rgba(EARLY, 0.17), earlyLabel: rgba(EARLY, 0.9),
-  ur: rgba(FG, 0.82), urFill: rgba(FG, 0.035),
-  playhead: rgba(LATE, 0.35),
+  halo: 'rgba(0,0,0,0.45)',
+  band: rgba(FG, 0.06),
+  bandEdge: rgba(FG, 0.24),
+  zero: rgba(FG, 0.6),
+  grid: rgba(FG, 0.1),
+  overall: rgba(token('--fg-dim', '#b8b5ad'), 0.75),
+  label: token('--fg-dim', '#b8b5ad'),
+  late: LATE, lateFill: rgba(LATE, 0.16), lateLabel: LATE,
+  early: EARLY, earlyFill: rgba(EARLY, 0.16), earlyLabel: EARLY,
+  ur: rgba(FG, 0.9), urFill: rgba(FG, 0.05),
 };
-const FONT = '400 10px "IBM Plex Mono", ui-monospace, monospace';
+let tint = LATE;            // live marker: the map's accent, or 18-LAB amber
+const FONT = '500 12px "IBM Plex Mono", ui-monospace, monospace';
 
 // ---------------------------------------------------------------- attempt store
 // Per-hit history in preallocated typed arrays (grown by doubling, never per hit).
@@ -241,7 +248,11 @@ function rebuildColumns() {
 
 // ---------------------------------------------------------------- canvas geometry
 let cssW = 0, cssH = 0, scale = 1;
-let chartH = 140, meanH = 79, urH = 53, showUr = true;
+let chartH = 150, meanH = 88, urH = 54, showUr = true;
+let userScale = 1;
+let arrange = 'stack';     // stack: gameplay cluster; strip: results header band
+const STRIP_W = 880;
+const STRIP_CHART = 98;
 
 function stageScale() {
   return Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H) || 1;
@@ -249,7 +260,7 @@ function stageScale() {
 
 function resizeBacking() {
   if (!cssW || !cssH) return;
-  scale = (devicePixelRatio || 1) * stageScale();
+  scale = (devicePixelRatio || 1) * stageScale() * userScale;
   canvas.width = Math.max(1, Math.round(cssW * scale));
   canvas.height = Math.max(1, Math.round(cssH * scale));
   const next = Math.max(1, Math.round(cssW));
@@ -272,12 +283,24 @@ new ResizeObserver(entries => {
 }).observe(canvas);
 addEventListener('resize', resizeBacking);
 
+/** Lane heights for the current arrangement; the CSS reads them back as custom properties. */
+function setLanes() {
+  const h = arrange === 'strip' ? STRIP_CHART : chartH;
+  meanH = showUr ? Math.round((h - LANE_GAP) * 0.62) : h;
+  urH = showUr ? h - LANE_GAP - meanH : 0;
+  block.style.setProperty('--h', `${h}px`);
+  block.style.setProperty('--mean-h', `${meanH}px`);
+  chartDirty = true;
+}
+
 /** Snaps a coordinate to the centre of a device pixel so 1-device-px hairlines stay crisp. */
 const crisp = v => (Math.round(v * scale - 0.5) + 0.5) / scale;
 
 // ---------------------------------------------------------------- drawing
+// Everything floats on the game: no wells; each mark gets a thin dark halo for contrast.
 let meanMid = 0, meanHalf = 0, meanRange = 1, meanDenom = 1;
 let urTop = 0, urBottom = 0, urMax = 100;
+let tintLine = rgba(LATE, 0.6);
 
 function ym(v) {
   const a = v < 0 ? -v : v;
@@ -285,10 +308,10 @@ function ym(v) {
   return v < 0 ? meanMid + d : meanMid - d;
 }
 function yu(v) {
-  return urBottom - (v < urMax ? v : urMax) / urMax * (urH - 6);
+  return urBottom - 1 - (v < urMax ? v : urMax) / urMax * (urH - 4);
 }
 
-const PAD_X = 4; // keeps end dots clear of the lane edges
+const PAD_X = 4; // keeps end dots clear of the chart edges
 const colX = c => PAD_X + (c + 0.5) * (cssW - 2 * PAD_X) / columns;
 
 /** Issues the trace (or its area down to `base`) from the column store into the context. */
@@ -316,6 +339,9 @@ function paintTrace(ur, base, stroke, fill, width) {
   ctx.fillStyle = fill;
   ctx.fill();
   trace(ur, false, base);
+  ctx.strokeStyle = C.halo;
+  ctx.lineWidth = width + 2.5;
+  ctx.stroke();
   ctx.strokeStyle = stroke;
   ctx.lineWidth = width;
   ctx.stroke();
@@ -339,20 +365,30 @@ function paintClipped(ur, y0, h, base, stroke, fill, width) {
   }
 }
 
-function hline(y, x0, x1, color, dash) {
+function hline(y, color, dash, halo) {
   ctx.setLineDash(dash);
-  ctx.strokeStyle = color;
   ctx.lineWidth = 1 / scale;
-  ctx.beginPath();
-  ctx.moveTo(x0, crisp(y));
-  ctx.lineTo(x1, crisp(y));
-  ctx.stroke();
+  if (halo) {
+    ctx.strokeStyle = C.halo;
+    ctx.beginPath(); ctx.moveTo(0, crisp(y + 1)); ctx.lineTo(cssW, crisp(y + 1)); ctx.stroke();
+  }
+  ctx.strokeStyle = color;
+  ctx.beginPath(); ctx.moveTo(0, crisp(y)); ctx.lineTo(cssW, crisp(y)); ctx.stroke();
 }
 
 function label(text, x, y, color, align) {
-  ctx.fillStyle = color;
   ctx.textAlign = align;
+  ctx.fillStyle = C.halo;
+  ctx.fillText(text, x, y + 1);
+  ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+}
+
+function dot(x, y, r, color) {
+  ctx.fillStyle = C.halo;
+  ctx.beginPath(); ctx.arc(x, y, r + 1.25, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
 }
 
 function niceUr(v) {
@@ -361,7 +397,7 @@ function niceUr(v) {
 }
 
 // Axis label strings, rebuilt only when their value changes.
-let greatKey = NaN, greatTop = '', greatBottom = '';
+let greatKey = NaN, greatTop = '';
 let urKey = NaN, urText = '';
 
 /** Faint vertical hairlines at every minute of map time, so the trace reads against the clock. */
@@ -379,8 +415,9 @@ function draw(withCurve, livePhase) {
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
   ctx.font = FONT;
-  ctx.letterSpacing = '0.6px';
+  ctx.letterSpacing = '0.5px';
   ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round';
   if (columnsStale) rebuildColumns();
   const curve = withCurve && count > 0 && lastColumn >= 0;
   const overallMean = count ? totSum / count : 0;
@@ -393,73 +430,137 @@ function draw(withCurve, livePhase) {
   meanMid = meanH / 2;
   meanHalf = meanMid - 3;
   const fromData = (curve ? Math.max(peakMean, Math.abs(overallMean)) : 0) * 1.25;
-  meanRange = Math.max(Number.isFinite(great) ? great * 2 : 20, fromData, 8);
+  meanRange = Math.max(Number.isFinite(great) ? great * 1.3 : 20, fromData, 8);
   meanDenom = Math.log1p(meanRange / SYMLOG_MS);
-  ctx.fillStyle = C.well;
-  ctx.fillRect(0, 0, cssW, meanH);
-  hline(0, 0, cssW, C.rule, SOLID);
   const zeroY = meanMid;
   if (Number.isFinite(great)) {
     const top = ym(great), bottom = ym(-great);
     ctx.fillStyle = C.band;
     ctx.fillRect(0, top, cssW, bottom - top);
-    hline(top, 0, cssW, C.bandEdge, SOLID);
-    hline(bottom, 0, cssW, C.bandEdge, SOLID);
+    hline(top, C.bandEdge, SOLID, true);
+    hline(bottom, C.bandEdge, SOLID, true);
     const g = Math.round(great);
-    if (g !== greatKey) { greatKey = g; greatTop = `+${g}`; greatBottom = `−${g}`; }
-    label(greatTop, cssW - 6, top + 11, C.label, 'right');
-    label(greatBottom, cssW - 6, bottom - 4, C.label, 'right');
+    if (g !== greatKey) { greatKey = g; greatTop = `±${g}`; }
+    label(greatTop, cssW, top + 12, C.label, 'right');
   }
-  label('LATE', 6, 13, C.lateLabel, 'left');
-  label('EARLY', 6, meanH - 5, C.earlyLabel, 'left');
+  label('LATE', 0, 10, C.lateLabel, 'left');
+  label('EARLY', 0, meanH - 2, C.earlyLabel, 'left');
 
   if (curve) {
-    minuteGrid(1, meanH - 1);
-    paintClipped(false, 0, zeroY, zeroY, C.late, C.lateFill, 1.5);
-    paintClipped(false, zeroY, meanH - zeroY, zeroY, C.early, C.earlyFill, 1.5);
+    minuteGrid(0, meanH);
+    paintClipped(false, 0, zeroY, zeroY, C.late, C.lateFill, 1.75);
+    paintClipped(false, zeroY, meanH - zeroY, zeroY, C.early, C.earlyFill, 1.75);
   }
-  hline(zeroY, 0, cssW, C.zero, SOLID);
-  if (curve) hline(ym(overallMean), 0, cssW, C.overall, DASH);
+  hline(zeroY, C.zero, SOLID, true);
+  if (curve) hline(ym(overallMean), C.overall, DASH, false);
 
   // UR lane: rolling unstable rate from zero.
   if (showUr) {
     urTop = meanH + LANE_GAP;
     urBottom = urTop + urH;
     urMax = niceUr(Math.max(curve ? Math.max(peakUr * 1.12, overallUr * 1.2) : 0, 60));
-    ctx.fillStyle = C.well;
-    ctx.fillRect(0, urTop, cssW, urH);
-    hline(urTop, 0, cssW, C.rule, SOLID);
-    hline(yu(urMax / 2), 0, cssW, C.grid, SOLID);
+    hline(yu(urMax / 2), C.grid, SOLID, false);
     if (curve) {
+      minuteGrid(urTop, urH);
+      paintClipped(true, urTop, urH, urBottom - 1, C.ur, C.urFill, 1.5);
+      hline(yu(overallUr), C.overall, DASH, false);
       if (urMax !== urKey) { urKey = urMax; urText = String(urMax); }
-      label(urText, 6, urTop + 13, C.label, 'left');
-      minuteGrid(urTop + 1, urH - 1);
-      paintClipped(true, urTop, urH, urBottom, C.ur, C.urFill, 1.25);
-      hline(yu(overallUr), 0, cssW, C.overall, DASH);
+      label(urText, 0, urTop + 10, C.label, 'left');
     }
-    hline(urBottom - 0.5, 0, cssW, C.bandEdge, SOLID);
+    hline(urBottom - 1, C.bandEdge, SOLID, true);
   }
   ctx.setLineDash(SOLID);
 
   if (curve) {
     const x = colX(lastColumn);
     if (livePhase) {
-      ctx.fillStyle = C.playhead;
+      ctx.fillStyle = tintLine;
       ctx.fillRect(crisp(x) - 0.5 / scale, 0, 1 / scale, cssH);
     }
     const m = colMean[lastColumn];
-    ctx.fillStyle = m < 0 ? C.early : C.late;
-    ctx.beginPath(); ctx.arc(x, ym(m), 2.75, 0, Math.PI * 2); ctx.fill();
-    if (showUr) {
-      ctx.fillStyle = FG;
-      ctx.beginPath(); ctx.arc(x, yu(colUr[lastColumn]), 2.25, 0, Math.PI * 2); ctx.fill();
-    }
+    dot(x, ym(m), 3, m < 0 ? C.early : C.late);
+    if (showUr) dot(x, yu(colUr[lastColumn]), 2.5, FG);
   }
+}
+
+// ---------------------------------------------------------------- placement
+// Gameplay: a cluster in a free region of osu!'s default layout for the ruleset (osuLayout):
+// osu! the side band right of the playfield (left of the key counter), taiko under the lane,
+// mania beside the stage. Results: a strip in the free right part of the header band.
+// Zone, nudge and scale settings cover other skins.
+let zone = 'auto', offsetX = 0, offsetY = 0;
+let placedKey = '';
+
+function placeBlock(mode, nextArrange) {
+  const ruleset = mode === 'taiko' || mode === 'mania' ? mode : 'osu';
+  const key = `${ruleset}${nextArrange}${zone}${offsetX},${offsetY},${userScale},${chartH},${showUr}`;
+  if (key === placedKey) return;
+  placedKey = key;
+  if (nextArrange !== arrange) {
+    arrange = nextArrange;
+    block.dataset.arrange = arrange;
+    setLanes();
+  }
+  const layout = osuLayout(ruleset);
+  const { busy, hud } = layout;
+  const strip = arrange === 'strip';
+  const w = (strip ? STRIP_W : BLOCK_W) * userScale;
+  const h = (strip ? STRIP_CHART + 20 : BLOCK_CHROME + chartH) * userScale;
+  const side = zone === 'auto' ? (ruleset === 'taiko' ? 'left' : 'right') : zone;
+  let x, y;
+  if (strip) {
+    // stable's results header: title/mapper on the left, free from x≈1000 to the right edge.
+    x = side === 'left' ? 1000 : layout.width - 20 - w;
+    y = 12;
+  } else if (ruleset === 'taiko') {
+    x = side === 'left' ? 160 : layout.width - 160 - w;
+    y = busy.y + busy.h + 56;
+  } else if (ruleset === 'mania') {
+    x = side === 'left' ? 64 : layout.width - 64 - w;
+    y = (layout.height - h) / 2;
+  } else if (side === 'left') {
+    x = busy.x - 40 - w;
+    y = hud.combo.y - 24 - h;
+  } else {
+    x = Math.max(hud.keys.x - 24 - w, busy.x + busy.w + 16);
+    y = layout.height - 64 - h;
+  }
+  x = Math.min(Math.max(0, x + offsetX), layout.width - w);
+  y = Math.min(Math.max(0, y + offsetY), layout.height - h);
+  block.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px) scale(${userScale})`;
+}
+
+// ---------------------------------------------------------------- map tint
+let accentMode = 'map';
+let palette = null;
+let paletteFor = null;
+let paletteRequest = 0;
+
+function applyTint() {
+  const useMap = accentMode === 'map' && palette;
+  applyPalette(block, useMap ? palette : null);
+  tint = useMap ? palette.accent : LATE;
+  tintLine = rgba(tint, 0.6);
+  chartDirty = true;
+  invalidate();
+}
+
+/** Loads the map's tonal palette off the hot path (cached per checksum by the shared client). */
+function loadPalette(checksum) {
+  if (accentMode !== 'map' || checksum === paletteFor) return;
+  paletteFor = checksum;
+  const request = ++paletteRequest;
+  mapPalette(checksum).then(result => {
+    if (request !== paletteRequest) return;
+    palette = result;
+    applyTint();
+  }, () => {});
 }
 
 // ---------------------------------------------------------------- text and state
 let status = 'connecting';
 let sub = null;
+let onResults = true;
 
 function put(node, text) {
   if (node.__text !== text) { node.__text = text; node.textContent = text; }
@@ -482,7 +583,18 @@ function phaseOf(values) {
   if (state === undefined) return 'absent';
   if (isPlaying(state)) return 'live';
   if (state === RESULTS && count > 0 && !held) return 'results';
-  return count > 0 ? 'held' : 'idle';
+  return 'idle';
+}
+
+/**
+ * full: gameplay, and results (neither client shows timing over the course of the attempt);
+ * status: one tiny line when vosu or osu! is unavailable; hidden: menus, song select, catch.
+ */
+function viewOf(phase, mode) {
+  if (mode === 'fruits') return 'hidden';
+  if (phase === 'offline' || phase === 'absent') return 'status';
+  if (phase === 'live' || (phase === 'results' && onResults)) return 'full';
+  return 'hidden';
 }
 
 let curveShown = false;
@@ -492,38 +604,34 @@ function applyText() {
   const values = sub ? sub.values : {};
   const phase = phaseOf(values);
   const mode = activeMode(values[P_STATE], values[P_PLAY_MODE], values[P_SETTINGS_MODE]);
-  attr(panel, 'data-show', mode === 'fruits' ? 'false' : 'true');
-  attr(panel, 'data-phase', phase);
-  attr(panel, 'data-status', status);
-  put(el.chipText, status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
-  put(el.phase, phase === 'live' ? 'Live' : phase === 'results' ? 'Results' : phase === 'held' ? 'Last attempt' : '');
+  const view = viewOf(phase, mode);
+  attr(block, 'data-view', view);
+  attr(block, 'data-phase', phase);
+  attr(block, 'data-status', phase === 'absent' ? 'absent' : status);
+  if (view !== 'hidden') placeBlock(mode || attemptMode, phase === 'results' ? 'strip' : 'stack');
+  put(el.statusText, phase === 'absent' ? 'osu! not running' : status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
+  put(el.phase, phase === 'live' ? 'Live' : phase === 'results' ? 'Results' : '');
+  put(el.meta, `Last ${windowSize}`);
 
-  const shown = count > 0 && phase !== 'absent' && !(phase === 'live' && held);
+  const shown = view === 'full' && count > 0 && !(phase === 'live' && held);
   const ready = shown && count >= minPoints();
-  const metaMode = shown ? attemptMode : mode;
-  put(el.meta, `${metaMode ? `${MODE_LABELS[metaMode]} · ` : ''}${windowSize}-hit window`);
-
   const m = ready ? rollMean[count - 1] : NaN;
   put(el.meanNow, ready ? signed(m) : '—');
   put(el.urNow, ready ? rollUr[count - 1].toFixed(1) : '—');
-  attr(el.meanNow.parentElement, 'data-empty', ready ? 'false' : 'true');
-  attr(el.urNow.parentElement, 'data-empty', ready ? 'false' : 'true');
+  attr(el.meanValue, 'data-empty', ready ? 'false' : 'true');
+  attr(el.urValue, 'data-empty', ready ? 'false' : 'true');
   const overallMean = count ? totSum / count : 0;
   const overallVar = count ? totSq / count - overallMean * overallMean : 0;
   put(el.meanAll, shown ? signed(overallMean) : '—');
   put(el.urAll, shown && count > 1 ? (overallVar > 0 ? 10 * Math.sqrt(overallVar) : 0).toFixed(1) : '—');
   const dir = !ready ? 'none' : m <= -0.5 ? 'early' : m >= 0.5 ? 'late' : 'centre';
   attr(el.dir, 'data-dir', dir);
-  put(el.dir, dir === 'early' ? 'Early' : dir === 'late' ? 'Late' : dir === 'centre' ? 'Centred' : '—');
+  put(el.dir, dir === 'early' ? 'Early' : dir === 'late' ? 'Late' : dir === 'centre' ? 'Centred' : '');
 
   put(el.count, shown ? `${count} ${count === 1 ? 'hit' : 'hits'}` : '');
   put(el.t0, shown ? (byIndex ? 'Hit 1' : formatDuration(axisStart)) : '');
   put(el.t1, shown ? (byIndex ? `Hit ${count}` : formatDuration(axisEnd)) : '');
-  put(el.empty,
-    phase === 'absent' ? 'osu! is not running'
-      : phase === 'idle' ? 'Starts with your next attempt'
-        : phase === 'live' && !shown ? 'Waiting for the first hit'
-          : phase === 'live' && !ready ? 'Collecting hits' : '');
+  put(el.empty, phase === 'live' && !shown ? 'Waiting for the first hit' : phase === 'live' && !ready ? 'Collecting hits' : '');
 
   if (shown !== curveShown || (phase === 'live') !== livePhase) {
     curveShown = shown;
@@ -558,22 +666,41 @@ function frame(now) {
 }
 
 // ---------------------------------------------------------------- settings
-settings({ window: 50, height: 140, showUr: true, showBrand: true }, s => {
-  const nextWindow = Math.min(500, Math.max(10, Math.round(s.window) || 50));
-  chartH = Math.min(220, Math.max(128, Math.round(s.height) || 140));
+const clamp = (value, min, max, fallback) => (Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback);
+
+settings({
+  zone: 'auto', offsetX: 0, offsetY: 0, scale: 1, window: 50, height: 150, showUr: true,
+  showOnResults: true, backing: 'none', accent: 'map', showBrand: true,
+}, s => {
+  const nextWindow = Math.round(clamp(s.window, 10, 500, 50));
+  chartH = Math.round(clamp(s.height, 96, 200, 150));
   showUr = s.showUr;
-  meanH = showUr ? Math.round((chartH - LANE_GAP) * 0.6) : chartH;
-  urH = showUr ? chartH - LANE_GAP - meanH : 0;
-  panel.style.setProperty('--h', `${chartH}px`);
-  panel.style.setProperty('--mean-h', `${meanH}px`);
-  panel.style.setProperty('--ur-h', `${urH}px`);
-  panel.dataset.ur = String(showUr);
+  zone = ['left', 'right'].includes(s.zone) ? s.zone : 'auto';
+  offsetX = Math.round(clamp(s.offsetX, -1920, 1920, 0));
+  offsetY = Math.round(clamp(s.offsetY, -1080, 1080, 0));
+  const nextScale = Math.round(clamp(s.scale, 0.6, 1.6, 1) * 100) / 100;
+  onResults = s.showOnResults;
+  block.dataset.ur = String(showUr);
+  block.dataset.backing = ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   el.brand.hidden = !s.showBrand;
+  setLanes();
   if (nextWindow !== windowSize) {
     windowSize = nextWindow;
     recomputeRolling();
     columnsStale = true;
   }
+  if (nextScale !== userScale) {
+    userScale = nextScale;
+    resizeBacking();
+  }
+  const nextAccent = s.accent === '18-lab' ? '18-lab' : 'map';
+  block.dataset.accent = nextAccent;
+  if (nextAccent !== accentMode) {
+    accentMode = nextAccent;
+    if (accentMode === 'map') loadPalette(sub?.values[P_CHECKSUM]);
+    applyTint();
+  }
+  placedKey = ''; // re-place with the new geometry
   chartDirty = textDirty = true;
   invalidate();
 });
@@ -586,6 +713,7 @@ sub = subscribe(POINTERS, (values, changed) => {
   live = values[P_LIVE];
   if (changed.size === 1 && changed.has(P_LIVE)) return; // clock ticks only stamp hits
   if (changed.has(P_ERRORS)) ingest(values);
+  if (changed.has(P_CHECKSUM)) loadPalette(values[P_CHECKSUM]);
   textDirty = true;
   invalidate();
 }, {

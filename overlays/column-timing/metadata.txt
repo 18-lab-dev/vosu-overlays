@@ -1,5 +1,5 @@
 name = Column timing
 author = 18-LAB
-version = 0.1.0
-description = osu!mania per-column timing: a channel strip per column with fading hit ticks, density profile, mean marker and ±1σ bars, per-column bias and UR, the highest-UR and most biased columns called out, and an optional hold-release row. 4K–10K (up to 18 columns). Needs vosu ENABLE_MANIA_KEY_HIT_ERRORS.
-resolution = [500,460]
+version = 0.2.0
+description = osu!mania per-column timing beside the stage: a strip per column with fading hit ticks, density profile, mean marker and ±1σ bars, per-column bias and UR, the highest-UR and most biased columns called out, and an optional hold-release row. Gameplay and results only. 4K–10K (up to 18 columns). Needs vosu ENABLE_MANIA_KEY_HIT_ERRORS.
+resolution = [1920,1080]

@@ -1,6 +1,14 @@
 [
  {"uniqueID":"target","type":"number","title":"Target accuracy / %","description":"Accuracy the budgets protect, 50–100. OK budget = OKs still allowed if every other remaining note is a GREAT; a miss costs two OKs.","value":99},
- {"uniqueID":"showPp","type":"checkbox","title":"Show pp","description":"Current and full-combo pp during play and on results; pp at the target and for SS in song select.","value":true},
- {"uniqueID":"showUr","type":"checkbox","title":"Show unstable rate","description":"Unstable rate of the attempt; the results screen keeps the last value.","value":true},
+ {"uniqueID":"zone","type":"options","title":"Placement","options":["below lane","above lane"],"description":"Gameplay position. below lane: the empty area under the taiko lane, starting under the hit target. above lane: centred in the band between the HP bar and the score. Fine-tune with the offsets.","value":"below lane"},
+ {"uniqueID":"x","type":"number","title":"Horizontal offset / px","description":"Moves the gameplay readout right (negative: left), in 1080p pixels.","value":0},
+ {"uniqueID":"y","type":"number","title":"Vertical offset / px","description":"Moves the gameplay readout down (negative: up), in 1080p pixels.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size of every readout, 0.5–2 (1 = the gameplay readout is 720 px wide at 1080p).","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: text floats on the game with a light shadow. scrim: a soft shade that fades out around the readout. panel: a graphite 18—LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent colour","options":["map","18-lab"],"description":"map: the OK budget and headroom band take the current map's tonal accent (from its background). 18-lab: always amber. Judgement colours never change.","value":"map"},
+ {"uniqueID":"showPp","type":"checkbox","title":"Show pp","description":"Current and full-combo pp.","value":true},
+ {"uniqueID":"showUr","type":"checkbox","title":"Show unstable rate","value":true},
+ {"uniqueID":"showSongSelect","type":"checkbox","title":"Show in song select","description":"In osu!taiko song select, show the OK and miss budget for the target on the selected map, its note count, GREAT window in ms and pp at the target, in the centre column between the local ranking and the carousel.","value":true},
+ {"uniqueID":"showResults","type":"checkbox","title":"Show on results","description":"On osu!taiko results, show the final accuracy against the target, the attempt's UR and pp (current and FC) in the right of the header strip.","value":true},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

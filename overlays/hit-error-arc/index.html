@@ -9,23 +9,33 @@
 </head>
 <body>
 <div id="stage">
-  <section id="panel" class="panel" aria-label="Hit error arc" data-shown="false">
+  <section id="dial" class="dial" aria-label="Hit error arc" data-shown="false" data-backing="none">
     <canvas id="base" aria-hidden="true"></canvas>
     <canvas id="hist" aria-hidden="true"></canvas>
     <canvas id="live" aria-label="Hit error dial: recent hits, judgement windows and moving average"></canvas>
-    <header class="corner corner--left"><span id="brand" class="brand">18—LAB</span></header>
-    <header class="corner corner--right"><span id="live-dot" class="live-dot" aria-hidden="true"></span><span id="mode">—</span></header>
+    <span id="brand" class="brand">18—LAB</span>
     <div id="readout" class="readout">
       <span class="label">UR</span>
       <span class="ur"><span id="ur-int">—</span><span id="ur-frac" class="ur__frac"></span></span>
     </div>
-    <footer id="foot" class="foot">
+    <footer class="foot">
       <span class="label label--early">Early</span>
       <span class="mean"><span class="label">Mean</span><span id="mean">—</span><span class="unit">ms</span></span>
       <span class="label label--late">Late</span>
     </footer>
   </section>
-  <div id="chip" class="chip" role="status" data-shown="true"><span id="chip-dot" class="chip__dot"></span><span id="chip-text">Connecting to vosu</span></div>
+  <section id="final" class="final" aria-label="Final hit error" data-shown="false">
+    <div class="final__dist">
+      <canvas id="final-hist" aria-label="Hit error distribution of the attempt"></canvas>
+      <div class="final__axis"><span class="label label--early">Early</span><span id="final-range" class="label"></span><span class="label label--late">Late</span></div>
+    </div>
+    <div class="final__nums">
+      <span class="label">UR</span>
+      <span class="final__ur" id="final-ur">—</span>
+      <span class="final__mean"><span class="label">Mean</span><span id="final-mean">—</span><span class="unit">ms</span></span>
+    </div>
+  </section>
+  <div id="chip" class="chip" role="status" data-shown="true"><span class="chip__dot"></span><span id="chip-text">Connecting to vosu</span></div>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

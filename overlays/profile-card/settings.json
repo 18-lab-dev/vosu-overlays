@@ -1,6 +1,11 @@
 [
- {"uniqueID":"layout","type":"options","title":"Layout","options":["horizontal","vertical"],"description":"Horizontal: a 520 px strip with rank, pp, accuracy and plays in one row. Vertical: a 264 px card for a screen edge.","value":"horizontal"},
+ {"uniqueID":"zone","type":"options","title":"Corner","options":["bottom-right","bottom-left","top-right","top-left"],"description":"Screen corner the tag hugs. It sits in the empty region osu! leaves along that edge for the ruleset (beside the osu!/catch playfield, beside the mania stage, below the taiko lane), 32 px inside it and clear of the default HUD. Bottom-right is empty in every ruleset on osu!stable. On the left of a default-skin mania stage the band is narrow: lower the scale or use a right corner.","value":"bottom-right"},
+ {"uniqueID":"offsetX","type":"number","title":"Nudge right / px","description":"Moves the tag from its corner for skins with a different layout; negative moves left.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Nudge down / px","description":"Negative moves up.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–2, grown from the chosen corner.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: text floats on the game with a light shadow. scrim: a soft dark fade behind the tag. panel: a graphite 18-LAB plate.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent colour","options":["map","18-lab"],"description":"map: the rank mark and avatar corners take a colour from the current beatmap's background (amber when it has none). 18-lab: always amber.","value":"map"},
  {"uniqueID":"showAvatar","type":"checkbox","title":"Show avatar","description":"Loads your profile picture from a.ppy.sh, the only request this overlay makes outside vosu; your initial stands in when it cannot load. Off hides the avatar and makes no outside request.","value":true},
- {"uniqueID":"showDeltas","type":"checkbox","title":"Show session changes","description":"Under each stat: the change in global rank, pp and play count since this source loaded, kept per account and ruleset. Reload the source to start a new session.","value":true},
- {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the card header.","value":true}
+ {"uniqueID":"showDeltas","type":"checkbox","title":"Show session changes","description":"Beside rank and pp: the change since this source loaded (green gains, red losses), kept per account and ruleset. Nothing shows until something changed. Reload the source to start a new session.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand mark beside your name.","value":true}
 ]

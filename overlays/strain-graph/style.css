@@ -6,91 +6,126 @@ html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 #stage { position: absolute; left: 0; top: 0; }
 
-.panel {
-  --graph-h: 64px;
-  position: absolute; left: 0; top: 0; width: 100%;
-  padding: 0 var(--space-3) var(--space-1);
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--accent);
-  border-radius: var(--radius);
+/* The widget floats in a free region of osu!'s layout; overlay.js sets its anchor, length and
+   transform. No backing by default: legibility comes from weight, size and a contact shadow. */
+.w {
+  --tint: var(--map-accent, var(--accent));
+  --graph-h: 56px;
+  position: absolute;
   color: var(--fg);
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   contain: layout paint;
   user-select: none;
+  opacity: 1;
+  transition: opacity 200ms var(--ease-draft);
 }
-.panel[data-time="off"]:not([data-legend="on"]) { padding-bottom: var(--space-3); }
+.w { box-sizing: content-box; }
+.w[data-orient="h"] { width: var(--len); }
+.w[data-orient="v"] { width: calc(42px + var(--graph-h)); }
+.w[data-show="status"] { width: auto; }
+.w[data-accent="18-lab"] { --tint: var(--accent); }
+.w[data-show="off"] { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms; }
 
-/* Header: brand, label, map, then live readouts pushed right. */
-.head {
-  display: flex; align-items: center; gap: var(--space-2);
-  height: 36px; white-space: nowrap;
-  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+.scrim { display: none; }
+.w[data-backing="scrim"] { padding: 24px; margin: -24px; }
+.w[data-backing="scrim"] .scrim {
+  display: block; position: absolute; inset: 0; z-index: -1;
+  background: rgb(11 12 13 / .62);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-composite: intersect;
 }
-.head > * { flex: 0 0 auto; }
+.w[data-backing="panel"] {
+  padding: 8px 12px 6px; margin: -10px -13px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong); border-top: 2px solid var(--tint); border-radius: var(--radius);
+  text-shadow: none;
+}
+
+/* ---------------------------------------------------------------- header */
+.head {
+  display: flex; align-items: center; gap: var(--space-3);
+  height: 34px; white-space: nowrap;
+  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
+}
+.tag { display: inline-flex; gap: var(--space-2); }
 .brand { color: var(--fg); letter-spacing: .04em; }
 .brand[hidden] { display: none; }
-.rule { width: 1px; height: 12px; background: var(--rule-strong); margin: 0 var(--space-1); }
-.map {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  font: 500 14px/1 var(--font-body); letter-spacing: 0; text-transform: none; color: var(--fg);
-}
-.version { margin-left: var(--space-2); color: var(--fg-dim); font-weight: 400; }
 
-.chip {
-  padding: 3px 5px 2px; border: 1px solid currentColor; border-radius: var(--radius);
-  font-size: 10px; line-height: 1; opacity: 0;
-  transition: opacity 160ms var(--ease-draft);
-}
-.chip--kiai { color: var(--accent); }
-.chip--break { color: var(--fg-dim); }
-.chip.on { opacity: 1; }
-.panel[data-marks="off"] .chip { display: none; }
-
-.status { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: 11px; letter-spacing: .02em; text-transform: none; }
-.status i { width: 6px; height: 6px; border-radius: 50%; background: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; letter-spacing: .02em; text-transform: none; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: var(--caution); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
 .status[data-state="offline"] i { background: var(--danger); }
+.status[data-state="idle"] i { background: var(--muted); }
 .status[hidden] { display: none; }
 
-.phase { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; margin-left: var(--space-1); }
+/* One slot for both chips: kiai and breaks never overlap. */
+.chips { position: relative; margin-left: auto; width: 58px; height: 20px; }
+.chip {
+  position: absolute; right: 0; top: 0;
+  padding: 4px 6px 3px; border: 1px solid currentColor; border-radius: var(--radius);
+  font-size: 12px; line-height: 1; opacity: 0; background: rgb(11 12 13 / .45);
+  transition: opacity 160ms var(--ease-draft);
+}
+.chip--kiai { color: var(--tint); }
+.chip--break { color: var(--fg-dim); }
+.chip.on { opacity: 1; }
+.w[data-marks="off"] .chips { display: none; }
+
+.clock { display: inline-flex; align-items: baseline; gap: 6px; }
+.clock b { font: 600 26px/1 var(--font-display); letter-spacing: .01em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.clock .total { font-size: 13px; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.clock .live { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tint); align-self: center; box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
+.w[data-phase="play"] .clock .live { display: inline-block; }
 .phase:empty { display: none; }
-.panel[data-phase="play"] .phase::before {
-  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
-}
-.panel[data-phase="play"] .phase { color: var(--fg-dim); }
+.w[data-time="off"] .clock b, .w[data-time="off"] .clock .total { display: none; }
 
-.clock { display: inline-flex; align-items: baseline; gap: 5px; min-width: 76px; justify-content: flex-end; }
-.clock b {
-  font: 600 20px/1 var(--font-display); letter-spacing: .01em; color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
-.clock .total { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
-.panel[data-time="off"] .clock { display: none; }
-
-/* Plot: one canvas, redrawn only when the playhead crosses a device pixel. */
-.plot { position: relative; height: var(--graph-h); }
+/* ---------------------------------------------------------------- plot + axis */
+.body { position: relative; display: flex; flex-direction: column; }
+.plot { position: relative; order: 0; height: var(--graph-h); }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .empty {
   position: absolute; inset: 0; margin: 0;
   display: flex; align-items: center; justify-content: center;
-  font: 400 11px/1 var(--font-mono); letter-spacing: .08em; color: var(--muted);
-  border-bottom: 1px solid var(--rule-strong);
+  font: 400 12px/1 var(--font-mono); letter-spacing: .08em; color: var(--fg-dim);
 }
 .empty[hidden] { display: none; }
 
-/* Axis row: time ticks, plus the skill legend at the right in per-skill view. */
-.axis {
-  position: relative; height: 18px;
-  font: 400 10px/1 var(--font-mono); letter-spacing: .02em; color: var(--muted); font-variant-numeric: tabular-nums;
-}
+.axis { position: relative; order: 1; height: 22px; font: 400 12px/1 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .ticks { position: absolute; inset: 0; }
-.ticks span { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
+.ticks span { position: absolute; top: 7px; transform: translateX(-50%); white-space: nowrap; }
 .ticks span:first-child { transform: none; }
+.w[data-time="off"] .ticks { display: none; }
+.w[data-time="off"] .axis { height: 6px; }
+
 .legend {
-  position: absolute; right: 0; top: 4px; display: flex; gap: var(--space-3);
-  letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  position: absolute; right: 0; bottom: 0; height: 22px; padding-top: 7px;
+  display: flex; gap: var(--space-3);
+  font: 400 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--fg-dim);
 }
+.w[data-backing="panel"] .legend { right: 12px; bottom: 6px; }
+.w[data-backing="scrim"] .legend { right: 24px; bottom: 24px; }
 .legend:empty { display: none; }
-.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-dim); }
-.legend i { width: 8px; height: 8px; border-radius: 1px; background: var(--c); }
-.panel[data-time="off"] .ticks { display: none; }
-.panel[data-time="off"]:not([data-legend="on"]) .axis { display: none; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 9px; height: 9px; border-radius: 1px; background: var(--c); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
+
+/* ---------------------------------------------------------------- vertical (mania) */
+.w[data-orient="v"] .head { flex-direction: column; align-items: flex-start; gap: 6px; height: auto; padding-bottom: 10px; }
+.w[data-orient="v"] .tag { flex-direction: column; gap: 4px; }
+.w[data-orient="v"] .chips { margin-left: 0; }
+.w[data-orient="v"] .chip { left: 0; right: auto; }
+.w[data-orient="v"] .clock { flex-wrap: wrap; row-gap: 4px; max-width: 100%; }
+.w[data-orient="v"] .clock .total { flex-basis: 100%; }
+.w[data-orient="v"] .body { flex-direction: row; height: var(--len); }
+.w[data-orient="v"][data-side="left"] .body { flex-direction: row-reverse; }
+.w[data-orient="v"] .plot { height: 100%; width: var(--graph-h); }
+.w[data-orient="v"] .axis { width: 42px; height: 100%; order: 0; }
+.w[data-orient="v"] .plot { order: 1; }
+.w[data-orient="v"][data-time="off"] .axis { width: 6px; }
+.w[data-orient="v"] .ticks span { top: auto; left: auto; right: 8px; transform: translateY(50%); }
+.w[data-orient="v"] .ticks span:first-child { transform: none; }
+.w[data-orient="v"][data-side="left"] .ticks span { left: 8px; right: auto; }
+.w[data-orient="v"] .legend { position: static; flex-direction: column; gap: 6px; height: auto; padding-top: 10px; }
+
+/* Status-only: connection / no-data chip, nothing else. */
+.w[data-show="status"] .body, .w[data-show="status"] .chips, .w[data-show="status"] .clock, .w[data-show="status"] .legend { display: none; }

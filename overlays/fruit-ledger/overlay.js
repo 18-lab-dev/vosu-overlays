@@ -1,15 +1,18 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Fruit ledger: osu!catch judgements as a ruled ledger — caught and missed per object class,
-// combo status, accuracy and the accuracy still reachable.
-import { subscribe, settings, fit, activeMode, MODES } from './vosu-overlay.js';
+// Fruit ledger: osu!catch judgements as a ruled ledger floating in the side band beside the
+// playfield — caught and missed per object class, combo status, accuracy and the accuracy
+// still reachable. Song select shows the map's fruit/drop/droplet split (osu! shows only
+// circles/sliders/spinners); results and menus show nothing.
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 520; // full ledger is 368 px; the compact strip may run wider
-const HEIGHT = 219;
-const TRACK = 136; // px, matches .table's second column; keeps a non-zero share visible.
-const MIN_SHARE = 2 / TRACK;
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const CLUSTER = 296; // px, .anchor width
+const GUTTER = 40; // px between the playfield edge and the ledger
+const TRACK = CLUSTER - 46 - 12; // the bar spans the label and caught columns
+const MIN_SHARE = 2 / TRACK; // a non-zero share stays visible
 const PLAYING = 2;
-const SHORT = { fc: 'FC', intact: 'Intact', broken: 'Broken' };
-const RESULTS = 7;
+const SONG_SELECT = new Set([5, 12, 13]); // select play, multiplayer match setup, multiplayer select
 
 const P = {
   state: '/state/number',
@@ -20,21 +23,19 @@ const P = {
   accuracy: '/play/accuracy',
   combo: '/play/combo/current',
   comboMax: '/play/combo/max',
-  resultsMode: '/resultsScreen/mode/number',
-  resultsAccuracy: '/resultsScreen/accuracy',
-  resultsCombo: '/resultsScreen/maxCombo',
 };
 const HIT_KEYS = ['300', '100', '50', '0', 'katu', 'largeTickHits', 'smallTickHits'];
 const playHits = HIT_KEYS.map(key => `/play/hits/${key}`);
-const resultHits = HIT_KEYS.map(key => `/resultsScreen/hits/${key}`);
 
 const $ = id => document.getElementById(id);
+const root = document.documentElement;
 const stage = $('stage');
+const anchor = $('anchor');
 const ledger = $('ledger');
 const chip = $('chip');
 fit(stage, WIDTH, HEIGHT);
 
-// ------------------------------------------------------------ text/attribute writers (write on change only)
+// ------------------------------------------------------------ writers (DOM touched only on change)
 function textCell(el) {
   let last = null;
   return value => { if (value !== last) { last = value; el.textContent = value; } };
@@ -63,15 +64,17 @@ function segCell(el) {
     el.style.transform = `translateX(${start * 100}%) scaleX(${width})`;
   };
 }
+const stat = name => document.querySelector(`.stat-${name}`);
 
 const ui = {
   chipState: attrCell(chip, 'data-state'),
   chipText: textCell($('chip-text')),
   hidden: classCell(ledger, 'is-hidden'),
   compact: classCell(ledger, 'compact'),
+  backing: attrCell(ledger, 'data-backing'),
+  phaseAttr: attrCell(ledger, 'data-phase'),
   brand: attrCell($('brand'), 'hidden'),
   phase: textCell($('phase')),
-  phaseAttr: attrCell($('phase'), 'data-phase'),
   verdict: textCell($('verdict')),
   tone: attrCell($('verdict'), 'data-tone'),
   colCaught: textCell($('col-caught')),
@@ -88,16 +91,14 @@ const ui = {
   segTiny: segCell($('seg-tiny')),
   segDmiss: segCell($('seg-dmiss')),
   acc: textCell($('acc')),
-  accEmpty: attrCell(document.querySelector('.stat-acc'), 'data-empty'),
-  accHidden: attrCell(document.querySelector('.stat-acc'), 'hidden'),
+  accEmpty: attrCell(stat('acc'), 'data-empty'),
+  accHidden: attrCell(stat('acc'), 'hidden'),
   max: textCell($('max')),
-  maxEmpty: attrCell(document.querySelector('.stat-max'), 'data-empty'),
-  maxHidden: attrCell(document.querySelector('.stat-max'), 'hidden'),
+  maxEmpty: attrCell(stat('max'), 'data-empty'),
+  maxHidden: attrCell(stat('max'), 'hidden'),
   combo: textCell($('combo')),
-  comboEmpty: attrCell(document.querySelector('.stat-combo'), 'data-empty'),
-  comboKey: textCell($('combo-key')),
+  comboEmpty: attrCell(stat('combo'), 'data-empty'),
   comboOf: textCell($('combo-of')),
-  footSolo: attrCell(document.querySelector('.foot'), 'data-solo'),
 };
 
 const grouping = new Intl.NumberFormat('en-US');
@@ -105,21 +106,52 @@ const count = n => (n === null ? '—' : grouping.format(n));
 const percent = n => (n === null ? '—' : n.toFixed(2));
 
 // ------------------------------------------------------------ state
+const DEFAULTS = { zone: 'right', offsetX: 0, offsetY: 0, scale: 1, backing: 'scrim', accent: 'map', compact: false, showAcc: true, showBrand: true };
 let values = {};
-let options = { compact: false, showAcc: true, showBrand: true };
+let options = { ...DEFAULTS };
 let status = 'connecting';
 let dirty = true;
 let frame = 0;
-let held = null; // last live ledger, kept for results when the client publishes no result screen
 
-// Map composition from vosu's calculator (also served by tosu): one request per selected map.
+// Map composition from vosu's (and tosu's) calculator: one request per selected map.
 let composition = null;
 let compositionFor = null;
 let compositionTimer = 0;
+let paletteFor = null;
 
 function markDirty() {
   dirty = true;
   if (!frame) frame = requestAnimationFrame(render);
+}
+
+// osu!stable song select at 1920×1080: the centre column between the local leaderboard and the
+// beatmap carousel, below the map info header, is empty (the mode chooser there is normally shut).
+const SONG_SELECT_COLUMN = { x: 540, y: 190, w: 620 };
+let placedAt = '';
+
+/**
+ * Gameplay: the side band beside the 4:3 playfield (osuLayout geometry), top clear of score and
+ * accuracy, bottom clear of a key counter at the right edge. Song select: the centre column.
+ * Writes the transform only when the spot changes.
+ */
+function place(phase) {
+  const scale = Math.min(2, Math.max(0.5, options.scale || 1));
+  let x, y;
+  if (phase === 'map') {
+    x = SONG_SELECT_COLUMN.x + (SONG_SELECT_COLUMN.w - CLUSTER * scale) / 2;
+    y = SONG_SELECT_COLUMN.y + 40;
+  } else {
+    const { busy, hud } = osuLayout('fruits', { width: WIDTH, height: HEIGHT });
+    x = options.zone === 'left' ? busy.x - GUTTER - CLUSTER * scale : busy.x + busy.w + GUTTER;
+    y = hud.accuracy.y + hud.accuracy.h + 34;
+  }
+  // Scaled or nudged, the ledger never leaves the 1920×1080 source.
+  x = Math.min(WIDTH - CLUSTER * scale, Math.max(0, x + options.offsetX));
+  y = Math.max(0, y + options.offsetY);
+  const transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${scale})`;
+  if (transform === placedAt) return;
+  placedAt = transform;
+  anchor.style.transform = transform;
 }
 
 function wantComposition(checksum) {
@@ -145,31 +177,39 @@ async function loadComposition(checksum, attempt) {
     if (![fruits, drops, droplets].every(Number.isInteger)) return;
     composition = { fruits, drops, droplets, total: fruits + drops + droplets };
     markDirty();
-  } catch { /* offline or not JSON: max stays unknown */ }
+  } catch { /* offline or not JSON: composition stays unknown */ }
+}
+
+function wantPalette(checksum) {
+  const key = options.accent === 'map' ? checksum || null : null;
+  if (key === paletteFor) return;
+  paletteFor = key;
+  if (!key) { applyPalette(root, null); return; }
+  mapPalette(key).then(palette => { if (paletteFor === key) applyPalette(root, palette); });
 }
 
 const int = value => (Number.isFinite(value) ? value : 0);
 
 /**
- * Reads a hits object into the ledger. The brief's (tosu) catch table: 300 fruits, 100 drops,
- * 50 droplets, katu missed droplets, 0 fruit+drop misses. Some servers instead publish catch
- * statistics raw (drops in largeTickHits, droplets in smallTickHits, droplet misses absent);
- * then droplet misses are unknown (null) rather than zero.
+ * Reads the hits object. The brief's (tosu) catch table: 300 fruits, 100 drops, 50 droplets,
+ * katu missed droplets, 0 fruit+drop misses. vosu v2 currently publishes catch statistics raw
+ * (drops in largeTickHits, droplets in smallTickHits, droplet misses absent): then droplet
+ * misses are unknown (null), never zero.
  */
-function readHits(pointers) {
-  const fruits = values[pointers[0]];
+function readHits() {
+  const fruits = values[playHits[0]];
   if (!Number.isFinite(fruits)) return null;
-  const h100 = int(values[pointers[1]]);
-  const h50 = int(values[pointers[2]]);
-  const katu = int(values[pointers[4]]);
-  const large = int(values[pointers[5]]);
-  const small = int(values[pointers[6]]);
+  const h100 = int(values[playHits[1]]);
+  const h50 = int(values[playHits[2]]);
+  const katu = int(values[playHits[4]]);
+  const large = int(values[playHits[5]]);
+  const small = int(values[playHits[6]]);
   const raw = h100 === 0 && h50 === 0 && katu === 0 && (large > 0 || small > 0);
   return {
     fruits,
     drops: raw ? large : h100,
     droplets: raw ? small : h50,
-    misses: int(values[pointers[3]]),
+    misses: int(values[playHits[3]]),
     dropletMisses: raw ? null : katu,
     raw,
   };
@@ -185,6 +225,13 @@ function verdictOf(hits, maxCombo) {
   return ['fc', 'Full combo'];
 }
 
+function chipOnly(state, text) {
+  place('live');
+  ui.chipState(state);
+  ui.chipText(text);
+  ui.hidden(true);
+}
+
 // ------------------------------------------------------------ render (rAF only)
 function render() {
   frame = 0;
@@ -192,89 +239,59 @@ function render() {
   dirty = false;
 
   ui.compact(options.compact);
+  ui.backing(options.backing);
   ui.brand(options.showBrand ? null : '');
 
-  if (status !== 'live') {
-    ui.chipState(status);
-    ui.chipText(status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
+  if (status !== 'live') return chipOnly(status, status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
+
+  const state = values[P.state];
+  if (!Number.isInteger(state)) return chipOnly('idle', 'Waiting for osu!');
+  ui.chipState('live');
+
+  const mode = activeMode(state, values[P.playMode], values[P.settingsMode]);
+  const phase = state === PLAYING ? 'live' : SONG_SELECT.has(state) ? 'map' : null;
+  // Another ruleset, results, menus — or song select without anything osu! doesn't show: nothing.
+  if (mode !== 'fruits' || phase === null || (phase === 'map' && !composition)) {
     ui.hidden(true);
     return;
   }
-  ui.chipState('live');
-
-  const state = values[P.state];
-  let mode = activeMode(state, values[P.playMode], values[P.settingsMode]);
-  if (state === RESULTS && Number.isInteger(values[P.resultsMode])) mode = MODES[values[P.resultsMode]] ?? mode;
-  // Another ruleset: nothing on screen. No game at all: a calm placeholder.
-  ui.hidden(mode !== null && mode !== 'fruits');
-  if (mode !== null && mode !== 'fruits') return;
-
-  const phase = state === PLAYING ? 'live' : state === RESULTS ? 'final' : 'map';
+  place(phase);
+  ui.hidden(false);
   ui.phaseAttr(phase);
-  ui.phase(phase === 'live' ? 'Live' : phase === 'final' ? 'Final' : Number.isInteger(state) ? 'Map' : 'Idle');
-  const accShown = options.showAcc && phase !== 'map';
-  ui.accHidden(accShown ? null : '');
-  ui.footSolo(accShown ? null : '');
-  ui.maxHidden(options.showAcc && phase === 'live' ? null : '');
-
-  let hits = null;
-  let accuracy = null;
-  let combo = null;
-  let comboMax = null;
-  if (phase === 'live') {
-    hits = readHits(playHits);
-    accuracy = Number.isFinite(values[P.accuracy]) ? values[P.accuracy] : null;
-    combo = Number.isFinite(values[P.combo]) ? values[P.combo] : null;
-    comboMax = Number.isFinite(values[P.comboMax]) ? values[P.comboMax] : null;
-    held = hits ? { hits, accuracy, comboMax } : held;
-  } else if (phase === 'final') {
-    const result = readHits(resultHits);
-    const judged = result ? result.fruits + result.drops + result.droplets + result.misses + (result.dropletMisses ?? 0) : 0;
-    if (judged > 0) {
-      hits = result;
-      accuracy = Number.isFinite(values[P.resultsAccuracy]) ? values[P.resultsAccuracy] : null;
-      comboMax = Number.isFinite(values[P.resultsCombo]) ? values[P.resultsCombo] : null;
-    } else if (held) {
-      ({ hits, accuracy, comboMax } = held);
-    }
-    combo = comboMax;
-  } else {
-    held = null;
-  }
-
-  const mapCombo = Number.isFinite(values[P.mapCombo]) && values[P.mapCombo] > 0 ? values[P.mapCombo] : null;
-  ui.comboKey(phase === 'live' ? 'Combo' : 'Max combo');
-  ui.comboOf(mapCombo === null || phase === 'map' ? '' : `/ ${count(mapCombo)}`);
+  ui.phase(phase === 'live' ? 'Live' : 'Map');
 
   if (phase === 'map') {
-    // Song select: the map's opening balance, when the calculator can tell us.
+    // The map's opening balance: osu! song select shows circles/sliders/spinners, not this split.
     const c = composition;
     ui.colCaught('In map');
-    ui.fruit(count(c ? c.fruits : null));
-    ui.drop(count(c ? c.drops : null));
-    ui.tiny(count(c ? c.droplets : null));
-    ui.miss('—'); ui.missHot(false);
-    ui.dmiss('—'); ui.dmissHot(false);
-    const combos = c ? c.fruits + c.drops : 0;
+    ui.fruit(count(c.fruits));
+    ui.drop(count(c.drops));
+    ui.tiny(count(c.droplets));
+    const combos = c.fruits + c.drops;
     ui.segFruit(0, combos ? c.fruits / combos : 0);
     ui.segDrop(combos ? c.fruits / combos : 0, combos ? c.drops / combos : 0);
     ui.segMiss(1, 0);
-    ui.segTiny(0, c && c.droplets ? 1 : 0);
+    ui.segTiny(0, c.droplets ? 1 : 0);
     ui.segDmiss(1, 0);
-    ui.verdict('—'); ui.tone('none');
-    ui.combo(count(mapCombo)); ui.comboEmpty(mapCombo === null ? '' : null);
     return;
   }
 
   ui.colCaught('Caught');
+  ui.accHidden(options.showAcc ? null : '');
+  ui.maxHidden(options.showAcc ? null : '');
+  const mapCombo = Number.isFinite(values[P.mapCombo]) && values[P.mapCombo] > 0 ? values[P.mapCombo] : null;
+  ui.comboOf(mapCombo === null ? '' : `/ ${count(mapCombo)}`);
+  const combo = Number.isFinite(values[P.combo]) ? values[P.combo] : null;
+  ui.combo(combo === null ? '—' : count(combo));
+  ui.comboEmpty(combo === null ? '' : null);
+
+  const hits = readHits();
   if (!hits) {
-    for (const write of [ui.fruit, ui.drop, ui.tiny, ui.miss, ui.dmiss]) write('—');
+    for (const write of [ui.fruit, ui.drop, ui.tiny, ui.miss, ui.dmiss, ui.acc, ui.max]) write('—');
     ui.missHot(false); ui.dmissHot(false);
     for (const seg of [ui.segFruit, ui.segDrop, ui.segMiss, ui.segTiny, ui.segDmiss]) seg(0, 0);
-    ui.verdict('—'); ui.tone('none');
-    ui.acc('—'); ui.accEmpty('');
-    ui.max('—'); ui.maxEmpty('');
-    ui.combo('—'); ui.comboEmpty('');
+    ui.tone('none'); ui.verdict('');
+    ui.accEmpty(''); ui.maxEmpty('');
     return;
   }
 
@@ -298,14 +315,14 @@ function render() {
   ui.segTiny(0, caughtShare);
   ui.segDmiss(caughtShare, dropletTotal ? (hits.dropletMisses ?? 0) / dropletTotal : 0);
 
+  const comboMax = Number.isFinite(values[P.comboMax]) ? values[P.comboMax] : null;
   const [tone, label] = verdictOf(hits, comboMax);
   ui.tone(tone);
-  ui.verdict(tone === 'none' ? '—' : options.compact ? SHORT[tone] : label);
+  ui.verdict(label);
 
-  const judged = tone !== 'none';
-  const shownAcc = judged && accuracy !== null ? accuracy : null;
-  ui.acc(percent(shownAcc));
-  ui.accEmpty(shownAcc === null ? '' : null);
+  const accuracy = tone !== 'none' && Number.isFinite(values[P.accuracy]) ? values[P.accuracy] : null;
+  ui.acc(percent(accuracy));
+  ui.accEmpty(accuracy === null ? '' : null);
 
   // Max achievable: everything not yet missed is still catchable.
   let max = null;
@@ -315,16 +332,14 @@ function render() {
   }
   ui.max(percent(max));
   ui.maxEmpty(max === null ? '' : null);
-
-  ui.combo(combo === null ? '—' : count(combo));
-  ui.comboEmpty(combo === null ? '' : null);
 }
 
 // ------------------------------------------------------------ wiring
-subscribe([...Object.values(P), ...playHits, ...resultHits], (next, changed) => {
+subscribe([...Object.values(P), ...playHits], (next, changed) => {
   values = next;
-  const mode = activeMode(next[P.state], next[P.playMode], next[P.settingsMode]);
-  if (mode === 'fruits' || next[P.state] === RESULTS) wantComposition(next[P.checksum]);
+  const fruits = activeMode(next[P.state], next[P.playMode], next[P.settingsMode]) === 'fruits';
+  if (fruits) wantComposition(next[P.checksum]);
+  if (changed.has(P.checksum) || changed.has(P.state)) wantPalette(fruits ? next[P.checksum] : null);
   if (changed.size) markDirty();
 }, {
   onStatus: state => {
@@ -336,7 +351,9 @@ subscribe([...Object.values(P), ...playHits, ...resultHits], (next, changed) => 
   },
 });
 
-settings({ compact: false, showAcc: true, showBrand: true }, next => {
+settings(DEFAULTS, next => {
   options = next;
+  const fruits = activeMode(values[P.state], values[P.playMode], values[P.settingsMode]) === 'fruits';
+  wantPalette(fruits ? values[P.checksum] : null);
   markDirty();
 });

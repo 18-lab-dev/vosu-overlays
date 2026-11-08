@@ -1,13 +1,20 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Skill radar: osu! pp split into aim / speed / accuracy / flashlight, live against the
-// full-combo projection, over a strip of the map's aim-vs-speed strain profile.
-import { subscribe, settings, fit, activeMode } from './vosu-overlay.js';
+// full-combo projection, over a strip of the map's aim-vs-speed strain profile. Floats in the
+// side band beside the 4:3 playfield; in song select it shows only the strain profile and SS pp.
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const STAGE_W = 408;
-const STAGE_H = 388;
 const SKILLS = ['aim', 'speed', 'accuracy', 'flashlight'];
 const AXES = ['AIM', 'SPD', 'ACC', 'FL'];
 const FL = 3;
+const COLUMN_W = 216;
+const LAYOUT = osuLayout('osu');
+// Hit objects overhang the 512×384 playfield by their radius (≈ 82 px at CS 4, 1080p); keep clear.
+const OVERHANG = 88;
+// Song select: foot of the free centre column between stable's local leaderboard (x ≲ 520) and
+// the beatmap carousel (x ≳ 1180). Results: right end of the ranking screen's header strip.
+const SELECT = { centre: 850, bottom: 920, width: 360 };
+const RESULTS = { right: 1900, top: 12 };
 
 const P = {
   state: '/state/number',
@@ -33,13 +40,13 @@ const POINTERS = [...Object.values(P), ...NOW_P, ...FC_P];
 
 // ---------------------------------------------------------------- dom
 const $ = id => document.getElementById(id);
-const panel = $('panel');
+const cluster = $('cluster');
 const el = {
-  status: $('status'), statusText: $('status-text'), mods: $('mods'),
+  title: $('title'), status: $('status'), statusText: $('status-text'),
   nowLabel: $('now-label'), nowValue: $('now-value'), fcLabel: $('fc-label'), fcValue: $('fc-value'),
   shareAim: $('share-aim'), shareSpeed: $('share-speed'), stripEmpty: $('strip-empty'),
 };
-const rows = [...panel.querySelectorAll('.row[data-skill]')].map(row => {
+const rows = [...cluster.querySelectorAll('.row[data-skill]')].map(row => {
   const cells = row.querySelectorAll('.v');
   return { row, now: cells[0], fc: cells[1] };
 });
@@ -60,6 +67,9 @@ function setText(node, text) {
 function setFlag(node, name, on) {
   if (node.classList.contains(name) !== on) node.classList.toggle(name, on);
 }
+function setData(node, key, value) {
+  if (node.dataset[key] !== value) node.dataset[key] = value;
+}
 
 function group(n) {
   if (n < 1000) return String(n);
@@ -69,26 +79,29 @@ const num = value => typeof value === 'number' && Number.isFinite(value);
 const fmt = value => (num(value) && value >= 0 ? group(Math.round(value)) : '—');
 
 // ---------------------------------------------------------------- colours
-const colour = {};
+const colour = {
+  fg: '#ebe8e1', dim: '#b8b5ad', signal: '#7fa6cf', hl: '#ff963f',
+  ring: 'rgb(235 232 225 / 0.13)', ringOuter: 'rgb(235 232 225 / 0.3)', axis: 'rgb(235 232 225 / 0.24)',
+  tick: 'rgb(235 232 225 / 0.2)', track: 'rgb(235 232 225 / 0.12)', notch: 'rgb(11 12 13 / 0.8)',
+  centre: 'rgb(235 232 225 / 0.34)', shadow: 'rgb(0 0 0 / 0.65)',
+};
 function readColours() {
-  const css = getComputedStyle(document.documentElement);
-  const get = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-  colour.fg = get('--fg', '#ebe8e1');
-  colour.dim = get('--fg-dim', '#b8b5ad');
-  colour.muted = get('--muted', '#7e8288');
-  colour.rule = get('--rule', '#25282c');
-  colour.ruleStrong = get('--rule-strong', '#3b3f45');
-  colour.accent = get('--accent', '#ff963f');
-  colour.signal = get('--signal', '#7fa6cf');
-  colour.bg = get('--bg', '#111214');
+  const root = getComputedStyle(document.documentElement);
+  const get = (style, name, fallback) => style.getPropertyValue(name).trim() || fallback;
+  colour.fg = get(root, '--fg', colour.fg);
+  colour.dim = get(root, '--fg-dim', colour.dim);
+  colour.signal = get(root, '--signal', colour.signal);
+  colour.hl = get(getComputedStyle(cluster), '--hl', get(root, '--accent', colour.hl));
 }
-readColours();
 
 // ---------------------------------------------------------------- model
-const opts = { chartStyle: 'radar', showFc: true, showProfile: true, showBrand: true };
+const opts = {
+  chartStyle: 'radar', showFc: true, showProfile: true, zone: 'right', offsetX: 0, offsetY: 0, scale: 100,
+  backing: 'none', accent: 'map', showSelect: true, showResults: true, showBrand: true,
+};
 const model = {
-  link: 'connecting', present: false, visible: true, phase: 'idle', state: null,
-  mods: '', axes: 3, components: false,
+  link: 'connecting', present: false, osu: true, phase: 'idle', state: null, view: 'none',
+  mods: '', axes: 3, components: false, checksum: null,
   nowLabel: 'Now', fcLabel: 'If FC', nowTotal: undefined, fcTotal: undefined,
 };
 const target = { now: new Float64Array(4), fc: new Float64Array(4), max: 0, alpha: 0 };
@@ -106,6 +119,7 @@ const graph = {
 let textDirty = true;
 let chartDirty = true;
 let stripDirty = true;
+let placeDirty = true;
 let raf = 0;
 let lastFrame = 0;
 const schedule = () => { if (!raf) raf = requestAnimationFrame(frame); };
@@ -123,17 +137,30 @@ function readComponents(values, into, fcInto) {
   return sum > 0;
 }
 
+/** What the overlay shows: gameplay always; results and song select only what osu! lacks there. */
+function viewFor() {
+  if (model.link !== 'live' || !model.present) return 'status';
+  if (!model.osu) return 'none';
+  if (model.phase === 'play') return 'play';
+  if (model.phase === 'results') return opts.showResults && (model.components || num(model.nowTotal)) ? 'results' : 'none';
+  if (model.state === 5 && opts.showSelect && (graph.series || num(model.nowTotal))) return 'select';
+  return 'none';
+}
+
 function update(values) {
   const state = values[P.state];
   model.present = num(state);
   model.state = model.present ? state : null;
-  const mode = activeMode(state, values[P.playMode], values[P.selMode]);
-  model.visible = mode === 'osu' || mode === null;
+  model.osu = activeMode(state, values[P.playMode], values[P.selMode]) === 'osu';
   model.phase = state === 2 ? 'play' : state === 7 ? 'results' : 'idle';
   const mods = typeof values[P.mods] === 'string' ? values[P.mods] : '';
   model.mods = mods === 'NM' ? '' : mods;
 
-  const checksum = values[P.checksum] ?? null;
+  const checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : null;
+  if (checksum !== model.checksum) {
+    model.checksum = checksum;
+    loadPalette(checksum);
+  }
   const live = readComponents(values, scratchNow, scratchFc);
   let source = null;
   if (model.phase === 'play' && live) {
@@ -174,15 +201,11 @@ function update(values) {
     model.fcLabel = 'If FC';
     model.nowTotal = fromResults ? resNow : values[P.ppNow];
     model.fcTotal = fromResults ? resFc : values[P.ppFc];
-  } else if (model.present) {
+  } else {
     model.nowLabel = 'SS';
     model.fcLabel = '99%';
     model.nowTotal = values[P.ss];
     model.fcTotal = values[P.acc99];
-  } else {
-    model.nowLabel = 'Now';
-    model.fcLabel = 'If FC';
-    model.nowTotal = model.fcTotal = undefined;
   }
   // Absent gameplay pp (tosu without detail, osu! closed) stays a dash rather than 0.
   if (model.phase !== 'idle' && !model.components && !(num(model.fcTotal) && model.fcTotal > 0)) {
@@ -213,15 +236,14 @@ function onFrame(values, changed) {
     if (pointer !== P.live) { other = true; break; }
   }
   if (other) {
-    update(values);
     if (changed.has(P.series) || changed.has(P.xaxis)) {
-      graph.series = values[P.series];
+      const series = values[P.series];
+      graph.series = Array.isArray(series) && series.length ? series : null;
       graph.xaxis = values[P.xaxis];
       graph.dirty = true;
     }
-    textDirty = true;
-    chartDirty = true;
-    stripDirty = true;
+    update(values);
+    textDirty = chartDirty = stripDirty = true;
   }
   const head = updateHead(values);
   if (head !== graph.head) { graph.head = head; stripDirty = true; other = true; }
@@ -233,13 +255,9 @@ function onStatus(state) {
   model.link = state;
   if (state !== 'live') {
     model.present = false;
-    model.visible = true;
     model.phase = 'idle';
     model.components = false;
-    model.mods = '';
     model.nowTotal = model.fcTotal = undefined;
-    model.nowLabel = 'Now';
-    model.fcLabel = 'If FC';
     target.alpha = 0;
     graph.series = graph.xaxis = null;
     graph.dirty = true;
@@ -249,31 +267,80 @@ function onStatus(state) {
   schedule();
 }
 
+// ---------------------------------------------------------------- palette (off the hot path)
+let palette = null;
+let paletteFor = null;
+function loadPalette(checksum) {
+  paletteFor = checksum;
+  if (!checksum) { palette = null; applyAccent(); return; }
+  mapPalette(checksum).then(result => {
+    if (paletteFor !== checksum) return;
+    palette = result;
+    applyAccent();
+  });
+}
+function applyAccent() {
+  applyPalette(cluster, opts.accent === 'map' ? palette : null);
+  setData(cluster, 'accent', opts.accent);
+  readColours();
+  chartDirty = stripDirty = true;
+  schedule();
+}
+
+// ---------------------------------------------------------------- placement
+/** Right zone: the band between the playfield's hit-object overhang and the key counter. */
+function place() {
+  const s = Math.min(2, Math.max(0.5, opts.scale / 100));
+  const pad = opts.backing === 'panel' ? 26 : 0;
+  const outer = COLUMN_W + pad;
+  const { busy, hud, width, height } = LAYOUT;
+  let left = null;
+  let right = null;
+  let top = null;
+  let bottom = null;
+  if (model.view === 'select') {
+    left = SELECT.centre - ((SELECT.width + pad) * s) / 2;
+    bottom = height - SELECT.bottom;
+  } else if (model.view === 'results') {
+    right = width - RESULTS.right;
+    top = RESULTS.top;
+  } else if (opts.zone === 'left') {
+    left = busy.x - OVERHANG - outer * s;
+    top = hud.accuracy.y + hud.accuracy.h + 36;
+  } else {
+    left = Math.min(busy.x + busy.w + OVERHANG, hud.keys.x - 8 - outer * s);
+    top = hud.accuracy.y + hud.accuracy.h + 36;
+  }
+  const px = value => `${Math.round(value)}px`;
+  const style = cluster.style;
+  style.left = left === null ? 'auto' : px(left + opts.offsetX);
+  style.right = right === null ? 'auto' : px(right - opts.offsetX);
+  style.top = top === null ? 'auto' : px(top + opts.offsetY);
+  style.bottom = bottom === null ? 'auto' : px(bottom - opts.offsetY);
+  style.transformOrigin = `${right === null ? '0' : '100%'} ${bottom === null ? '0' : '100%'}`;
+  style.transform = s === 1 ? '' : `scale(${s})`;
+}
+
 // ---------------------------------------------------------------- text
 const STATUS = {
   connecting: { tone: 'wait', text: 'connecting' },
   offline: { tone: 'error', text: 'vosu offline' },
   absent: { tone: 'wait', text: 'no game' },
-  play: { tone: 'live', text: 'live' },
-  results: { tone: 'hold', text: 'result' },
-  select: { tone: 'wait', text: 'song select' },
-  idle: { tone: 'wait', text: 'idle' },
 };
-function status() {
-  if (model.link === 'connecting') return STATUS.connecting;
-  if (model.link === 'offline') return STATUS.offline;
-  if (!model.present) return STATUS.absent;
-  if (model.phase === 'play') return STATUS.play;
-  if (model.phase === 'results') return STATUS.results;
-  return model.state === 5 ? STATUS.select : STATUS.idle;
-}
-
 function renderText() {
-  const { tone, text } = status();
-  if (el.status.dataset.tone !== tone) el.status.dataset.tone = tone;
-  setText(el.statusText, text);
-  setText(el.mods, model.mods);
-  if (el.mods.hidden !== !model.mods) el.mods.hidden = !model.mods;
+  const view = viewFor();
+  if (view !== model.view) {
+    model.view = view;
+    setData(cluster, 'view', view);
+    placeDirty = true;
+    chartDirty = stripDirty = true;
+  }
+  if (placeDirty) { placeDirty = false; place(); }
+  if (view === 'none') return;
+  const st = model.link === 'connecting' ? STATUS.connecting : model.link === 'offline' ? STATUS.offline : STATUS.absent;
+  setData(el.status, 'tone', st.tone);
+  setText(el.statusText, st.text);
+  setText(el.title, view === 'select' ? 'map profile' : 'pp by skill');
   setText(el.nowLabel, model.nowLabel);
   setText(el.fcLabel, model.fcLabel);
   const nowText = fmt(model.nowTotal);
@@ -290,17 +357,18 @@ function renderText() {
     setText(rows[i].now, show ? fmt(target.now[i]) : '—');
     setText(rows[i].fc, show ? fmt(target.fc[i]) : '—');
   }
-  setFlag(panel, 'is-hidden', !model.visible);
 }
 
 // ---------------------------------------------------------------- radar
 const DASH = [2, 3];
 const SOLID = [];
-const MONO = '400 10px "IBM Plex Mono", ui-monospace, monospace';
-const RADAR_R = 60;
+const MONO = '400 12px "IBM Plex Mono", ui-monospace, monospace';
+// Leaves room for the dial ticks and axis names around the scope (side names ≈ 22 px wide).
+const radarRadius = c => Math.max(16, Math.min(c.w / 2 - 36, c.h / 2 - 22));
 const RADAR_FILL = 0.86;
 const COS = new Float64Array(4);
 const SIN = new Float64Array(4);
+let face = null;
 
 function begin(c) {
   const { ctx } = c;
@@ -326,8 +394,8 @@ function drawRadar() {
   const ctx = begin(radar);
   const n = model.axes;
   const cx = Math.round(radar.w / 2);
-  const cy = Math.round(radar.h / 2);
-  const R = RADAR_R;
+  const cy = Math.round(radar.h / 2) + 2;
+  const R = radarRadius(radar);
   const px = 0.5 / radar.dpr;
   for (let i = 0; i < n; i++) {
     const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
@@ -335,9 +403,21 @@ function drawRadar() {
     SIN[i] = Math.sin(angle);
   }
 
-  // Dial: 5° graduations outside the scope, with quarter rings inside.
+  // Scope face: a feathered dark disc so the marks read over any map background.
+  if (opts.backing !== 'panel') {
+    if (!face) {
+      face = ctx.createRadialGradient(cx, cy, 0, cx, cy, R + 30);
+      face.addColorStop(0, 'rgb(11 12 13 / 0.56)');
+      face.addColorStop((R + 4) / (R + 30), 'rgb(11 12 13 / 0.46)');
+      face.addColorStop(1, 'rgb(11 12 13 / 0)');
+    }
+    ctx.fillStyle = face;
+    ctx.fillRect(cx - R - 30, cy - R - 30, (R + 30) * 2, (R + 30) * 2);
+  }
+
+  // Dial: 5° graduations outside the scope, quarter rings inside.
   ctx.lineWidth = 1 / radar.dpr;
-  ctx.strokeStyle = colour.rule;
+  ctx.strokeStyle = colour.tick;
   ctx.beginPath();
   for (let deg = 0; deg < 360; deg += 5) {
     const a = (deg * Math.PI) / 180;
@@ -348,12 +428,12 @@ function drawRadar() {
   }
   ctx.stroke();
   for (let k = 1; k <= 4; k++) {
-    ctx.strokeStyle = k === 4 ? colour.ruleStrong : colour.rule;
+    ctx.strokeStyle = k === 4 ? colour.ringOuter : colour.ring;
     ctx.beginPath();
     ctx.arc(cx, cy, (R * k) / 4, 0, Math.PI * 2);
     ctx.stroke();
   }
-  ctx.strokeStyle = colour.ruleStrong;
+  ctx.strokeStyle = colour.axis;
   ctx.beginPath();
   for (let i = 0; i < n; i++) {
     const x = cx + COS[i] * (R + 6);
@@ -363,16 +443,16 @@ function drawRadar() {
   }
   ctx.stroke();
 
-  // Layers: FC projection as a dashed ghost, the live split filled in accent.
+  // Layers: FC projection as a dashed ghost, the live split filled in the highlight colour.
   const a = shown.alpha;
   if (a > 0.004 && shown.max > 0) {
     const k = (R * RADAR_FILL) / shown.max;
     if (opts.showFc) {
       polygon(ctx, cx, cy, shown.fc, n, k);
-      ctx.globalAlpha = a * 0.08;
+      ctx.globalAlpha = a * 0.1;
       ctx.fillStyle = colour.dim;
       ctx.fill();
-      ctx.globalAlpha = a * 0.75;
+      ctx.globalAlpha = a * 0.85;
       ctx.setLineDash(DASH);
       ctx.strokeStyle = colour.dim;
       ctx.lineWidth = 1;
@@ -380,46 +460,53 @@ function drawRadar() {
       ctx.setLineDash(SOLID);
     }
     polygon(ctx, cx, cy, shown.now, n, k);
-    ctx.globalAlpha = a * 0.2;
-    ctx.fillStyle = colour.accent;
+    ctx.globalAlpha = a * 0.24;
+    ctx.fillStyle = colour.hl;
     ctx.fill();
     ctx.globalAlpha = a;
-    ctx.strokeStyle = colour.accent;
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = colour.hl;
+    ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
-    ctx.fillStyle = colour.accent;
+    ctx.fillStyle = colour.hl;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
       const r = shown.now[i] * k;
       const x = cx + COS[i] * r;
       const y = cy + SIN[i] * r;
-      ctx.moveTo(x + 2.25, y);
-      ctx.arc(x, y, 2.25, 0, Math.PI * 2);
+      ctx.moveTo(x + 2.5, y);
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
     }
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  ctx.fillStyle = colour.ruleStrong;
+  ctx.fillStyle = colour.centre;
   ctx.fillRect(cx - 1, cy - 1, 2, 2);
 
-  // Axis names sit just past the dial, pushed out by half their width on side axes.
+  // Axis names just past the dial, pushed out by half their width on side axes.
   ctx.font = MONO;
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '0.8px';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0.9px';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.shadowColor = colour.shadow;
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = model.components ? colour.fg : colour.dim;
   for (let i = 0; i < n; i++) {
     const width = ctx.measureText(AXES[i]).width;
-    const d = R + 12 + Math.abs(COS[i]) * (width / 2 - 2);
-    ctx.fillStyle = model.components ? colour.dim : colour.muted;
+    const d = R + 13 + Math.abs(COS[i]) * (width / 2 - 2);
     ctx.fillText(AXES[i], Math.round(cx + COS[i] * d), Math.round(cy + SIN[i] * d) + 0.5);
   }
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
 }
 
 // ---------------------------------------------------------------- bars
-const BAR_ROW = 28;
-const BAR_H = 6;
-const BAR_FILL = 0.94;
+const BAR_ROW = 34;
+const BAR_Y = 25;
+const BAR_H = 5;
+const BAR_FILL = 0.96;
 
 function drawBars() {
   if (!bars.w) return;
@@ -427,29 +514,25 @@ function drawBars() {
   const w = bars.w;
   const px = 1 / bars.dpr;
   const k = shown.max > 0 ? (w * BAR_FILL) / shown.max : 0;
-  ctx.lineWidth = px;
   for (let i = 0; i < 4; i++) {
-    const mid = i * BAR_ROW + BAR_ROW / 2 + 0.5;
-    const top = Math.round(mid - BAR_H / 2);
+    const top = i * BAR_ROW + BAR_Y;
     const off = i === FL && model.axes === 3;
-    // Track with quarter graduations.
-    ctx.fillStyle = colour.rule;
+    ctx.fillStyle = colour.track;
     ctx.fillRect(0, top, w, BAR_H);
-    ctx.fillStyle = colour.bg;
+    ctx.fillStyle = colour.notch;
     for (let q = 1; q < 4; q++) ctx.fillRect(Math.round((w * BAR_FILL * q) / 4), top, px, BAR_H);
     if (off || shown.alpha <= 0.004 || !k) continue;
     const a = shown.alpha;
     if (opts.showFc) {
       const fw = shown.fc[i] * k;
-      ctx.globalAlpha = a * 0.28;
+      ctx.globalAlpha = a * 0.34;
       ctx.fillStyle = colour.dim;
       ctx.fillRect(0, top, fw, BAR_H);
       ctx.globalAlpha = a;
-      ctx.fillStyle = colour.dim;
-      ctx.fillRect(Math.max(0, Math.round(fw) - px), top - 3, px, BAR_H + 6);
+      ctx.fillRect(Math.max(0, Math.round(fw) - px), top - 3, px * 2, BAR_H + 6);
     }
     ctx.globalAlpha = a;
-    ctx.fillStyle = colour.accent;
+    ctx.fillStyle = colour.hl;
     ctx.fillRect(0, top, shown.now[i] * k, BAR_H);
     ctx.globalAlpha = 1;
   }
@@ -474,7 +557,7 @@ function buildStrip() {
   graph.x0 = x0;
   graph.span = span;
 
-  // Peak per device column (padding sentinels are negative: read as empty).
+  // Peak per device column (vosu pads empty lead-in/out with negative sentinels: read as 0).
   const w = strip.w;
   const h = strip.h;
   if (!w || !h) return;
@@ -500,7 +583,7 @@ function buildStrip() {
   if (sumAim + sumSpeed > 0) graph.shareAim = sumAim / (sumAim + sumSpeed);
   if (!(peak > 0)) return;
   const mid = Math.round(h / 2);
-  const amp = (h / 2 - 3 * strip.dpr) / peak;
+  const amp = (h / 2 - 2 * strip.dpr) / peak;
   const gap = Math.round(strip.dpr);
   const area = (cols, sign) => {
     const path = new Path2D();
@@ -537,7 +620,6 @@ function drawStrip() {
   if (graph.dirty || graph.built.w !== strip.w || graph.built.h !== strip.h) {
     buildStrip();
     graph.head = headColumn();
-    textDirty = true;
   }
   const { ctx } = strip;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -547,22 +629,21 @@ function drawStrip() {
   const h = strip.h;
   const line = Math.max(1, Math.round(strip.dpr));
   const head = graph.head;
-  if (model.phase === 'play') {
+  if (model.view === 'play') {
     const split = Math.max(0, Math.min(w, head));
-    fillStrip(ctx, 0, split, 0.9);
-    fillStrip(ctx, split, w, 0.3);
-  } else if (model.phase === 'results') {
-    fillStrip(ctx, 0, w, 0.9);
+    fillStrip(ctx, 0, split, 0.95);
+    fillStrip(ctx, split, w, 0.38);
+  } else if (model.view === 'results') {
+    fillStrip(ctx, 0, w, 0.95);
   } else {
-    fillStrip(ctx, 0, w, 0.55);
+    fillStrip(ctx, 0, w, 0.8);
   }
-  ctx.fillStyle = colour.ruleStrong;
+  ctx.fillStyle = colour.ringOuter;
   ctx.fillRect(0, Math.round(h / 2) - (line >> 1), w, line);
-  if (head >= 0 && head <= w && model.phase !== 'results') {
-    const x = Math.min(w - line, head);
-    ctx.fillStyle = model.phase === 'play' ? colour.accent : colour.muted;
-    ctx.fillRect(x, 0, line, h);
-    if (model.phase === 'play') ctx.fillRect(x - line, 0, line * 3, line * 2);
+  if (head >= 0 && head <= w && model.view !== 'results') {
+    const x = Math.min(w - line * 2, head);
+    ctx.fillStyle = model.view === 'play' ? colour.hl : colour.fg;
+    ctx.fillRect(x, 0, line * 2, h);
   }
 }
 
@@ -574,7 +655,6 @@ function renderShare() {
   setText(el.shareSpeed, has ? `${100 - aimPct}%` : '—');
   const empty = !graph.aimPath;
   if (el.stripEmpty.hidden !== !empty) el.stripEmpty.hidden = !empty;
-  setText(el.stripEmpty, model.present ? 'No strain data' : '—');
 }
 
 // ---------------------------------------------------------------- frame
@@ -613,17 +693,19 @@ function frame(time) {
     textDirty = false;
     renderText();
   }
-  if (model.visible) {
+  const view = model.view;
+  if (view === 'play' || view === 'results') {
     if (chartDirty || animating) {
       chartDirty = false;
-      if (opts.chartStyle === 'bars') drawBars(); else drawRadar();
+      if (opts.chartStyle === 'bars' && view === 'play') drawBars(); else drawRadar();
     }
-    if (stripDirty && opts.showProfile) {
-      stripDirty = false;
-      drawStrip();
-      renderShare();
-      if (textDirty) { textDirty = false; renderText(); }
-    }
+  } else {
+    animating = false;
+  }
+  if (stripDirty && (view === 'select' || ((view === 'play' || view === 'results') && opts.showProfile))) {
+    stripDirty = false;
+    drawStrip();
+    renderShare();
   }
   if (animating) schedule(); else lastFrame = 0;
 }
@@ -639,13 +721,12 @@ function size(c, width, height) {
   c.dpr = dpr;
   c.w = c === strip ? w : width;
   c.h = c === strip ? h : height;
+  if (c === radar) face = null;
   return true;
 }
 const cssSize = new Map();
 const observer = new ResizeObserver(entries => {
-  for (const entry of entries) {
-    cssSize.set(entry.target, entry.contentRect);
-  }
+  for (const entry of entries) cssSize.set(entry.target, entry.contentRect);
   resizeAll();
 });
 function resizeAll() {
@@ -663,21 +744,31 @@ for (const c of [radar, bars, strip]) observer.observe(c.node);
 addEventListener('resize', resizeAll);
 
 // ---------------------------------------------------------------- boot
-fit($('stage'), STAGE_W, STAGE_H);
+fit($('stage'), 1920, 1080);
+readColours();
 
 settings({ ...opts }, next => {
+  const backing = ['none', 'scrim', 'panel'].includes(next.backing) ? next.backing : 'none';
   opts.chartStyle = next.chartStyle === 'bars' ? 'bars' : 'radar';
   opts.showFc = next.showFc !== false;
   opts.showProfile = next.showProfile !== false;
+  opts.zone = next.zone === 'left' ? 'left' : 'right';
+  opts.offsetX = next.offsetX;
+  opts.offsetY = next.offsetY;
+  opts.scale = next.scale;
+  if (backing !== opts.backing) face = null;
+  opts.backing = backing;
+  opts.accent = next.accent === '18-lab' ? '18-lab' : 'map';
+  opts.showSelect = next.showSelect !== false;
+  opts.showResults = next.showResults !== false;
   opts.showBrand = next.showBrand !== false;
-  if (panel.dataset.style !== opts.chartStyle) panel.dataset.style = opts.chartStyle;
-  setFlag(panel, 'no-fc', !opts.showFc);
-  setFlag(panel, 'no-profile', !opts.showProfile);
-  setFlag(panel, 'no-brand', !opts.showBrand);
-  chartDirty = stripDirty = textDirty = true;
-  schedule();
+  setData(cluster, 'style', opts.chartStyle);
+  setData(cluster, 'backing', opts.backing);
+  setFlag(cluster, 'no-fc', !opts.showFc);
+  setFlag(cluster, 'no-profile', !opts.showProfile);
+  setFlag(cluster, 'no-brand', !opts.showBrand);
+  placeDirty = textDirty = true;
+  applyAccent();
 });
-
-document.fonts?.ready.then(() => { chartDirty = true; schedule(); });
 
 subscribe(POINTERS, onFrame, { onStatus });

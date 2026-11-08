@@ -1,8 +1,16 @@
 [
- {"uniqueID":"orientation","type":"options","title":"Orientation","options":["horizontal","vertical"],"description":"Horizontal: a row of caps with the KPS block beside it. Vertical: a column of caps with counts to the right and KPS below; give the browser source more height (e.g. 360×640), otherwise the panel scales down to fit.","value":"horizontal"},
- {"uniqueID":"capSize","type":"number","title":"Cap size / px","description":"Edge length of each key cap; clamped to 28–80 px. The panel scales down when many keys (e.g. 10K mania) would not fit the browser source.","value":48},
- {"uniqueID":"showSparkline","type":"checkbox","title":"Show KPS history","description":"Bars of taps per second over the last 10 s; on the results screen, the whole attempt.","value":true},
+ {"uniqueID":"zone","type":"options","title":"Placement","options":["auto","right","left","bottom","top"],"description":"Free region of the osu! screen to sit in. auto: osu!/catch right of the playfield (low, clear of the default key counter), taiko under the lane (left), mania right of the stage with its receptor line. left/right pick the other side band; bottom = under the playfield (osu!/catch) or lane (taiko); top = above the taiko lane. Results always use the free right part of the header strip.","value":"auto"},
+ {"uniqueID":"x","type":"number","title":"Nudge X / px","description":"Moves the keys right (positive) or left on the 1920×1080 screen, for skins that place things differently.","value":0},
+ {"uniqueID":"y","type":"number","title":"Nudge Y / px","description":"Moves the keys down (positive) or up.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Overall size, 0.5–2. The keys also shrink automatically when they would not fit their region (e.g. many mania keys).","value":1},
+ {"uniqueID":"orientation","type":"options","title":"Orientation","options":["horizontal","vertical"],"description":"Horizontal: a row of key caps with the KPS tile beside it (or above it when the region is narrow). Vertical: a column of caps with the KPS tile below.","value":"horizontal"},
+ {"uniqueID":"capSize","type":"number","title":"Cap size / px","description":"Edge length of each key cap; 48–96.","value":72},
+ {"uniqueID":"showSparkline","type":"checkbox","title":"Show KPS history","description":"Bars of keys per second over the last 10 s; on the results screen, the whole attempt with its peak marked.","value":true},
  {"uniqueID":"showTotal","type":"checkbox","title":"Show total taps","description":"Sum of all key counts for the attempt.","value":true},
- {"uniqueID":"anchor","type":"options","title":"Position anchor","options":["top-left","top-right","bottom-left","bottom-right"],"description":"Corner of the browser source the panel sticks to, so it grows away from that corner when the key count changes.","value":"top-left"},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: the caps float on the game. scrim: a soft dark fade behind them for very bright backgrounds. panel: an 18-LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent colour","options":["map","18-lab"],"description":"map: lit keys and the live KPS take the current map's colour (from its background, which is never shown). 18-lab: amber. Taiko drum keys keep don amber / kat blue.","value":"map"},
+ {"uniqueID":"columnStart","type":"number","title":"Mania column start","description":"Your skin's mania ColumnStart (osu!stable default 136), so the keys sit beside the stage.","value":136},
+ {"uniqueID":"columnWidth","type":"number","title":"Mania column width","description":"Your skin's mania ColumnWidth (default 30).","value":30},
+ {"uniqueID":"matchColumns","type":"checkbox","title":"Mania caps match column width","description":"Size the mania caps to the stage's column pitch so the row mirrors the stage.","value":false},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

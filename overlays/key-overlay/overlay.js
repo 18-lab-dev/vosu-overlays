@@ -1,31 +1,37 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Key overlay: one scrolling tape lane per logical key (vosu `keys.all`), key caps with counts,
 // live and peak keys per second. Bars are placed in gameplay time from pressedAt/releasedAt.
-import { subscribe, settings, fit, activeMode, MODE_LABELS } from './vosu-overlay.js';
+// It floats in the empty regions of osu!'s own layout (osuLayout) for the ruleset being played.
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const W = 480;
-const H = 640;
+const SW = 1920;
+const SH = 1080;
 const GAP = 4;          // between lanes
 const RULER = 10;       // time ruler beside the tape
 const INSET = 3;        // bar inset inside its lane
+const READ_H = 36;      // readout row
+const ROW_GAP = 4;      // readout ↔ tape, tape ↔ caps
+const CAP_H = 44;       // caps (up)
+const CAP_W = 64;       // caps (right)
+const COL_GAP = 8;      // caps ↔ tape (right)
+const MARGIN = 24;      // distance kept from screen edges and from osu!'s own elements
 const RING = 256;       // remembered presses per lane
 const KPS_RING = 2048;  // remembered press times across lanes
 const MAX_STEP = 8;     // most presses one key can gain between two samples before it counts as missed data
-const UP_CHROME = 96;   // panel height minus tape length (up)
-const RIGHT_TAPE = W - 2 - 16 - 64 - 8; // tape length (right)
-const RIGHT_CHROME = 2 + 28 + 1 + 8 + RULER + 8 + 1; // panel height minus lane block (right), without the rail
 const EXTRAPOLATE = 100; // ms of wall time the clock may run past its last sample
 const SMOKE = '#b8b5ad';
+const BED = 'rgba(11,12,13,0.5)';
 
 const DEFAULTS = {
-  direction: 'up', speed: 600, laneWidth: 48, showCounts: true, showKps: true, smokeLane: false,
-  colorOsu: '#ff963f', colorDon: '#ef6a4f', colorKat: '#7fa6cf', colorFruits: '#6fbf8e', colorMania: '#ebe8e1',
-  showBrand: true,
+  zone: 'auto', direction: 'auto', offsetX: 0, offsetY: 0, scale: 1, length: 360,
+  speed: 600, laneWidth: 40, showCounts: true, showKps: true, smokeLane: false,
+  accent: 'map', colorOsu: '#ff963f', colorDon: '#ef6a4f', colorKat: '#7fa6cf', colorFruits: '#6fbf8e', colorMania: '#ebe8e1',
+  columnStart: 136, columnWidth: 30, hitPosition: 402, backing: 'none', showBrand: true,
 };
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client',
-  source: '/play/source', keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate',
+  keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate', checksum: '/beatmap/checksum',
   modsRate: '/play/mods/rate', paused: '/game/paused', cs: '/beatmap/stats/cs/converted',
   osuK1: '/settings/keybinds/osu/k1', osuK2: '/settings/keybinds/osu/k2', osuSmoke: '/settings/keybinds/osu/smokeKey',
   taikoOL: '/settings/keybinds/taiko/outerLeft', taikoIL: '/settings/keybinds/taiko/innerLeft',
@@ -35,20 +41,21 @@ const P = {
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
-const panel = $('panel');
+const block = $('block');
 const canvas = $('tape');
 const ctx = canvas.getContext('2d', { alpha: true });
 const capsEl = $('caps');
 const el = {
-  brand: $('brand'), mode: $('mode'), state: $('state'), stateText: $('state-text'), note: $('note'),
-  rail: $('rail'), kpsLabel: $('kps-label'), kps: $('kps'), peak: $('peak'), fill: $('fill'), tick: $('tick'),
-  scaleMax: $('scale-max'), scaleMid: $('scale-mid'), chip: $('chip'), chipText: $('chip-text'),
+  read: $('read'), brand: $('brand'), kps: $('kps'), peak: $('peak'), note: $('note'),
+  chip: $('chip'), chipText: $('chip-text'),
+  summary: $('summary'), sumBrand: $('sum-brand'), sumAvg: $('sum-avg'), sumPeak: $('sum-peak'), sumKeys: $('sum-keys'),
 };
-fit(stage, W, H);
+fit(stage, SW, SH);
 
 let cfg = { ...DEFAULTS };
 let values = null;
 let status = 'connecting';
+let palette = null;     // map tonal-spot roles, or null
 
 // ------------------------------------------------------------------ text helpers
 const shown = new WeakMap();
@@ -81,7 +88,7 @@ function keyLabel(name) {
 
 function formatCount(count, room) {
   const plain = String(count);
-  if (plain.length * 6.2 <= room) return plain;
+  if (plain.length * 7.3 <= room) return plain;
   if (count < 1e6) return `${(count / 1000).toFixed(count < 1e4 ? 1 : 0)}k`;
   return `${(count / 1e6).toFixed(1)}m`;
 }
@@ -105,6 +112,7 @@ let firstPress = NaN;
 let lastPress = NaN;
 let baselined = false;  // first keys frame of this attempt seen
 let observedEntry = false; // we saw the transition into play (counts start from zero)
+let results = null;     // { avg, peak } held at the results screen
 
 function resetAttempt() {
   for (const t of tracks) {
@@ -210,6 +218,15 @@ function ingestKeys(list, now, rate) {
   }
 }
 
+function closeOpen() {
+  for (const t of tracks) {
+    if (!t || !t.open) continue;
+    const last = (t.head + RING - 1) % RING;
+    t.ends[last] = Math.max(t.starts[last], clockAt(performance.now()));
+    t.open = false;
+  }
+}
+
 // ------------------------------------------------------------------ gameplay clock
 // Map clock samples arrive every few ms during play with delivery jitter; follow them smoothly and
 // stop advancing when they stop (pause, freeze, stalled reader).
@@ -232,29 +249,33 @@ function clockSample(live, t) {
   clock.prev = live;
 }
 
-// ------------------------------------------------------------------ lanes / layout
+// ------------------------------------------------------------------ lanes
 let lanes = [];         // { src, label, color, cap, lit, labelEl, countEl, room, shownPressed, shownCount }
 let geometry = null;
 let signature = '';
 let currentMode = null;
-let builtMode = null;  // ruleset the current lanes were built for (the header follows it through a fade)
 let swapTimer = 0;
 let view = 'none';      // 'play' | 'results' | 'idle' | 'nogame' | 'none'
-let results = null;     // { avg, peak } held at the results screen
 
-function modeColor(mode) {
-  return mode === 'osu' ? cfg.colorOsu : mode === 'taiko' ? cfg.colorDon : mode === 'fruits' ? cfg.colorFruits : cfg.colorMania;
+/** Bar colour of a ruleset: the map's tonal accent when enabled (taiko keeps its don/kat meaning). */
+function rulesetColor(mode) {
+  if (cfg.accent === 'map' && palette?.accent && mode !== 'taiko') return palette.accent;
+  return mode === 'osu' ? cfg.colorOsu : mode === 'fruits' ? cfg.colorFruits : cfg.colorMania;
+}
+
+function keyCount() {
+  const list = values?.[P.keys];
+  if (Array.isArray(list) && view === 'play') return list.length;
+  const n = Math.round(Number(values?.[P.cs]));
+  return Number.isFinite(n) && n >= 1 && n <= 20 ? n : 4;
 }
 
 function laneSpec(mode) {
   const v = values;
-  const list = Array.isArray(v[P.keys]) && view === 'play' ? v[P.keys] : null;
   const bind = pointer => keyLabel(v[pointer]);
   if (mode === 'osu') {
-    const spec = [
-      { src: 0, label: bind(P.osuK1) ?? 'K1', color: cfg.colorOsu },
-      { src: 1, label: bind(P.osuK2) ?? 'K2', color: cfg.colorOsu },
-    ];
+    const c = rulesetColor('osu');
+    const spec = [{ src: 0, label: bind(P.osuK1) ?? 'K1', color: c }, { src: 1, label: bind(P.osuK2) ?? 'K2', color: c }];
     if (cfg.smokeLane) spec.push({ src: 2, label: bind(P.osuSmoke) ?? 'SMK', color: SMOKE });
     return spec;
   }
@@ -268,58 +289,97 @@ function laneSpec(mode) {
   }
   if (mode === 'fruits') {
     // osu!stable never reports catch left/right, so those lanes only appear once they carry presses.
+    const c = rulesetColor('fruits');
     const moves = v[P.client] === 'lazer' || tracks[0]?.ever || tracks[1]?.ever;
-    const dash = { src: 2, label: bind(P.catchDash) ?? 'DASH', color: cfg.colorFruits };
+    const dash = { src: 2, label: bind(P.catchDash) ?? 'DASH', color: c };
     return moves
-      ? [{ src: 0, label: bind(P.catchK1) ?? '←', color: cfg.colorFruits }, { src: 1, label: bind(P.catchK2) ?? '→', color: cfg.colorFruits }, dash]
+      ? [{ src: 0, label: bind(P.catchK1) ?? '←', color: c }, { src: 1, label: bind(P.catchK2) ?? '→', color: c }, dash]
       : [dash];
   }
-  let n = list ? list.length : Math.round(Number(v[P.cs]));
-  if (!Number.isFinite(n) || n < 1 || n > 20) n = 4;
+  const c = rulesetColor('mania');
   const spec = [];
-  for (let i = 0; i < n; i++) spec.push({ src: i, label: String(i + 1), color: cfg.colorMania });
+  for (let i = 0, n = keyCount(); i < n; i++) spec.push({ src: i, label: String(i + 1), color: c });
   return spec;
 }
 
-function computeGeometry(n) {
-  const kps = cfg.showKps;
-  const up = cfg.direction !== 'right';
-  const want = Math.round(Math.min(96, Math.max(16, cfg.laneWidth)));
-  let w;
-  if (up) {
-    const room = W - 2 - 16 - RULER - (kps ? 8 + 64 : 0);
-    w = Math.min(want, Math.floor((room - (n - 1) * GAP) / n));
-    // Short lane sets widen so the header always fits (a single catch dash reads as a wide bar).
-    const min = kps ? 120 : 176;
-    if (n * w + (n - 1) * GAP < min) w = Math.ceil((min - (n - 1) * GAP) / n);
+// ------------------------------------------------------------------ placement
+function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
+
+/**
+ * Sizes the block and places it in a free region of osu!'s layout. Default zones: osu!/catch the
+ * band left of the playfield, under the leaderboard (osu! draws its own key counter on the right
+ * edge); taiko the empty area under the lane, beneath the drum; mania beside the stage, with the
+ * caps on the hit-position line so presses leave where notes are judged.
+ */
+function computeGeometry(mode, n) {
+  const layout = osuLayout(mode, {
+    keys: n, columnWidth: cfg.columnWidth, columnStart: cfg.columnStart, client: values?.[P.client] === 'lazer' ? 'lazer' : 'stable',
+  });
+  const { busy, hud, unit } = layout;
+  const zone = cfg.zone === 'auto'
+    ? mode === 'taiko' ? 'below' : mode === 'mania' ? 'stage' : 'left'
+    : cfg.zone;
+  const up = cfg.direction === 'auto' ? mode === 'mania' : cfg.direction === 'up';
+  const s = clamp(Number(cfg.scale) || 1, 0.5, 2);
+  const tape = Math.round(clamp(cfg.length, 120, 900));
+  const pad = cfg.backing === 'panel' ? 8 + 1 : 0; // padding + border
+  let w = Math.round(clamp(cfg.laneWidth, 12, 96));
+
+  // Room the lanes may take. The stage zone keeps to the left of the stage, where stable draws no
+  // HUD (its mania HP bar, and many skins' panels, sit to the right); lanes shrink to fit.
+  const stageLeft = busy.x - 2 * MARGIN;
+  const stageRight = SW - (busy.x + busy.w) - 2 * MARGIN;
+  const leftSide = stageLeft >= 140 || stageLeft >= stageRight;
+  const across = (up && zone === 'stage' ? (leftSide ? stageLeft : stageRight) : 520) / s - RULER - pad * 2;
+  w = Math.max(12, Math.min(w, Math.floor((across - (n - 1) * GAP) / n)));
+  const lanesSpan = n * w + (n - 1) * GAP;
+  const cssW = up ? RULER + lanesSpan : tape;
+  const cssH = up ? tape : lanesSpan + RULER;
+  const width = Math.round(((up ? cssW : CAP_W + COL_GAP + tape) + pad * 2) * s);
+  const height = Math.round(((up ? READ_H + ROW_GAP + tape + ROW_GAP + CAP_H : READ_H + ROW_GAP + cssH)) * s + pad * 2 * s);
+
+  let x;
+  let y;
+  if (zone === 'stage') {
+    // Beside the stage, right-aligned against its left edge (its right edge only when the left is too narrow).
+    x = leftSide ? busy.x - MARGIN - width : busy.x + busy.w + MARGIN;
+    const capsTop = cfg.hitPosition * unit; // skin HitPosition, 480-line canvas
+    y = up ? capsTop - (READ_H + ROW_GAP + tape + ROW_GAP + pad) * s : capsTop - height;
+  } else if (zone === 'right') {
+    x = SW - MARGIN - width;
+    y = SH - MARGIN - height;
+  } else if (zone === 'below') {
+    x = mode === 'taiko' ? MARGIN : busy.x + (busy.w - width) / 2;
+    y = busy.y + busy.h + MARGIN;
   } else {
-    const room = H - RIGHT_CHROME - (kps ? 36 + 4 : 0);
-    w = Math.min(want, Math.floor((room - (n - 1) * GAP) / n));
+    // left band, bottom-aligned above the combo counter
+    x = MARGIN;
+    y = (hud.combo ? hud.combo.y : SH) - MARGIN - height;
   }
-  w = Math.max(10, w);
-  const block = n * w + (n - 1) * GAP;
-  const tape = up ? H - UP_CHROME : RIGHT_TAPE;
-  const cssW = up ? RULER + block : tape;
-  const cssH = up ? tape : block + RULER;
+  x = Math.round(clamp(x + cfg.offsetX, 0, SW - width));
+  y = Math.round(clamp(y + cfg.offsetY, 0, SH - height));
+
   const pos = new Float64Array(n);
   for (let i = 0; i < n; i++) pos[i] = (up ? RULER : 0) + i * (w + GAP);
-  return { up, n, w, block, tape, cssW, cssH, pos, dpr: 0 };
+  return { up, n, w, tape, cssW, cssH, pos, x, y, s, width, height, dpr: 0 };
 }
 
 function buildLanes(mode) {
-  builtMode = mode;
   const spec = laneSpec(mode);
-  geometry = computeGeometry(spec.length);
+  geometry = computeGeometry(mode, spec.length);
   const g = geometry;
-  attr(panel, 'data-dir', g.up ? 'up' : 'right');
-  attr(panel, 'data-kps', cfg.showKps ? '1' : '0');
-  attr(panel, 'data-counts', cfg.showCounts ? '1' : '0');
-  panel.style.setProperty('--w', `${g.w}px`);
-  panel.style.setProperty('--c', modeColor(mode));
-  if (g.up) { panel.style.width = ''; } else { panel.style.width = `${W}px`; }
+  attr(block, 'data-dir', g.up ? 'up' : 'right');
+  attr(block, 'data-kps', cfg.showKps ? '1' : '0');
+  attr(block, 'data-brand', cfg.showBrand ? '1' : '0');
+  attr(block, 'data-counts', cfg.showCounts ? '1' : '0');
+  attr(block, 'data-backing', ['none', 'scrim', 'panel'].includes(cfg.backing) ? cfg.backing : 'none');
+  block.style.setProperty('--w', `${g.w}px`);
+  block.style.transform = `translate(${g.x}px, ${g.y}px) scale(${g.s})`;
+  el.read.style.width = g.up ? `${g.cssW}px` : '';
   canvas.style.width = `${g.cssW}px`;
   canvas.style.height = `${g.cssH}px`;
   el.brand.hidden = !cfg.showBrand;
+  el.chip.style.transform = `translate(${g.x}px, ${g.y + g.height - 24}px)`;
 
   const frag = document.createDocumentFragment();
   lanes = spec.map(s => {
@@ -333,9 +393,9 @@ function buildLanes(mode) {
     const lit = document.createElement('i');
     lit.className = 'lit';
     cap.append(lit, labelEl, countEl);
-    const room = g.up ? g.w - 6 : 58;
+    const room = g.up ? g.w - 6 : CAP_W - 6;
     if (s.label.length * 7.8 > room) cap.classList.add('small');
-    if (!g.up && g.w < 30) cap.classList.add('tight');
+    if (g.up ? g.w < 22 : g.w < 30) cap.classList.add('tight');
     frag.append(cap);
     return { ...s, cap, lit, labelEl, countEl, shownPressed: false, shownCount: null, room };
   });
@@ -345,7 +405,7 @@ function buildLanes(mode) {
 
 function resizeCanvas() {
   if (!geometry) return;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = (window.devicePixelRatio || 1) * geometry.s;
   const g = geometry;
   const bw = Math.round(g.cssW * dpr);
   const bh = Math.round(g.cssH * dpr);
@@ -358,19 +418,18 @@ function resizeCanvas() {
 new ResizeObserver(resizeCanvas).observe(canvas);
 matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`).addEventListener?.('change', resizeCanvas);
 
-/** Rebuilds lanes when their structure changes; a ruleset change fades the panel out and back. */
+/** Rebuilds lanes when their structure changes; a ruleset change fades the block out and back. */
 function syncLayout() {
   const mode = currentMode;
   if (!mode) return;
   const spec = laneSpec(mode);
-  const sig = [mode, cfg.direction, cfg.laneWidth, cfg.showKps, cfg.showCounts, cfg.showBrand,
-    ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
+  const sig = [mode, values?.[P.client], JSON.stringify(cfg), palette?.accent, ...spec.map(s => `${s.src}:${s.label}:${s.color}`)].join('|');
   if (sig === signature) return;
   const modeChanged = !signature.startsWith(`${mode}|`);
-  const wasShown = signature !== '' && panel.getAttribute('data-show') === '1';
+  const wasShown = signature !== '' && block.getAttribute('data-show') === '1';
   signature = sig;
   if (modeChanged && wasShown) {
-    attr(panel, 'data-show', '0');
+    attr(block, 'data-show', '0');
     clearTimeout(swapTimer);
     swapTimer = setTimeout(() => { swapTimer = 0; buildLanes(currentMode); dirty = true; updateVisibility(); kick(); }, 180);
   } else if (!swapTimer) {
@@ -381,14 +440,66 @@ function syncLayout() {
 
 // ------------------------------------------------------------------ state
 let shownOnce = false;
+/**
+ * Gameplay shows the tape in its zone. Results show, in the free right part of the header band, what
+ * osu!'s results screen lacks: per-key counts and balance, average and peak KPS (only for an attempt
+ * this page watched). Song select and menus show nothing: a key overlay has nothing to add there.
+ */
 function updateVisibility() {
-  const show = status === 'live' && view !== 'none' && geometry !== null && !swapTimer;
-  attr(panel, 'data-show', show ? '1' : '0');
-  // The first appearance is immediate; later ruleset changes and disconnects fade.
-  if (show && !shownOnce) { shownOnce = true; setTimeout(() => panel.removeAttribute('data-instant'), 400); }
+  const show = status === 'live' && view === 'play' && geometry !== null && !swapTimer;
+  attr(block, 'data-show', show ? '1' : '0');
+  if (show && !shownOnce) { shownOnce = true; setTimeout(() => block.removeAttribute('data-instant'), 400); }
+  const summary = status === 'live' && view === 'results' && results !== null && totalPresses > 0;
+  if (el.summary.hidden === summary) el.summary.hidden = !summary;
+  // A tiny chip in the zone for connection and no-game states; nothing elsewhere.
+  const chip = status !== 'live' ? (status === 'offline' ? 'vosu offline' : 'Connecting') : view === 'nogame' ? 'osu! not running' : '';
+  el.chip.hidden = !chip;
+  if (chip) { text(el.chipText, chip); attr(el.chip, 'data-state', status === 'live' ? 'idle' : status); }
 }
 
-const SOURCES = { player: 'Live', replay: 'Replay', spectator: 'Spectate', autoplay: 'Auto', watching: 'Watch' };
+/** Static results summary, built once when the attempt ends. */
+function buildSummary() {
+  let sum = 0;
+  for (const lane of lanes) sum += tracks[lane.src]?.count ?? 0;
+  el.sumBrand.hidden = !cfg.showBrand;
+  el.sumAvg.textContent = results.avg === null ? '—' : results.avg.toFixed(1);
+  el.sumPeak.textContent = String(results.peak);
+  if (lanes.length > 9) el.summary.setAttribute('data-narrow', ''); else el.summary.removeAttribute('data-narrow');
+  const frag = document.createDocumentFragment();
+  for (const lane of lanes) {
+    const count = tracks[lane.src]?.count ?? 0;
+    const cell = document.createElement('div');
+    cell.className = 'kc';
+    cell.style.setProperty('--k', lane.color);
+    cell.style.setProperty('--share', sum ? (count / sum).toFixed(4) : '0');
+    const label = document.createElement('b');
+    label.textContent = lane.label;
+    const value = document.createElement('strong');
+    value.textContent = String(count);
+    const bar = document.createElement('i');
+    const share = document.createElement('span');
+    share.textContent = sum ? `${Math.round((count / sum) * 100)}%` : '—';
+    cell.append(label, value, bar, share);
+    frag.append(cell);
+  }
+  el.sumKeys.replaceChildren(frag);
+}
+
+let checksum = '';
+function followPalette() {
+  const next = cfg.accent === 'map' ? values?.[P.checksum] || '' : '';
+  if (next === checksum) return;
+  checksum = next;
+  if (!next) { palette = null; applyPalette(document.documentElement, null); syncLayout(); return; }
+  mapPalette(next).then(p => {
+    if (checksum !== next) return;
+    palette = p;
+    applyPalette(document.documentElement, p);
+    syncLayout();
+    updateVisibility();
+    kick();
+  });
+}
 
 function onFrame(v, changed) {
   values = v;
@@ -410,6 +521,7 @@ function onFrame(v, changed) {
       closeOpen();
       const span = (lastPress - firstPress) / rate;
       results = { avg: totalPresses > 1 && span >= 1000 ? (totalPresses - 1) / (span / 1000) : null, peak: peakKps };
+      if (totalPresses > 0) buildSummary();
     } else if (view !== 'results') {
       resetAttempt();
     }
@@ -433,32 +545,23 @@ function onFrame(v, changed) {
   if (view === 'play' && changed.has(P.keys)) ingestKeys(v[P.keys], clockAt(now), rate);
 
   // The map clock ticks constantly (song-select preview too); alone it only matters while the tape has content.
-  const clockOnly = changed.size === 1 && changed.has(P.live);
-  if (clockOnly) {
+  if (changed.size === 1 && changed.has(P.live)) {
     if (view === 'play' && hasContent) kick();
     return;
   }
-  currentMode = activeMode(state, v[P.playMode], v[P.settingsMode]) ?? (view === 'nogame' ? 'osu' : null);
+  if (changed.has(P.checksum)) followPalette();
+  currentMode = activeMode(state, v[P.playMode], v[P.settingsMode]) ?? 'osu';
   syncLayout();
   updateVisibility();
   dirty = true;
   kick();
 }
 
-function closeOpen() {
-  for (const t of tracks) {
-    if (!t || !t.open) continue;
-    const last = (t.head + RING - 1) % RING;
-    t.ends[last] = Math.max(t.starts[last], clockAt(performance.now()));
-    t.open = false;
-  }
-}
-
 // ------------------------------------------------------------------ render (rAF only)
 let raf = 0;
 let dirty = true;
 let hasContent = false; // the tape shows presses (or KPS is non-zero) that move with the clock
-let lastLiveKps = -1;
+let lastLiveKps = -2;
 document.fonts?.ready.then(() => { dirty = true; kick(); });
 
 function kick() { if (!raf) raf = requestAnimationFrame(frame); }
@@ -471,8 +574,6 @@ function frame() {
   dirty = false;
   if (animating) kick();
 }
-
-function niceMax(peak) { return Math.max(10, Math.ceil((peak * 1.15) / 10) * 10); }
 
 /** Draws the tape and updates DOM readouts; returns whether another frame is needed. */
 function render(now) {
@@ -503,81 +604,41 @@ function render(now) {
         if (near >= g.tape) break;
         const far = Math.min(g.tape, Math.max(0, (now - start) * pxPerMs));
         anyVisible = true;
-        drawBar(g, lane, li, near, far, held);
+        drawBar(g, li, near, far, held);
       }
     }
-  } else if (view === 'results') {
-    drawBalance(g);
   }
   ctx.globalAlpha = 1;
 
   // Caps: strings are only built when a count changes.
-  const counting = playing || view === 'results';
   for (const lane of lanes) {
     const t = tracks[lane.src];
     const pressed = playing && t ? t.pressed : false;
     if (pressed !== lane.shownPressed) { lane.shownPressed = pressed; lane.lit.style.opacity = pressed ? '1' : '0'; }
-    const count = counting && t ? t.count : -1;
+    const count = playing && t ? t.count : -1;
     if (count !== lane.shownCount) { lane.shownCount = count; lane.countEl.textContent = count < 0 ? '—' : formatCount(count, lane.room); }
   }
 
   const liveKps = playing && (baselined || totalPresses) ? countWindow(now, 1000 * rate) : -1;
-  if (cfg.showKps && (dirty || liveKps !== lastLiveKps)) updateRail(liveKps);
+  if (cfg.showKps && (dirty || liveKps !== lastLiveKps)) updateReadout(liveKps);
   lastLiveKps = liveKps;
-  if (dirty) updateChrome();
+  if (dirty) updateNote();
 
   hasContent = playing && (anyVisible || anyHeld || liveKps > 0);
   return hasContent && clock.running && !clock.paused;
 }
 
-/** KPS readout and meter; liveKps is -1 when there is no live figure. */
-function updateRail(liveKps) {
-  const up = geometry.up;
-  let main = '—';
-  let peak = '—';
-  let fill = 0;
-  let peakValue = 0;
-  if (liveKps >= 0) {
-    main = String(liveKps);
-    peak = String(peakKps);
-    peakValue = peakKps;
-    fill = liveKps;
-  } else if (view === 'results' && results) {
-    main = results.avg === null ? '—' : results.avg.toFixed(1);
-    if (totalPresses) { peak = String(results.peak); peakValue = results.peak; }
-    fill = results.avg ?? 0;
-  }
-  const scale = niceMax(peakValue);
-  text(el.kpsLabel, view === 'results' ? 'Avg' : 'KPS');
-  text(el.kps, main);
-  text(el.peak, peak);
-  text(el.scaleMax, String(scale));
-  text(el.scaleMid, String(scale / 2));
-  attr(el.rail, 'data-empty', peak === '—' ? '1' : '0');
-  const f = Math.min(1, fill / scale).toFixed(4);
-  el.fill.style.transform = up ? `scaleY(${f})` : `scaleX(${f})`;
-  const p = Math.min(100, (peakValue / scale) * 100);
-  el.tick.style.transform = up ? `translateY(${(-p).toFixed(2)}%)` : `translateX(${(p - 100).toFixed(2)}%)`;
+/** KPS and peak; liveKps is -1 when there is no live figure. */
+function updateReadout(liveKps) {
+  const live = liveKps >= 0;
+  text(el.kps, live ? String(liveKps) : '—');
+  text(el.peak, live ? String(peakKps) : '—');
+  attr(el.read, 'data-empty', live ? '0' : '1');
 }
 
-/** Header and notice: only on data/settings changes, never per animation frame. */
-function updateChrome() {
-  const v = values;
-  const mode = builtMode;
-  let label = mode ? MODE_LABELS[mode] : '—';
-  if (mode === 'mania' && lanes.length) label += ` ${lanes.length}K`;
-  if (view === 'nogame') label = '—';
-  text(el.mode, label);
-  let state = 'Idle';
-  let tone = 'idle';
-  if (view === 'play') { state = clock.paused ? 'Paused' : SOURCES[v[P.source]] ?? 'Live'; tone = clock.paused ? 'hold' : 'live'; }
-  else if (view === 'results') { state = 'Result'; tone = 'hold'; }
-  else if (view === 'idle') state = 'Select';
-  else if (view === 'nogame') state = 'No game';
-  text(el.stateText, state);
-  attr(el.state, 'data-tone', tone);
-  // One short line when the vosu key feed is missing during play.
-  const missing = view === 'play' && !Array.isArray(v[P.keys]);
+/** One short line when the vosu key feed is missing during play. */
+function updateNote() {
+  const missing = view === 'play' && !Array.isArray(values[P.keys]);
   if (el.note.hidden === missing) el.note.hidden = !missing;
   if (missing) text(el.note, 'No key data · enable ENABLE_KEY_OVERLAY in vosu');
 }
@@ -586,7 +647,7 @@ function snap(value) { const d = geometry.dpr || 1; return Math.round(value * d)
 
 function drawLaneBeds(g) {
   ctx.globalAlpha = 1;
-  ctx.fillStyle = 'rgba(235,232,225,0.035)';
+  ctx.fillStyle = BED;
   for (let li = 0; li < lanes.length; li++) {
     const p = g.pos[li];
     if (g.up) ctx.fillRect(p, 0, g.w, g.tape);
@@ -599,24 +660,28 @@ function drawRuler(g) {
   let minor = cfg.speed * 0.1;
   let every = 5;
   if (minor < 8) { minor = cfg.speed * 0.25; every = 4; }
-  ctx.fillStyle = '#4a4f57';
+  const across = g.up ? 0 : g.cssH - RULER;
+  ctx.fillStyle = BED;
+  if (g.up) ctx.fillRect(0, 0, RULER - 1, g.tape);
+  else ctx.fillRect(0, across + 1, g.tape, RULER - 1);
+  ctx.fillStyle = '#7e8288';
   for (let k = 1; k * minor <= g.tape; k++) {
     const d = snap(k * minor);
     const len = k % every === 0 ? 7 : 3;
     if (g.up) ctx.fillRect(RULER - 2 - len, g.tape - d, len, 1);
-    else ctx.fillRect(d, g.block + 2, 1, len);
+    else ctx.fillRect(d, across + 2, 1, len);
   }
   if (g.up) ctx.fillRect(RULER - 2, 0, 1, g.tape);
-  else ctx.fillRect(0, g.block + 2, g.tape, 1);
+  else ctx.fillRect(0, across + 2, g.tape, 1);
 }
 
-function drawBar(g, lane, li, near, far, held) {
+function drawBar(g, li, near, far, held) {
   const a = snap(near);
   let b = snap(far);
   if (b - a < 2) b = a + 2;
   const across = g.pos[li] + INSET;
   const thick = g.w - INSET * 2;
-  ctx.globalAlpha = held ? 0.86 : 0.68;
+  ctx.globalAlpha = held ? 0.9 : 0.72;
   if (g.up) ctx.fillRect(across, g.tape - b, thick, b - a);
   else ctx.fillRect(a, across, b - a, thick);
   // Press edge: the moment the key went down, crisp at full strength.
@@ -626,49 +691,19 @@ function drawBar(g, lane, li, near, far, held) {
   else ctx.fillRect(b - edge, across, edge, thick);
 }
 
-/** Results: each lane's share of all presses, as a static balance chart. */
-function drawBalance(g) {
-  let max = 0;
-  let sum = 0;
-  for (const lane of lanes) { const c = tracks[lane.src]?.count ?? 0; if (c > max) max = c; sum += c; }
-  if (!max) return;
-  ctx.font = '500 10px "IBM Plex Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  for (let li = 0; li < lanes.length; li++) {
-    const lane = lanes[li];
-    const c = tracks[lane.src]?.count ?? 0;
-    const len = snap((g.tape * 0.62) * (c / max));
-    const across = g.pos[li] + INSET;
-    const thick = g.w - INSET * 2;
-    ctx.fillStyle = lane.color;
-    ctx.globalAlpha = 0.28;
-    if (g.up) ctx.fillRect(across, g.tape - len, thick, len);
-    else ctx.fillRect(0, across, len, thick);
-    ctx.globalAlpha = 1;
-    if (g.up) ctx.fillRect(across, g.tape - len, thick, 2);
-    else ctx.fillRect(len - 2, across, 2, thick);
-    ctx.fillStyle = '#b8b5ad';
-    const share = `${Math.round((c / sum) * 100)}%`;
-    if (g.up) ctx.fillText(share, g.pos[li] + g.w / 2, g.tape - len - 7);
-    else { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(share, len + 7, g.pos[li] + g.w / 2 + 0.5); }
-  }
-}
-
-// ------------------------------------------------------------------ status chip
+// ------------------------------------------------------------------ connection
 function onStatus(next) {
   status = next;
-  attr(el.chip, 'data-state', next);
-  text(el.chipText, next === 'live' ? 'Live' : next === 'offline' ? 'vosu offline' : 'Connecting');
   updateVisibility();
 }
 
 // ------------------------------------------------------------------ settings
+const OPTIONS = { zone: ['auto', 'left', 'right', 'below', 'stage'], direction: ['auto', 'up', 'right'], accent: ['map', '18-lab'], backing: ['none', 'scrim', 'panel'] };
 settings(DEFAULTS, next => {
-  const speed = Math.min(3000, Math.max(100, Number(next.speed) || DEFAULTS.speed));
-  cfg = { ...next, speed, direction: next.direction === 'right' ? 'right' : 'up' };
+  cfg = { ...next, speed: clamp(Number(next.speed) || DEFAULTS.speed, 100, 3000) };
+  for (const [key, allowed] of Object.entries(OPTIONS)) if (!allowed.includes(cfg[key])) cfg[key] = DEFAULTS[key];
   signature = '';
-  if (values) { syncLayout(); updateVisibility(); }
+  if (values) { followPalette(); syncLayout(); updateVisibility(); }
   dirty = true;
   kick();
 });

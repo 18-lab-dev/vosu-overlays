@@ -1,8 +1,15 @@
 [
+ {"uniqueID":"zone","type":"options","title":"Gameplay position","options":["below lane","above lane"],"description":"Below lane: the empty band under the taiko lane, the graph starting where the drum area ends. Above lane: centred between the HP bar and the score, just above the lane.","value":"below lane"},
+ {"uniqueID":"offsetX","type":"number","title":"Horizontal nudge / px","description":"Moves the lanes right (positive) or left (negative) from the chosen position, in 1080p pixels.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Vertical nudge / px","description":"Moves the lanes down (positive) or up (negative) from the chosen position, in 1080p pixels.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–2.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"None floats the lanes directly on the game. Scrim adds a soft dark fade behind them for bright backgrounds; panel a solid 18-LAB panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Highlight colour","options":["map","18-lab"],"description":"Colour of the leading skill: tinted from the current map's background, or 18-LAB amber.","value":"map"},
+ {"uniqueID":"songSelect","type":"options","title":"Song select","options":["centre gap","off"],"description":"Shows the selected map's skill lanes and which skill leads it in the centre column between the leaderboard and the beatmap list (osu! shows no skill breakdown there). Results show nothing.","value":"centre gap"},
  {"uniqueID":"laneColor","type":"checkbox","title":"Color lane","description":"Colour (don/kat pattern) strain.","value":true},
  {"uniqueID":"laneRhythm","type":"checkbox","title":"Rhythm lane","description":"Rhythm (timing change) strain.","value":true},
  {"uniqueID":"laneStamina","type":"checkbox","title":"Stamina lane","description":"Stamina (sustained density) strain.","value":true},
  {"uniqueID":"laneReading","type":"checkbox","title":"Reading lane","description":"Reading (scroll speed) strain. Appears only on maps where reading contributes to the rating.","value":true},
- {"uniqueID":"laneHeight","type":"number","title":"Lane height / px","description":"Height of each lane; clamped to 20–56 px. Lane heights and shares are weighted by each skill's star-rating multiplier, and the lead is judged over the ±1.6 s around the play position.","value":34},
- {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+ {"uniqueID":"laneHeight","type":"number","title":"Lane height / px","description":"Height of each lane; clamped to 20–56 px. Lane heights and shares are weighted by each skill's star-rating multiplier, and the lead is judged over the ±1.6 s around the play position.","value":30},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

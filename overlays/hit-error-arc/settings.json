@@ -1,9 +1,14 @@
 [
+ {"uniqueID":"side","type":"options","title":"Placement","options":["auto","left","right"],"description":"Which empty part of osu!'s screen the dial uses. auto: osu! right of the playfield, mania left of the stage, taiko centred below the lane. left/right: the other side of the playfield or stage (osu! left sits under the leaderboard); in taiko, the left or right end of the area below the lane.","value":"auto"},
+ {"uniqueID":"offsetX","type":"number","title":"Nudge X / px","description":"Moves the dial right (negative: left) from its placement, for skins that move the playfield, stage or HUD.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Nudge Y / px","description":"Moves the dial down (negative: up) from its placement.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale / %","description":"Dial size, 50–150 %. 100 % fits the free space of the placement in osu!'s default layout (e.g. the ~300 px left of a stable mania stage); go above it when your skin leaves more room.","value":100},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none floats the dial on the game with a soft shade under the arc only; scrim adds a soft fading disc of shade; panel draws the 18-LAB graphite panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"Needle and mean-marker colour: the current map's tonal accent (from its background, never shown), or 18-LAB amber. Judgement and early/late colours never change.","value":"map"},
  {"uniqueID":"sweep","type":"number","title":"Arc sweep / °","description":"How far the dial wraps around its centre, 90–270°. 180° is a half circle; wider sweeps spread the windows over more arc.","value":240},
  {"uniqueID":"tickLife","type":"number","title":"Tick lifetime / s","description":"How long each hit's tick stays on the arc before it has faded out, 0.5–20 s.","value":4},
  {"uniqueID":"histogram","type":"checkbox","title":"Show histogram","description":"Distribution of recent hits, drawn as a stepped profile around the outside of the arc.","value":true},
  {"uniqueID":"histogramHits","type":"number","title":"Histogram hits","description":"How many of the most recent hits the histogram counts, 50–2000.","value":400},
- {"uniqueID":"averageHits","type":"number","title":"Needle average / hits","description":"The amber needle shows the mean of this many recent hits, 5–200. The small caret on the band is the whole attempt's mean.","value":20},
- {"uniqueID":"size","type":"number","title":"Size / %","description":"Dial size, 60–100 %. The panel stays anchored to the bottom centre of the source.","value":100},
+ {"uniqueID":"averageHits","type":"number","title":"Needle average / hits","description":"The needle shows the mean of this many recent hits, 5–200. The small caret on the band is the whole attempt's mean.","value":20},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

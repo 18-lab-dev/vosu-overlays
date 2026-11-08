@@ -207,9 +207,11 @@ export function backgroundUrl(checksum) {
  * offsets (or columnStart/columnWidth settings) for anything aligned to it.
  *
  * `free` lists the regions osu! leaves empty for the ruleset, largest first; `hud` the default
- * HUD elements to keep clear of; `busy` the playfield/stage/lane.
+ * HUD elements to keep clear of; `busy` the playfield/stage/lane. For mania, `columns` gives each
+ * column's `{ x, w }`; pass `maniaSkin(keys)`'s result (columnStart, columnWidth array,
+ * columnSpacing) to align with the player's actual skin instead of the defaults.
  */
-export function osuLayout(mode, { keys = 4, columnWidth = 30, columnStart = 136, client = 'stable', width = 1920, height = 1080 } = {}) {
+export function osuLayout(mode, { keys = 4, columnWidth = 30, columnSpacing = 0, columnStart = 136, client = 'stable', width = 1920, height = 1080 } = {}) {
   const unit = height / 480;
   const rect = (x, y, w, h) => ({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
   const hud = {
@@ -219,9 +221,16 @@ export function osuLayout(mode, { keys = 4, columnWidth = 30, columnStart = 136,
     combo: rect(width * 0.008, height - 44 * unit, 116 * unit, 42 * unit),
   };
   let busy;
+  let columns;
   if (mode === 'mania') {
-    const stageWidth = keys * columnWidth * unit;
-    busy = rect(client === 'lazer' ? (width - stageWidth) / 2 : columnStart * unit, 0, stageWidth, height);
+    const widths = Array.from({ length: keys }, (_, i) => (Array.isArray(columnWidth) ? columnWidth[i] ?? columnWidth.at(-1) : columnWidth) * unit);
+    const gaps = Array.from({ length: Math.max(0, keys - 1) }, (_, i) => (Array.isArray(columnSpacing) ? columnSpacing[i] ?? 0 : columnSpacing) * unit);
+    const stageWidth = widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
+    const left = client === 'lazer' ? (width - stageWidth) / 2 : columnStart * unit;
+    columns = [];
+    let x = left;
+    widths.forEach((w, i) => { columns.push({ x: Math.round(x), w: Math.round(w) }); x += w + (gaps[i] ?? 0); });
+    busy = rect(left, 0, stageWidth, height);
     delete hud.combo; // mania draws combo inside the stage
   } else if (mode === 'taiko') {
     busy = rect(0, height * 216 / 768, width, height * 200 / 768);
@@ -239,7 +248,51 @@ export function osuLayout(mode, { keys = 4, columnWidth = 30, columnStart = 136,
     ? [rect(0, busy.y + busy.h, width, height - busy.y - busy.h), rect(hud.health.x + hud.health.w, 0, hud.score.x - hud.health.x - hud.health.w, busy.y)]
     : [rect(0, top, busy.x, height - top - (hud.combo ? hud.combo.h : 0)), rect(busy.x + busy.w, hud.accuracy.y + hud.accuracy.h, width - busy.x - busy.w, height - hud.accuracy.y - hud.accuracy.h)];
   if (mode === 'osu' || mode === 'fruits') free.push(rect(busy.x, busy.y + busy.h, busy.w, height - busy.y - busy.h));
-  return { width, height, unit, busy, hud, free: free.filter(r => r.w > 0 && r.h > 0).sort((a, b) => b.w * b.h - a.w * a.h) };
+  return { width, height, unit, busy, hud, columns, free: free.filter(r => r.w > 0 && r.h > 0).sort((a, b) => b.w * b.h - a.w * a.h) };
+}
+
+const skinIni = new Map();
+
+/**
+ * The current skin's osu!mania stage for `keys` columns, read from its skin.ini through vosu
+ * (`/files/skin/skin.ini`): `{ columnStart, columnWidth: number[], columnSpacing: number[],
+ * hitPosition }` in skin units (480-line), with stable's defaults (136, 30, 0, 402) for anything
+ * the section omits. Resolves to null when vosu serves no skin.ini (lazer built-in skins, tosu,
+ * or file access off) — keep the defaults or user settings then. `skin` (the
+ * `/settings/skin/name` value) keys the cache, so a skin change re-reads the file.
+ */
+export async function maniaSkin(keys, skin = '') {
+  if (!skinIni.has(skin)) {
+    skinIni.set(skin, fetch('/files/skin/skin.ini', { cache: 'no-store' })
+      .then(response => (response.ok ? response.text() : null))
+      .catch(() => null));
+  }
+  const text = await skinIni.get(skin);
+  if (!text) return null;
+  let section = null;
+  let match = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\/\/.*$/, '').trim();
+    if (line.startsWith('[')) {
+      section = line.toLowerCase() === '[mania]' ? {} : null;
+      continue;
+    }
+    const colon = line.indexOf(':');
+    if (!section || colon < 0) continue;
+    section[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+    if (section.keys !== undefined && Number(section.keys) === keys) match = section;
+  }
+  const list = (value, fallback, length) => {
+    const parts = String(value ?? '').split(',').map(Number).filter(Number.isFinite);
+    return Array.from({ length }, (_, i) => parts[i] ?? parts.at(-1) ?? fallback);
+  };
+  const number = (value, fallback) => (Number.isFinite(Number.parseFloat(value)) ? Number.parseFloat(value) : fallback);
+  return {
+    columnStart: number(match?.columnstart, 136),
+    columnWidth: list(match?.columnwidth, 30, keys),
+    columnSpacing: list(match?.columnspacing, 0, Math.max(0, keys - 1)),
+    hitPosition: number(match?.hitposition, 402),
+  };
 }
 
 const palettes = new Map();

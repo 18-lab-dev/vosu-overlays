@@ -1,5 +1,5 @@
 name = Leaderboard
 author = 18-LAB
-version = 0.1.0
-description = Live in-game leaderboard for every ruleset: position, name, score, accuracy, combo and mods, with rows sliding past each other as you overtake, your row highlighted and always in view, and the score gap to the next position.
-resolution = [420,720]
+version = 0.2.0
+description = Your live standing on the in-game leaderboard, for every ruleset: a rival ladder beside the playfield (the player above, your position, the player below, score gaps) that slides as you overtake, or a full leaderboard where osu!'s own sits for when you hide it. Results show your final standing.
+resolution = [1920,1080]

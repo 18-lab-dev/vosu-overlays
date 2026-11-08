@@ -8,39 +8,68 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage" data-view="connecting">
-  <p class="chip" id="chip" role="status"><i></i><span id="chipText">Connecting</span></p>
-  <section class="panel" id="panel" data-phase="idle" aria-label="osu!taiko accuracy pace">
-    <header class="head">
-      <b class="brand" id="brand">18—LAB</b>
-      <span class="lbl">Taiko pace</span>
-      <span class="target"><span class="lbl">Target</span><b id="target">99.00%</b></span>
-    </header>
-    <p class="note" id="note">Waiting for osu!</p>
-    <div class="hero">
-      <div class="readout">
-        <span class="lbl" id="leftLabel">Accuracy</span>
-        <span class="big"><span id="left">—</span><small id="leftUnit">%</small></span>
-        <span class="sub"><span class="lbl" id="leftSubLabel">Max</span><b id="leftSub">—</b></span>
+<div id="stage" data-view="chip" data-backing="none">
+  <!-- Gameplay: under the lane. Also hosts the status chip. -->
+  <div class="spot" id="playSpot">
+    <p class="chip" id="chip" role="status"><i></i><span id="chipText">Connecting</span></p>
+    <section class="block pace" aria-label="osu!taiko accuracy pace">
+      <header class="head">
+        <b class="brand">18—LAB</b>
+        <span class="lbl">Target</span><b class="target" data-target>99.00%</b>
+      </header>
+      <div class="hero">
+        <div class="readout">
+          <span class="lbl">Accuracy</span>
+          <span class="big"><span id="acc">—</span><small>%</small></span>
+          <span class="sub"><span class="lbl">Max</span><b id="max">—</b></span>
+        </div>
+        <div class="readout end" id="budget">
+          <span class="lbl" id="budgetLabel">OK budget</span>
+          <span class="big hl"><span id="okBudget">—</span><small id="budgetUnit"></small></span>
+          <span class="sub"><span class="lbl" id="missLabel">Miss budget</span><b id="missBudget">—</b></span>
+        </div>
       </div>
-      <div class="readout end" id="budget">
-        <span class="lbl" id="rightLabel">OK budget</span>
-        <span class="big"><span id="right">—</span><small id="rightUnit"></small></span>
-        <span class="sub"><span class="lbl" id="rightSubLabel">Miss budget</span><b id="rightSub">—</b></span>
+      <canvas id="tape" aria-hidden="true"></canvas>
+      <div class="row">
+        <span class="cell great"><span class="lbl"><i></i>Great</span><b id="great">—</b></span>
+        <span class="cell ok"><span class="lbl"><i></i>OK</span><b id="ok">—</b></span>
+        <span class="cell miss"><span class="lbl"><i></i>Miss</span><b id="miss">—</b></span>
+        <span class="cell rest"><span class="lbl"><i></i>Left</span><b id="remaining">—</b></span>
+        <span class="cell end" data-ur><span class="lbl">UR</span><b id="ur">—</b></span>
+        <span class="cell end" data-pp><span class="lbl">PP</span><b id="pp">—</b></span>
+        <span class="cell end" data-pp><span class="lbl">FC</span><b id="fc">—</b></span>
       </div>
-    </div>
-    <div class="track"><canvas id="tape" aria-hidden="true"></canvas></div>
-    <div class="counts">
-      <div class="cell great"><span class="lbl"><i></i>Great</span><b id="great">—</b></div>
-      <div class="cell ok"><span class="lbl"><i></i>OK</span><b id="ok">—</b></div>
-      <div class="cell miss"><span class="lbl"><i></i>Miss</span><b id="miss">—</b></div>
-      <div class="cell left"><span class="lbl"><i></i><span id="leftCountLabel">Left</span></span><b id="remaining">—</b></div>
-    </div>
-    <footer class="foot" id="foot">
-      <span class="stat" id="urStat"><span class="lbl">UR</span><b id="ur">—</b></span>
-      <span class="stat pp" id="ppStat"><span class="lbl" id="ppLabel">PP</span><b id="pp">—</b><span class="lbl" id="fcLabel">FC</span><b id="fc">—</b></span>
-    </footer>
-  </section>
+    </section>
+  </div>
+  <!-- Song select: the budget for the selected map, in the centre column. -->
+  <div class="spot" id="preSpot">
+    <section class="block pre" aria-label="Accuracy budget for the selected map">
+      <header class="head">
+        <b class="brand">18—LAB</b>
+        <span class="lbl">Taiko pace</span>
+        <span class="lbl">Target</span><b class="target" data-target>99.00%</b>
+      </header>
+      <div class="hero">
+        <div class="readout"><span class="lbl">OK budget</span><span class="big hl"><span id="preOk">—</span></span></div>
+        <div class="readout"><span class="lbl">Miss budget</span><span class="big"><span id="preMiss">—</span></span></div>
+        <div class="readout end"><span class="lbl">Notes</span><span class="big dim"><span id="preNotes">—</span></span></div>
+      </div>
+      <p class="facts">
+        <span class="fact"><span class="lbl">Great window</span><b id="preWindow">—</b></span>
+        <span class="fact" data-pp><span class="lbl">PP at target</span><b id="prePp">—</b></span>
+        <span class="fact" data-pp><span class="lbl">SS</span><b id="preSs">—</b></span>
+      </p>
+    </section>
+  </div>
+  <!-- Results: verdict against the target, UR and pp, in the header strip. -->
+  <div class="spot" id="postSpot">
+    <section class="block post" aria-label="Result against the target accuracy">
+      <span class="cell end" id="verdict"><span class="lbl"><span id="verdictLabel">Vs target</span> <b data-target>99.00%</b></span><b id="delta">—</b></span>
+      <span class="cell end" data-ur><span class="lbl">UR</span><b id="postUr">—</b></span>
+      <span class="cell end" data-pp><span class="lbl">PP</span><b id="postPp">—</b></span>
+      <span class="cell end" data-pp><span class="lbl">FC</span><b id="postFc">—</b></span>
+    </section>
+  </div>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

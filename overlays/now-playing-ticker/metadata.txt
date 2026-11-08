@@ -1,5 +1,5 @@
 name = Now playing ticker
 author = 18-LAB
-version = 0.1.0
-description = Single-line map bar for any ruleset: artist, title, difficulty, star rating, mods and mapper, a play-progress hairline, a rolling change between maps and a paused marquee for long titles.
-resolution = [1920,52]
+version = 0.2.0
+description = One floating line of map info during gameplay for any ruleset: artist, title, difficulty, star rating, mods and mapper with a play-progress hairline, placed in a free band of osu!'s layout and tinted to the map.
+resolution = [1920,1080]

@@ -685,6 +685,11 @@ Bun.serve({
     if (path === '/json/v2/precise') return current ? Response.json(current.precise) : Response.json({ error: 'osu is not ready/running' });
     if (path === '/api/calculate/pp') return calculatePp();
     if (path === '/files/beatmap/background') return new Response(background(), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } });
+    if (path.toLowerCase() === '/files/skin/skin.ini') {
+      // vosu serves the current skin's files; the mock serves a skin.ini placed beside the backdrops.
+      const file = STAGE_BACKDROPS ? join(STAGE_BACKDROPS, 'skin.ini') : '';
+      return file && existsSync(file) ? new Response(Bun.file(file), { headers: { 'content-type': 'text/plain; charset=utf-8' } }) : new Response('not found', { status: 404 });
+    }
     if (path.startsWith('/assets/')) return assets(path);
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });
     if (path === '/__dev/stage') return new Response(stagePage(url.searchParams.get('id') || '', url.searchParams), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });

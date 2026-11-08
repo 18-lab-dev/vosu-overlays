@@ -1,7 +1,11 @@
 [
- {"uniqueID":"layout","type":"options","title":"Layout","description":"vertical = 288 px column with each judgement's share of the notes; horizontal = one strip about 80 px tall for the top or bottom edge of the screen.","options":["vertical","horizontal"],"value":"vertical"},
- {"uniqueID":"anchor","type":"options","title":"Position anchor","description":"Corner of the source the panel hugs; place the source so this corner sits where you want the panel.","options":["top-left","top-right","bottom-left","bottom-right"],"value":"top-left"},
- {"uniqueID":"showRatio","type":"checkbox","title":"Show MAX:300 ratio","description":"MAX (320) judgements per 300, to two decimals. Shows ∞ until the first 300.","value":true},
- {"uniqueID":"showKps","type":"checkbox","title":"Show keys per second","description":"Live presses in the last second and the attempt's peak, counted from vosu's keys.all. Results and song select keep the peak of the attempt you just played.","value":true},
+ {"uniqueID":"side","type":"options","title":"Side of the stage","description":"Free band of osu!mania's layout the counter floats in, held 48 px from that screen edge and centred in the band's height. right keeps it clear of a stage centred by the skin or by lazer; left suits skins that push the stage right.","options":["right","left"],"value":"right"},
+ {"uniqueID":"x","type":"number","title":"Horizontal nudge / px","description":"Moves the counter right (positive) or left (negative) from its place in the band.","value":0},
+ {"uniqueID":"y","type":"number","title":"Vertical nudge / px","description":"Moves the counter down (positive) or up (negative).","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"Size multiplier, 0.5–2. The counter is 240 px wide at 1.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","description":"none floats on the game with a light text shadow; scrim adds a soft dark fade behind the numbers; panel draws a graphite panel.","options":["none","scrim","panel"],"value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent colour","description":"map tints the 18—LAB tag, live dot and leading rule with the current map's tonal colour; 18-lab keeps amber. Judgement colours never change.","options":["map","18-lab"],"value":"map"},
+ {"uniqueID":"showRatio","type":"checkbox","title":"Show MAX:300 ratio","description":"MAX (320) judgements per 300, to two decimals; ∞ until the first 300. Also shown on the results screen, which osu! does not.","value":true},
+ {"uniqueID":"showKps","type":"checkbox","title":"Show keys per second","description":"Presses in the last second and the attempt's peak, counted from vosu's keys.all. The results screen keeps the peak of the attempt you just played.","value":true},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

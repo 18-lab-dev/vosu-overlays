@@ -9,20 +9,19 @@
 </head>
 <body>
 <main id="stage">
-  <section id="panel" class="panel" aria-label="osu!mania judgements" data-layout="vertical" data-anchor="top-left" data-phase="none" data-visible="false">
+  <section id="hud" class="hud" aria-label="osu!mania judgements" data-side="right" data-phase="none" data-visible="false" data-backing="none">
     <header class="head">
       <span class="brand" id="brand">18—LAB</span>
-      <span class="title">Judgements</span>
-      <span class="status"><i class="dot" aria-hidden="true"></i><span id="status">Waiting for osu!</span></span>
+      <span class="status"><i class="dot" aria-hidden="true"></i><span id="status">Live</span></span>
       <span class="keys" id="keys"></span>
     </header>
     <div class="hero">
-      <div class="readout ratio" id="ratio-block">
+      <div class="readout ratio">
         <span class="label"><span class="j-max">MAX</span><span class="colon">:</span><span class="j-great">300</span></span>
         <span class="big"><b id="ratio">—</b><span class="unit">:1</span></span>
       </div>
       <div class="readout acc">
-        <span class="label">Accuracy</span>
+        <span class="label">Acc</span>
         <span class="big"><b id="acc">—</b><span class="unit">%</span></span>
       </div>
     </div>
@@ -36,13 +35,13 @@
       <li class="row" data-j="miss"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">Miss</span><b class="count">—</b><span class="share"></span></li>
     </ol>
     <footer class="stats">
-      <div class="stat combo"><span class="label">Combo</span><span class="big"><b id="combo">—</b><span class="unit" id="combo-unit">×</span></span></div>
+      <div class="stat combo"><span class="label">Combo</span><span class="big"><b id="combo">—</b><span class="unit">×</span></span></div>
       <div class="stat kps"><span class="label">KPS</span><span class="big"><b id="kps">—</b></span></div>
-      <div class="stat peak"><span class="label">Peak</span><span class="big"><b id="peak">—</b></span></div>
+      <div class="stat peak"><span class="label" id="peak-label">Peak</span><span class="big"><b id="peak">—</b></span></div>
     </footer>
     <p class="note" id="note" hidden>KPS needs vosu <code>ENABLE_KEY_OVERLAY</code></p>
   </section>
-  <div id="chip" class="chip" data-state="connecting" role="status"><i class="dot" aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span></div>
+  <div id="chip" class="chip" data-side="right" role="status"><i class="dot" aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span></div>
 </main>
 <script type="module" src="overlay.js"></script>
 </body>

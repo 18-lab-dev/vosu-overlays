@@ -1,60 +1,45 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Results card: a splash shown only on the results screen (state 7). Hit errors are captured
-// while the attempt is played so the histogram and UR belong to that attempt.
-import { subscribe, settings, fit, MODES, MODE_LABELS } from './vosu-overlay.js';
+// Results timing: on the results screen only, adds what osu! leaves out there: UR, timing mean,
+// early/late split and a hit-error histogram captured while the attempt was played, plus pp and
+// the if-FC gap (stable's results screen shows no pp; lazer shows pp but no if-FC). It floats in
+// space the results screen leaves empty and renders nothing in every other state.
+import { subscribe, settings, fit, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
 const RESULTS = 7;
-const PLAYING = 2;
 const READY_FALLBACK_MS = 1500;
 const BINS = 41;
+const AMBER = '#ff963f';
 
-const HIT_KEYS = ['300', '100', '50', '0', 'geki', 'katu', 'largeTickHits', 'smallTickHits'];
+// Placement (positions live in style.css; settings add a nudge and scale):
+// - header (default): a one-row strip in the right part of osu!stable's results header band
+//   (x ≈ 1000–1900, y 8–130). Below it the ranking panel, grade art, mods and buttons fill the
+//   screen, and the title/mapper/player text sits on the band's left. On lazer the top of the
+//   results screen above the centred score panel is free as well.
+// - center: a stacked block in the column between stable's score panel and grade (x ≈ 900–1390),
+//   for skins whose grade art leaves it empty.
+
 const POINTERS = [
   '/state/number', '/resultsScreen/mode/number', '/play/mode/number', '/settings/mode/number',
-  '/resultsScreen/score', '/resultsScreen/accuracy', '/resultsScreen/maxCombo', '/resultsScreen/rank',
-  '/resultsScreen/pp/current', '/resultsScreen/pp/fc', '/resultsScreen/playerName',
-  '/resultsScreen/mods/name', '/resultsScreen/mods/array', '/resultsScreen/mods/rate', '/play/mods/rate',
-  ...HIT_KEYS.map(key => `/resultsScreen/hits/${key}`),
-  '/play/hits/sliderBreaks', '/play/hitErrorArray',
-  '/beatmap/stats/maxCombo', '/beatmap/stats/hitWindow', '/beatmap/stats/stars/total',
-  '/beatmap/title', '/beatmap/artist', '/beatmap/version', '/beatmap/mapper',
+  '/resultsScreen/score', '/resultsScreen/rank', '/resultsScreen/pp/current', '/resultsScreen/pp/fc',
+  '/play/hitErrorArray', '/beatmap/stats/hitWindow', '/beatmap/checksum',
 ];
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
+const zone = $('zone');
 const card = $('card');
 const chip = $('chip');
 const canvas = $('hist');
 const ctx = canvas.getContext('2d', { alpha: true });
-fit(stage, 760, 448);
+fit(stage, 1920, 1080);
 
 const css = getComputedStyle(document.documentElement);
-const token = name => css.getPropertyValue(name).trim();
+const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
 const COLORS = {
-  bar: token('--fg-dim') || '#b8b5ad', rule: token('--rule') || '#25282c', ruleStrong: token('--rule-strong') || '#3b3f45',
-  accent: token('--accent') || '#ff963f', muted: token('--muted') || '#7e8288',
-  max: '#ebe8e1', great: '#7fa6cf', good: '#6fbf8e', ok: '#b8b5ad', meh: '#e8b04a', miss: '#ef5b4f',
+  bar: token('--fg', '#ebe8e1'), axis: 'rgb(235 232 225 / .45)',
+  max: '#ebe8e1', great: '#7fa6cf', good: '#6fbf8e', ok: '#b8b5ad', meh: '#e8b04a',
 };
-
-// Ruleset-correct judgement rows: [label, colour token, reader(hits) -> number | null].
-const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-const catchRaw = h => !h['100'] && !h['50'] && !h.katu && (h.largeTickHits > 0 || h.smallTickHits > 0);
-const ROWS = {
-  osu: [['300', 'great', h => h['300']], ['100', 'good', h => h['100']], ['50', 'meh', h => h['50']], ['Miss', 'miss', h => h['0']]],
-  taiko: [['Great', 'great', h => h['300']], ['Ok', 'good', h => h['100']], ['Miss', 'miss', h => h['0']]],
-  // vosu emits catch from raw statistics (drops/droplets in large/smallTickHits, missed droplets
-  // unknown); tosu and older payloads use the legacy 100/50/katu shape. Read whichever is present.
-  fruits: [
-    ['Fruits', 'great', h => h['300']],
-    ['Drops', 'good', h => (catchRaw(h) ? h.largeTickHits : h['100'])],
-    ['Droplets', 'ok', h => (catchRaw(h) ? h.smallTickHits : h['50'])],
-    ['Drop miss', 'meh', h => (catchRaw(h) ? null : h.katu)],
-    ['Miss', 'miss', h => h['0']],
-  ],
-  mania: [['Max', 'max', h => h.geki], ['300', 'great', h => h['300']], ['200', 'good', h => h.katu], ['100', 'ok', h => h['100']], ['50', 'meh', h => h['50']], ['Miss', 'miss', h => h['0']]],
-};
-const GRADE_TEXT = { XH: 'SS', X: 'SS', SH: 'S', S: 'S', A: 'A', B: 'B', C: 'C', D: 'D', F: 'F' };
-const GRADE_CAP = { XH: 'Grade · silver', SH: 'Grade · silver', F: 'Failed' };
+let highlight = AMBER;
 
 // --------------------------------------------------------------------- hit-error capture
 // Every timing event of the attempt, appended from the array's new tail only.
@@ -62,13 +47,11 @@ let errors = new Float32Array(4096);
 let errorCount = 0;
 let seenLength = 0;
 let firstSeen = NaN;
-let sliderBreaks = null;
 
 function resetCapture() {
   errorCount = 0;
   seenLength = 0;
   firstSeen = NaN;
-  sliderBreaks = null;
 }
 
 function ingest(array) {
@@ -90,7 +73,8 @@ function ingest(array) {
 }
 
 // ------------------------------------------------------------------------- state
-let config = { showBrand: true, showHistogram: true, showMap: true, hold: 0 };
+const DEFAULTS = { zone: 'header', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showHistogram: true, showPp: true, hold: 0, showBrand: true };
+let config = { ...DEFAULTS };
 let values = null;
 let lastState;
 let enteredAt = 0;
@@ -98,13 +82,14 @@ let holdTimer = 0;
 let readyTimer = 0;
 let expired = false;
 let visible = false;
-let builtMode = null;
-let rowEls = [];
 let textDirty = true;
 let histDirty = true;
 let classDirty = true;
+let placeDirty = true;
 let frame = 0;
 let chipTimer = 0;
+let checksum = '';
+let palette = null;
 
 function schedule() {
   if (!frame) frame = requestAnimationFrame(render);
@@ -128,14 +113,20 @@ function armHold() {
   holdTimer = setTimeout(() => { expired = true; updateVisibility(); }, remaining);
 }
 
+const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
 function ready() {
   const rank = values['/resultsScreen/rank'];
   return (typeof rank === 'string' && rank !== '') || values['/resultsScreen/score'] > 0
     || performance.now() - enteredAt >= READY_FALLBACK_MS;
 }
 
+const hasTiming = () => errorCount >= 2;
+const hasPp = () => config.showPp && num(values['/resultsScreen/pp/current']) !== null;
+
 function updateVisibility() {
-  const next = !!values && lastState === RESULTS && !expired && ready();
+  // Nothing worth adding (catch without pp, a score opened from song select, …) renders nothing.
+  const next = !!values && lastState === RESULTS && !expired && ready() && (hasTiming() || hasPp());
   if (next === visible) return;
   visible = next;
   if (visible) { textDirty = true; histDirty = true; }
@@ -153,13 +144,38 @@ function onFrame(v, changed) {
     if (state === RESULTS) onResultsEntered();
     else { clearTimeout(holdTimer); clearTimeout(readyTimer); }
   }
-  if (state === PLAYING || state === RESULTS) {
-    if (changed.has('/play/hitErrorArray')) { ingest(v['/play/hitErrorArray']); histDirty = true; }
-    const breaks = num(v['/play/hits/sliderBreaks']);
-    if (breaks !== null) sliderBreaks = breaks;
+  if ((state === 2 || state === RESULTS) && changed.has('/play/hitErrorArray')) {
+    ingest(v['/play/hitErrorArray']);
+    histDirty = true;
   }
-  if (state === RESULTS) { textDirty = true; schedule(); }
+  if (changed.has('/beatmap/checksum')) {
+    const next = typeof v['/beatmap/checksum'] === 'string' ? v['/beatmap/checksum'] : '';
+    if (next !== checksum) { checksum = next; requestPalette(); }
+  }
+  if (state === RESULTS) textDirty = true;
+  if (placeDirty || (state === RESULTS && visible)) schedule();
   updateVisibility();
+}
+
+// Map tint: derived once per map off the hot path; the art itself is never shown.
+function requestPalette() {
+  palette = null;
+  applyTint();
+  if (config.accent !== 'map' || !checksum) return;
+  const wanted = checksum;
+  mapPalette(wanted).then(result => {
+    if (wanted !== checksum) return;
+    palette = result;
+    applyTint();
+  });
+}
+
+function applyTint() {
+  const use = config.accent === 'map' ? palette : null;
+  applyPalette(zone, use);
+  zone.classList.toggle('tint', !!use);
+  const next = use?.accent || AMBER;
+  if (next !== highlight) { highlight = next; histDirty = true; schedule(); }
 }
 
 // The shared client reports 'live' on every frame, so this returns early unless the status changed.
@@ -181,11 +197,19 @@ function onStatus(next) {
   else show();
 }
 
-settings(config, next => {
-  config = { ...next, hold: Math.max(0, Number(next.hold) || 0) };
+settings(DEFAULTS, next => {
+  const accentChanged = next.accent !== config.accent;
+  config = {
+    ...next,
+    hold: Math.max(0, Number(next.hold) || 0),
+    scale: Math.min(2, Math.max(0.5, Number(next.scale) || 1)),
+  };
   classDirty = true;
   histDirty = true;
+  textDirty = true;
+  placeDirty = true;
   armHold();
+  if (accentChanged) requestPalette();
   if (values) updateVisibility();
   schedule();
 });
@@ -214,133 +238,29 @@ function setText(el, text) {
 }
 
 const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-const fmt = value => (value === null ? '—' : integer.format(value));
 
 function currentMode() {
   const number = [values['/resultsScreen/mode/number'], values['/play/mode/number'], values['/settings/mode/number']].find(Number.isInteger);
   return MODES[number] ?? 'osu';
 }
 
-function buildRows(mode) {
-  const list = $('rows');
-  list.replaceChildren();
-  rowEls = ROWS[mode].map(([label, color], index) => {
-    const row = document.createElement('li');
-    row.className = 'row';
-    row.style.setProperty('--c', `var(--j-${color})`);
-    row.style.setProperty('--i', index);
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = label;
-    const track = document.createElement('span');
-    track.className = 'track';
-    const fill = document.createElement('span');
-    fill.className = 'fill';
-    track.append(fill);
-    const count = document.createElement('span');
-    count.className = 'count';
-    const pct = document.createElement('span');
-    pct.className = 'pct';
-    row.append(name, track, count, pct);
-    list.append(row);
-    return { row, fill, count, pct, fraction: -1, zero: null };
-  });
-  builtMode = mode;
-}
-
-function renderMods() {
-  const array = values['/resultsScreen/mods/array'];
-  const name = values['/resultsScreen/mods/name'];
-  const known = Array.isArray(array) || typeof name === 'string';
-  const acronyms = Array.isArray(array) ? array.map(mod => mod?.acronym).filter(Boolean)
-    : typeof name === 'string' && name ? name.match(/[A-Z0-9]{2}/g) || [] : [];
-  const key = known ? acronyms.join(' ') : null;
-  const mods = $('mods');
-  if (mods._key === key) return;
-  mods._key = key;
-  // Absent mods show nothing; a known empty selection reads "NM".
-  mods.replaceChildren(...(!known ? [] : acronyms.length ? acronyms : [null]).map(acronym => {
-    const el = document.createElement(acronym ? 'b' : 'span');
-    if (acronym) el.textContent = acronym;
-    else { el.className = 'none'; el.textContent = 'NM'; }
-    return el;
-  }));
+function place() {
+  zone.dataset.layout = config.zone === 'center' ? 'stack' : 'strip';
+  zone.style.transform = `translate(${Number(config.x) || 0}px, ${Number(config.y) || 0}px) scale(${config.scale})`;
 }
 
 function renderText() {
-  const v = values;
-  const mode = currentMode();
-  if (mode !== builtMode) buildRows(mode);
-  if (card.dataset.mode !== mode) card.dataset.mode = mode;
-  const modeKnown = [v['/resultsScreen/mode/number'], v['/play/mode/number'], v['/settings/mode/number']].some(Number.isInteger);
-  setText($('mode'), modeKnown ? MODE_LABELS[mode] : '—');
-  setText($('player'), typeof v['/resultsScreen/playerName'] === 'string' ? v['/resultsScreen/playerName'] : '');
-  renderMods();
-  const rate = num(v['/resultsScreen/mods/rate']) ?? num(v['/play/mods/rate']);
-  setText($('rate'), rate !== null && Math.abs(rate - 1) > 1e-3 ? `${rate.toFixed(2)}×` : '');
-
-  const str = pointer => (typeof v[pointer] === 'string' && v[pointer] ? v[pointer] : '');
-  setText($('title'), str('/beatmap/title') || '—');
-  setText($('artist'), str('/beatmap/artist'));
-  setText($('version'), str('/beatmap/version'));
-  setText($('mapper'), str('/beatmap/mapper') ? `mapped by ${str('/beatmap/mapper')}` : '');
-  const stars = num(v['/beatmap/stats/stars/total']);
-  setText($('stars'), stars ? `${stars.toFixed(2)}★` : '');
-
-  const rank = str('/resultsScreen/rank');
-  const grade = $('grade');
-  if (grade.dataset.grade !== rank) grade.dataset.grade = rank;
-  setText($('gradeLetter'), GRADE_TEXT[rank] ?? (rank || '—'));
-  setText($('gradeCap'), GRADE_CAP[rank] ?? 'Grade');
-
-  const score = num(v['/resultsScreen/score']);
-  setText($('score'), fmt(score));
-  const acc = num(v['/resultsScreen/accuracy']);
-  setText($('acc'), acc === null ? '—' : acc.toFixed(2));
-
-  const hits = {};
-  for (const key of HIT_KEYS) hits[key] = num(v[`/resultsScreen/hits/${key}`]) ?? 0;
-  const anyHits = HIT_KEYS.some(key => num(v[`/resultsScreen/hits/${key}`]) !== null);
-
-  const combo = num(v['/resultsScreen/maxCombo']);
-  const mapMax = num(v['/beatmap/stats/maxCombo']);
-  setText($('combo'), fmt(combo));
-  setText($('comboMax'), combo !== null && mapMax ? `/ ${integer.format(mapMax)}×` : combo !== null ? '×' : '');
-  const fc = anyHits && combo !== null && combo > 0 && hits['0'] === 0 && (mode !== 'osu' || !sliderBreaks);
-  $('fc').hidden = !fc;
-
-  const pp = num(v['/resultsScreen/pp/current']);
-  const ppFc = num(v['/resultsScreen/pp/fc']);
+  zone.classList.toggle('no-timing', !hasTiming());
+  const pp = num(values['/resultsScreen/pp/current']);
+  const ppFc = num(values['/resultsScreen/pp/fc']);
+  $('perf').hidden = !hasPp();
   setText($('pp'), pp === null ? '—' : integer.format(Math.round(pp)));
-  setText($('ppFc'), !fc && ppFc !== null && pp !== null && ppFc - pp >= 0.5 ? `if FC ${integer.format(Math.round(ppFc))}` : '');
-
-  // Judgement breakdown: bars are proportional to the judged total of this ruleset.
-  const counts = ROWS[mode].map(([, , read]) => (anyHits ? num(read(hits)) : null));
-  let total = 0;
-  for (const count of counts) total += count ?? 0;
-  setText($('total'), anyHits ? `${integer.format(total)} judged` : '');
-  rowEls.forEach((el, i) => {
-    const count = counts[i];
-    const fraction = count !== null && total > 0 ? count / total : 0;
-    if (fraction !== el.fraction) { el.fraction = fraction; el.fill.style.setProperty('--f', fraction.toFixed(4)); }
-    setText(el.count, fmt(count));
-    setText(el.pct, count === null || total === 0 ? '' : percent(fraction));
-    const zero = count === 0 || count === null;
-    if (zero !== el.zero) { el.zero = zero; el.row.classList.toggle('zero', zero); }
-  });
-
-  const showBreaks = mode === 'osu';
-  $('breaks').hidden = !showBreaks;
-  if (showBreaks) {
-    setText($('breakCount'), sliderBreaks === null ? '—' : integer.format(sliderBreaks));
-    $('breaks').classList.toggle('some', sliderBreaks > 0);
+  const gap = pp !== null && ppFc !== null ? ppFc - pp : 0;
+  $('ifFc').hidden = !(gap >= 0.5);
+  if (gap >= 0.5) {
+    setText($('ppFc'), integer.format(Math.round(ppFc)));
+    setText($('ppGap'), `+${integer.format(Math.round(ppFc) - Math.round(pp))}`);
   }
-}
-
-function percent(fraction) {
-  if (fraction === 0) return '0%';
-  if (fraction < 0.001) return '<0.1%';
-  return `${(fraction * 100).toFixed(fraction >= 0.995 ? 0 : 1)}%`;
 }
 
 // Histogram scratch, reused for every draw.
@@ -355,20 +275,9 @@ function windowsOf(mode) {
   return [];
 }
 
-function renderHistogram() {
-  const mode = currentMode();
-  const width = canvas.width;
-  const height = canvas.height;
-  ctx.clearRect(0, 0, width, height);
+function renderTiming() {
   const n = errorCount;
-  $('noTiming').hidden = n > 0;
-  if (n < 2) {
-    setText($('ur'), '—');
-    setText($('mean'), '—');
-    setText($('early'), '—');
-    setText($('late'), '—');
-    return;
-  }
+  if (n < 2) return;
   let sum = 0, early = 0, late = 0, extent = 0;
   for (let i = 0; i < n; i++) {
     const e = errors[i];
@@ -380,31 +289,44 @@ function renderHistogram() {
   const average = sum / n;
   let squares = 0;
   for (let i = 0; i < n; i++) { const d = errors[i] - average; squares += d * d; }
-  setText($('ur'), (Math.sqrt(squares / n) * 10).toFixed(2));
+  const sigma = Math.sqrt(squares / n);
+  setText($('ur'), (sigma * 10).toFixed(2));
   setText($('mean'), `${average < 0 ? '−' : average > 0 ? '+' : ''}${Math.abs(average).toFixed(1)}`);
   setText($('early'), `${Math.round((early / n) * 100)}%`);
   setText($('late'), `${Math.round((late / n) * 100)}%`);
+  if (!config.showHistogram) return;
 
-  const windows = windowsOf(mode);
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  const windows = windowsOf(currentMode());
   const outer = windows.reduce((max, [, value]) => Math.max(max, value), 0);
-  const range = outer || Math.max(20, Math.ceil(extent / 10) * 10);
+  const great = windows.find(([name]) => name === 'great')?.[1] || 0;
+  // Frame the distribution (±3.5σ around the mean), never tighter than the great window nor wider
+  // than the outermost one, so a 300 px strip shows shape rather than one spike.
+  const spread = Math.ceil((3.5 * sigma + Math.abs(average)) / 5) * 5;
+  const range = outer ? Math.min(outer, Math.max(great, spread, 10)) : Math.max(20, Math.ceil(extent / 10) * 10);
   bins.fill(0);
   let peak = 0;
   for (let i = 0; i < n; i++) {
-    let b = Math.floor(((errors[i] + range) / (2 * range)) * BINS);
-    if (b < 0) b = 0; else if (b >= BINS) b = BINS - 1;
+    const b = Math.floor(((errors[i] + range) / (2 * range)) * BINS);
+    if (b < 0 || b >= BINS) continue; // outliers stay in UR/mean, not on the frame's edge
     if (++bins[b] > peak) peak = bins[b];
   }
 
   const dpr = devicePixelRatio || 1;
+  const hair = Math.max(1, Math.round(dpr));
   const strip = Math.round(4 * dpr);
-  const gapBelow = Math.round(4 * dpr);
-  const base = height - strip - gapBelow; // bar baseline (device px)
+  const base = height - strip - Math.round(4 * dpr); // bar baseline (device px)
   const top = Math.round(6 * dpr);
   const xOf = ms => ((ms + range) / (2 * range)) * width;
 
+  // Contrast over any map background: the same restrained shadow as the text.
+  ctx.shadowColor = 'rgb(0 0 0 / .55)';
+  ctx.shadowBlur = 2 * dpr;
+  ctx.shadowOffsetY = dpr;
+
   // Hit-window scale under the bars: innermost judgement drawn last so it stays on top.
-  ctx.globalAlpha = 0.55;
   for (let i = windows.length - 1; i >= 0; i--) {
     const [name, value] = windows[i];
     if (!value) continue;
@@ -412,47 +334,46 @@ function renderHistogram() {
     const x0 = Math.round(xOf(-value));
     ctx.fillRect(x0, height - strip, Math.round(xOf(value)) - x0, strip);
   }
-  if (!windows.length) { ctx.fillStyle = COLORS.rule; ctx.fillRect(0, height - strip, width, strip); }
-  ctx.globalAlpha = 1;
 
   // Bars, pixel-snapped with a 1 device-px gutter.
   const step = width / BINS;
-  const gutter = Math.max(1, Math.round(dpr));
   ctx.fillStyle = COLORS.bar;
+  ctx.globalAlpha = 0.92;
   for (let b = 0; b < BINS; b++) {
     if (!bins[b]) continue;
     const x0 = Math.round(b * step);
-    const x1 = Math.round((b + 1) * step) - gutter;
-    const h = Math.max(Math.round(dpr), Math.round((bins[b] / peak) * (base - top)));
+    const x1 = Math.round((b + 1) * step) - hair;
+    const h = Math.max(hair, Math.round((bins[b] / peak) * (base - top)));
     ctx.fillRect(x0, base - h, Math.max(1, x1 - x0), h);
   }
+  ctx.globalAlpha = 1;
 
   // Baseline and zero line (hairlines).
-  const hair = Math.max(1, Math.round(dpr));
-  ctx.fillStyle = COLORS.ruleStrong;
+  ctx.fillStyle = COLORS.axis;
   ctx.fillRect(0, base, width, hair);
-  const zero = Math.round(xOf(0) - hair / 2);
-  ctx.fillRect(zero, 0, hair, base);
+  ctx.fillRect(Math.round(xOf(0) - hair / 2), 0, hair, base);
 
-  // Mean marker: accent hairline with a small cap.
+  // Mean marker in the highlight colour, with a small cap.
   const m = Math.round(xOf(Math.max(-range, Math.min(range, average))) - hair / 2);
-  ctx.fillStyle = COLORS.accent;
-  ctx.fillRect(m, 0, hair, base + hair);
-  const cap = Math.round(3 * dpr);
-  ctx.fillRect(m - cap, 0, cap * 2 + hair, hair * 2);
+  ctx.fillStyle = highlight;
+  ctx.fillRect(m, 0, hair * 2, base + hair);
+  const cap = Math.round(4 * dpr);
+  ctx.fillRect(m - cap, 0, cap * 2 + hair * 2, hair * 2);
+  ctx.shadowColor = 'transparent';
 }
 
 function render() {
   frame = 0;
+  if (placeDirty) { placeDirty = false; place(); }
   if (classDirty) {
     classDirty = false;
-    card.classList.toggle('no-brand', !config.showBrand);
-    card.classList.toggle('no-map', !config.showMap);
-    card.classList.toggle('no-hist', !config.showHistogram);
+    zone.dataset.backing = config.backing;
+    zone.classList.toggle('no-brand', !config.showBrand);
+    zone.classList.toggle('no-hist', !config.showHistogram);
     card.classList.toggle('on', visible);
     card.setAttribute('aria-hidden', visible ? 'false' : 'true');
   }
   if (!values || !visible) return;
   if (textDirty) { textDirty = false; renderText(); }
-  if (histDirty && config.showHistogram && currentMode() !== 'fruits') { histDirty = false; renderHistogram(); }
+  if (histDirty) { histDirty = false; renderTiming(); }
 }

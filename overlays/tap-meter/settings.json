@@ -1,6 +1,13 @@
 [
+ {"uniqueID":"zone","type":"options","title":"Placement","options":["right","left"],"description":"right: in the band right of the playfield, centred beside the key counter. left: bottom of the left band above the combo counter; its top reaches into the in-game leaderboard's area, so use it when the leaderboard is hidden (Tab) or lower Scale. Results summaries always sit at the right of the header strip.","value":"right"},
+ {"uniqueID":"offsetX","type":"number","title":"Nudge X / px","description":"Moves the meter from its zone (1920×1080 px; positive = right). Use it for skins that move the key counter or HUD.","value":0},
+ {"uniqueID":"offsetY","type":"number","title":"Nudge Y / px","description":"Positive = down.","value":0},
+ {"uniqueID":"scale","type":"number","title":"Scale","description":"0.5–2. Scales about the zone's anchor corner.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: numbers float on the game with a slight shadow. scrim: a soft local shade with no edges. panel: the 18-LAB graphite panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"map: highlights (live bar, mean line, peak) take the current map's colour. 18-lab: always amber. Judgement colours never change.","value":"map"},
  {"uniqueID":"windowTaps","type":"number","title":"Window / taps","description":"How many recent taps the stream speed, interval σ and alternation are measured over (4–64). Speed uses the 1/4 convention: BPM = 15000 ÷ mean interval. The peak only counts runs at least this long; changing the window restarts it.","value":16},
  {"uniqueID":"showBalance","type":"checkbox","title":"Show finger balance","description":"Share of K1 and K2 presses this play.","value":true},
- {"uniqueID":"showJudgements","type":"checkbox","title":"Show judgements","description":"100, 50, miss and slider-break counts.","value":true},
+ {"uniqueID":"showJudgements","type":"checkbox","title":"Show judgements","description":"100, 50, miss and slider-break counts during gameplay (osu! does not show them until results).","value":true},
+ {"uniqueID":"showResults","type":"checkbox","title":"Results summary","description":"On the results screen, show peak stream speed, alternation over the play's streams and finger balance (osu! shows none of these).","value":true},
  {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
 ]

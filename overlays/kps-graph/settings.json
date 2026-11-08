@@ -1,6 +1,15 @@
 [
- {"uniqueID":"window","type":"number","title":"History / s","description":"Seconds of play kept on screen left of the now line (5–60). A further fifth of that previews the upcoming map density.","value":20},
- {"uniqueID":"height","type":"number","title":"Graph height / px","description":"Height of the chart area (48–144 px). The readouts and axis keep their size.","value":96},
- {"uniqueID":"strain","type":"checkbox","title":"Show strain backdrop","description":"Draw the map's difficulty strain (vosu performance graph) as a faint blue silhouette behind the trace, aligned to map time.","value":true},
- {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the panel header.","value":true}
+ {"uniqueID":"window","type":"number","title":"History / s","description":"Seconds of play kept below the now line during gameplay (5–60). A further fifth of that previews the upcoming map density above it.","value":20},
+ {"uniqueID":"height","type":"number","title":"Graph length / px","description":"Length of the vertical chart beside the stage (240–760 px). Song select caps it to fit its centre column.","value":560},
+ {"uniqueID":"strain","type":"checkbox","title":"Show strain backdrop","description":"Draw the map's difficulty strain (vosu performance graph) as a faint silhouette behind the trace, aligned to map time.","value":true},
+ {"uniqueID":"side","type":"options","title":"Gameplay side","options":["left","right"],"description":"Which side of the mania stage the strip floats on. Right keeps clear of stable's HP bar.","value":"left"},
+ {"uniqueID":"align","type":"options","title":"Gameplay alignment","options":["centre","stage"],"description":"centre = middle of the empty band on that side (robust to most skins). stage = hug the stage edge; set ColumnStart/ColumnWidth to your skin's values for an exact fit.","value":"centre"},
+ {"uniqueID":"columnStart","type":"number","title":"Skin ColumnStart","description":"osu!stable skin.ini [Mania] ColumnStart (default 136) – where the stage begins. Ignored on lazer, which centres the stage.","value":136},
+ {"uniqueID":"columnWidth","type":"number","title":"Skin ColumnWidth","description":"osu!stable skin.ini [Mania] ColumnWidth (default 30) – used to find the stage's width for the current key count.","value":30},
+ {"uniqueID":"x","type":"number","title":"Nudge X / px","description":"Moves the gameplay strip horizontally (negative = left).","value":0},
+ {"uniqueID":"y","type":"number","title":"Nudge Y / px","description":"Moves the gameplay strip vertically (negative = up).","value":0},
+ {"uniqueID":"scale","type":"number","title":"Gameplay scale","description":"Size of the gameplay strip, 0.5–2.","value":1},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none = floats on the game. scrim = a soft dark glow behind it that fades out. panel = the 18-LAB graphite panel.","value":"none"},
+ {"uniqueID":"accent","type":"options","title":"Accent","options":["map","18-lab"],"description":"map = peak and live marks take the current map's colour (from its background, never shown). 18-lab = amber.","value":"map"},
+ {"uniqueID":"brand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag above the readouts.","value":true}
 ]

@@ -1,13 +1,14 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!mania judgement counter: MAX…MISS counts, proportional bar, MAX:300 ratio, accuracy,
-// combo and key presses per second from /keys/all count deltas.
-import { subscribe, settings, fit, activeMode, MODES } from './vosu-overlay.js';
+// osu!mania judgement counter floating beside the stage: MAX…MISS counts, proportional bar,
+// MAX:300 ratio, accuracy, combo and key presses per second from /keys/all count deltas.
+// Results keep only what osu!'s ranking screen lacks (the ratio and the attempt's peak KPS).
+import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
 
-const WIDTH = 1100;
-const HEIGHT = 380;
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const EDGE = 48; // px between the cluster and the screen edge of its band
 const STATE_PLAY = 2;
 const STATE_RESULTS = 7;
-const STATE_SONG_SELECT = 5;
 const KPS_WINDOW = 1000; // ms of wall clock
 const KPS_JUMP = 64; // larger count jumps are attach/rewind baselines, not presses
 
@@ -17,25 +18,25 @@ const PLAY_HITS = KEYS.map(key => `/play/hits/${key}`);
 const RESULT_HITS = KEYS.map(key => `/resultsScreen/hits/${key}`);
 const P = {
   state: '/state/number',
+  client: '/client',
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
   resultsMode: '/resultsScreen/mode/number',
   source: '/play/source',
   accuracy: '/play/accuracy',
   combo: '/play/combo/current',
-  maxCombo: '/play/combo/max',
   keys: '/keys/all',
-  resultsAccuracy: '/resultsScreen/accuracy',
-  resultsCombo: '/resultsScreen/maxCombo',
   keyCount: '/beatmap/stats/cs/converted',
+  checksum: '/beatmap/checksum',
 };
 
 const $ = id => document.getElementById(id);
-const panel = $('panel');
+const stage = $('stage');
+const hud = $('hud');
 const chip = $('chip');
 const canvas = $('bar');
 const ctx = canvas.getContext('2d', { alpha: true });
-const rows = [...panel.querySelectorAll('.row')].map(row => ({
+const rows = [...hud.querySelectorAll('.row')].map(row => ({
   row,
   count: row.querySelector('.count'),
   share: row.querySelector('.share'),
@@ -44,17 +45,18 @@ const rows = [...panel.querySelectorAll('.row')].map(row => ({
 }));
 const text = {
   status: $('status'), keys: $('keys'), ratio: $('ratio'), acc: $('acc'), combo: $('combo'),
-  comboLabel: panel.querySelector('.stat.combo .label'), kps: $('kps'), peak: $('peak'), chip: $('chip-text'),
+  kps: $('kps'), peak: $('peak'), peakLabel: $('peak-label'), chip: $('chip-text'),
 };
 const note = $('note');
 
-fit($('stage'), WIDTH, HEIGHT);
+fit(stage, WIDTH, HEIGHT);
 
 // ------------------------------------------------------------------ state
 let socketStatus = 'connecting';
 let values = null;
 let previousState;
 let peakValid = false; // results reached straight from our own play → its peak KPS applies
+let options = null;
 
 // Key presses: wall-clock timestamps of each counted down-edge in a ring buffer.
 const RING = 1024;
@@ -65,8 +67,8 @@ let keyBase = -1;
 let peak = 0;
 let decayTimer = 0;
 
-// Last finished/aborted attempt, held for results and song select.
-const held = { has: false, counts: new Int32Array(6), accuracy: NaN, combo: NaN, peak: NaN };
+// Last attempt, held so the results screen can show its ratio and peak.
+const held = { has: false, counts: new Int32Array(6), peak: NaN };
 
 const counts = new Int32Array(6);
 const drawn = new Int32Array(6).fill(-1);
@@ -74,6 +76,10 @@ let drawnPhase = '';
 let lastPhase = '';
 let barDirty = true;
 let pending = 0;
+
+// Placement inputs; the band is recomputed only when one of them changes.
+let placedFor = '';
+let paletteFor = '';
 
 function resetKps() {
   ringHead = 0;
@@ -116,6 +122,7 @@ function onFrame(next, changed) {
   if (state === STATE_PLAY && previousState !== STATE_PLAY) { resetKps(); peakValid = true; }
   if (state === STATE_RESULTS && previousState !== STATE_RESULTS && previousState !== STATE_PLAY) peakValid = false;
   if (state === STATE_PLAY && changed.has(P.keys)) countPresses(next[P.keys], performance.now());
+  if (changed.has(P.checksum)) loadPalette();
   previousState = state;
   schedule();
 }
@@ -129,6 +136,33 @@ function onStatus(state) {
 
 function schedule() {
   if (!pending) pending = requestAnimationFrame(render);
+}
+
+// ------------------------------------------------------------------ placement + tint
+/** Puts the cluster in osu!'s free band on the chosen side of the mania stage, at the band's screen edge. */
+function place(keyCount, client) {
+  const key = `${options.side}|${keyCount}|${client}|${options.x}|${options.y}|${options.scale}`;
+  if (key === placedFor) return;
+  placedFor = key;
+  const layout = osuLayout('mania', { keys: keyCount, client: client === 'lazer' ? 'lazer' : 'stable' });
+  const left = options.side === 'left';
+  const band = layout.free.find(r => (left ? r.x === 0 : r.x > 0)) || { y: 0, h: HEIGHT };
+  const scale = Math.min(2, Math.max(0.5, options.scale || 1));
+  stage.style.setProperty('--edge', `${EDGE}px`);
+  stage.style.setProperty('--cy', `${Math.round(band.y + band.h / 2)}px`);
+  stage.style.setProperty('--nx', `${Math.round(options.x)}px`);
+  stage.style.setProperty('--ny', `${Math.round(options.y)}px`);
+  stage.style.setProperty('--scale', String(scale));
+  setAttr(hud, 'side', left ? 'left' : 'right');
+  setAttr(chip, 'side', left ? 'left' : 'right');
+}
+
+function loadPalette() {
+  const checksum = options?.accent === 'map' ? values?.[P.checksum] || '' : '';
+  if (checksum === paletteFor) return;
+  paletteFor = checksum;
+  if (!checksum) { applyPalette(hud, null); return; }
+  mapPalette(checksum).then(palette => { if (paletteFor === checksum) applyPalette(hud, palette); });
 }
 
 // ------------------------------------------------------------------ formatting
@@ -155,145 +189,112 @@ function group(n) {
   return out;
 }
 const num = value => typeof value === 'number' && Number.isFinite(value);
+const ratioText = (max, great) => (!max && !great ? '—' : great ? (max / great).toFixed(2) : '∞');
+
+function hide() {
+  setAttr(hud, 'visible', 'false');
+  lastPhase = 'hidden';
+  clearTimeout(decayTimer);
+}
 
 // ------------------------------------------------------------------ render
 function render() {
   pending = 0;
+  if (!options) return;
   const now = performance.now();
-  if (socketStatus !== 'live' || !values) {
-    setAttr(panel, 'visible', 'false');
+  const v = values;
+  const state = v?.[P.state];
+
+  // Connection and no-game states: one small chip in the zone, nothing else.
+  if (socketStatus !== 'live' || !v || state === undefined) {
+    hide();
+    place(4, 'stable');
     setAttr(chip, 'shown', 'true');
-    setAttr(chip, 'state', socketStatus);
-    setText(text.chip, socketStatus === 'offline' ? 'vosu offline' : 'Connecting to vosu');
+    setAttr(chip, 'state', socketStatus === 'live' ? 'idle' : socketStatus);
+    setText(text.chip, socketStatus === 'offline' ? 'vosu offline' : socketStatus === 'live' ? 'osu! not running' : 'Connecting to vosu');
     return;
   }
   setAttr(chip, 'shown', 'false');
 
-  const v = values;
-  const state = v[P.state];
   const mode = state === STATE_RESULTS && Number.isInteger(v[P.resultsMode])
     ? MODES[v[P.resultsMode]] ?? null
     : activeMode(state, v[P.playMode], v[P.settingsMode]);
-  if (mode && mode !== 'mania') {
-    setAttr(panel, 'visible', 'false');
-    lastPhase = 'hidden';
-    return;
-  }
-  setAttr(panel, 'visible', 'true');
+  if (mode !== 'mania' || (state !== STATE_PLAY && state !== STATE_RESULTS)) { hide(); return; }
 
-  let phase = 'none';
-  let status = 'Waiting for osu!';
-  let accuracy = NaN;
-  let combo = NaN;
-  let comboLabel = 'Combo';
-  let kps = NaN;
-  let shownPeak = NaN;
-  let keyLabel = '';
-  let missingKeys = false;
+  const keys = v[P.keys];
+  const cs = v[P.keyCount];
+  const keyCount = state === STATE_PLAY && Array.isArray(keys) && keys.length
+    ? keys.length
+    : Number.isInteger(cs) && cs > 0 && cs <= 18 ? cs : 4;
+  place(keyCount, v[P.client]);
+
   counts.fill(0);
-
-  if (state === STATE_PLAY && mode) {
-    let present = false;
+  let phase;
+  let total = 0;
+  if (state === STATE_PLAY) {
     for (let i = 0; i < 6; i++) {
       const value = v[PLAY_HITS[i]];
-      if (num(value)) { counts[i] = value; present = true; }
+      if (num(value)) counts[i] = value;
+      total += counts[i];
     }
-    phase = present ? 'live' : 'none';
+    phase = 'live';
     const source = v[P.source];
-    status = source === 'replay' ? 'Replay' : source === 'spectator' || source === 'watching' ? 'Spectating' : source === 'autoplay' ? 'Autoplay' : 'Live';
-    accuracy = v[P.accuracy];
-    combo = v[P.combo];
-    const keys = v[P.keys];
-    if (Array.isArray(keys)) {
-      evict(now);
-      kps = ringSize;
-      shownPeak = peak;
-      if (keys.length) keyLabel = `${keys.length}K`;
-    }
-    let total = 0;
-    for (let i = 0; i < 6; i++) total += counts[i];
+    setText(text.status, source === 'replay' ? 'Replay' : source === 'spectator' || source === 'watching' ? 'Spectating' : source === 'autoplay' ? 'Autoplay' : 'Live');
+    setText(text.keys, `${keyCount}K`);
+    setText(text.peakLabel, 'Peak');
+    const accuracy = v[P.accuracy];
+    const combo = v[P.combo];
+    setText(text.acc, num(accuracy) ? accuracy.toFixed(2) : '—');
+    setText(text.combo, num(combo) ? group(combo) : '—');
+    const hasKeys = Array.isArray(keys);
+    if (hasKeys) evict(now);
+    setText(text.kps, hasKeys ? String(ringSize) : '—');
+    setText(text.peak, hasKeys ? String(peak) : '—');
     if (total > 0) {
       held.has = true;
       held.counts.set(counts);
-      held.accuracy = accuracy;
-      held.combo = v[P.maxCombo];
-      held.peak = Array.isArray(keys) ? peak : NaN;
+      held.peak = hasKeys ? peak : NaN;
     }
     // Only claim the extension is missing once the attempt is clearly running without it.
-    missingKeys = !Array.isArray(keys) && total > 16;
-  } else if (state === STATE_RESULTS && mode) {
-    let total = 0;
+    const missingKeys = !hasKeys && total > 16;
+    if (note.hidden === missingKeys) note.hidden = !missingKeys;
+  } else {
     for (let i = 0; i < 6; i++) {
       const value = v[RESULT_HITS[i]];
-      if (num(value)) { counts[i] = value; total += value; }
+      if (num(value)) counts[i] = value;
+      total += counts[i];
     }
-    if (total > 0) {
-      phase = 'results';
-      accuracy = v[P.resultsAccuracy];
-      combo = v[P.resultsCombo];
-      shownPeak = peakValid ? held.peak : NaN;
-      held.has = true;
-      held.counts.set(counts);
-      held.accuracy = accuracy;
-      held.combo = combo;
-      held.peak = shownPeak;
-    } else if (held.has) {
-      phase = 'results';
-      counts.set(held.counts);
-      accuracy = held.accuracy;
-      combo = held.combo;
-      shownPeak = held.peak;
-    }
-    status = 'Result';
-    comboLabel = 'Max combo';
-  } else if (state !== undefined && mode) {
-    if (held.has) {
-      phase = 'held';
-      counts.set(held.counts);
-      accuracy = held.accuracy;
-      combo = held.combo;
-      shownPeak = held.peak;
-      comboLabel = 'Max combo';
-      status = 'Last play';
-    } else {
-      status = state === STATE_SONG_SELECT ? 'Song select' : 'Idle';
-    }
+    if (!total && held.has) { counts.set(held.counts); total = 1; }
+    const shownPeak = peakValid && held.has ? held.peak : NaN;
+    // Nothing osu!'s ranking screen lacks to add: stay off its screen.
+    if (!total || (!options.showRatio && !(options.showKps && num(shownPeak)))) { hide(); return; }
+    phase = 'results';
+    setText(text.status, 'Result');
+    setText(text.keys, `${keyCount}K`);
+    setText(text.peakLabel, 'Peak KPS');
+    setText(text.peak, num(shownPeak) ? String(shownPeak) : '—');
+    setAttr(hud, 'kps', String(options.showKps && num(shownPeak)));
   }
-  if (note.hidden === missingKeys) note.hidden = !missingKeys;
-  if (!keyLabel && mode) {
-    const keyCount = v[P.keyCount];
-    if (Number.isInteger(keyCount) && keyCount > 0 && keyCount <= 18) keyLabel = `${keyCount}K`;
-  }
+  if (phase === 'live') setAttr(hud, 'kps', String(options.showKps));
+  setAttr(hud, 'phase', phase);
+  setAttr(hud, 'visible', 'true');
 
-  setAttr(panel, 'phase', phase);
-  setText(text.status, status);
-  setText(text.keys, keyLabel);
-  setText(text.comboLabel, comboLabel);
-
-  let total = 0;
-  for (let i = 0; i < 6; i++) total += counts[i];
-  const empty = phase === 'none';
+  setText(text.ratio, ratioText(counts[0], counts[1]));
+  let sum = 0;
+  for (let i = 0; i < 6; i++) sum += counts[i];
   const flashing = phase === 'live' && lastPhase === 'live';
   for (let i = 0; i < 6; i++) {
     const c = counts[i];
     const row = rows[i];
-    setText(row.count, empty ? '—' : group(c));
-    setText(row.share, empty || !total ? '' : `${(c * 100 / total).toFixed(1)}%`);
+    setText(row.count, group(c));
+    setText(row.share, sum ? `${(c * 100 / sum).toFixed(1)}%` : '');
     if (flashing && i >= 2 && drawn[i] >= 0 && c > drawn[i]) flash(row);
     if (c !== drawn[i]) { drawn[i] = c; barDirty = true; }
   }
-  setAttr(rows[5].row, 'hot', !empty && counts[5] > 0 ? 'true' : 'false');
-
-  const max = counts[0];
-  const great = counts[1];
-  setText(text.ratio, empty || (!max && !great) ? '—' : great ? (max / great).toFixed(2) : '∞');
-  setText(text.acc, !empty && num(accuracy) ? accuracy.toFixed(2) : '—');
-  setText(text.combo, !empty && num(combo) ? group(combo) : '—');
-  setText(text.kps, num(kps) ? String(kps) : '—');
-  setText(text.peak, !empty && num(shownPeak) ? String(shownPeak) : '—');
+  setAttr(rows[5].row, 'hot', counts[5] > 0 ? 'true' : 'false');
 
   if (phase !== drawnPhase) { drawnPhase = phase; barDirty = true; }
-  if (barDirty) drawBar(total, phase);
+  if (barDirty && phase === 'live') drawBar(sum);
   lastPhase = phase;
 
   // Live KPS decays without new frames: wake once when the oldest press leaves the window.
@@ -303,7 +304,7 @@ function render() {
 
 function flash(row) {
   if (!row.flash) {
-    row.flash = row.flashTarget.animate([{ opacity: 0.22 }, { opacity: 0 }], { duration: 240, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' });
+    row.flash = row.flashTarget.animate([{ opacity: 0.28 }, { opacity: 0 }], { duration: 240, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' });
   } else {
     row.flash.currentTime = 0;
     row.flash.play();
@@ -313,23 +314,21 @@ function flash(row) {
 // ------------------------------------------------------------------ bar
 const tokens = getComputedStyle(document.documentElement);
 const COLORS = ['--j-max', '--j-great', '--j-good', '--j-ok', '--j-meh', '--j-miss'].map(name => tokens.getPropertyValue(name).trim());
-const TRACK = 'rgb(235 232 225 / .08)';
-const TICK = tokens.getPropertyValue('--rule-strong').trim() || '#3b3f45';
-const TICK_MID = tokens.getPropertyValue('--muted').trim() || '#7e8288';
+const TRACK = 'rgb(8 9 10 / .55)';
+const TICK = 'rgb(235 232 225 / .34)';
+const TICK_MAJOR = 'rgb(235 232 225 / .7)';
 let scale = 1;
-let withTicks = true;
 
-function drawBar(total, phase) {
+function drawBar(total) {
   barDirty = false;
   const w = canvas.width;
   const h = canvas.height;
   if (!w || !h) return;
   ctx.clearRect(0, 0, w, h);
-  const barHeight = withTicks ? Math.round(6 * scale) : h;
-  ctx.globalAlpha = phase === 'live' || phase === 'results' ? 1 : 0.6;
+  const barHeight = Math.round(6 * scale);
   ctx.fillStyle = TRACK;
   ctx.fillRect(0, 0, w, barHeight);
-  if (total > 0 && phase !== 'none') {
+  if (total > 0) {
     const gap = Math.max(1, Math.round(scale));
     let x = 0;
     let sum = 0;
@@ -347,17 +346,14 @@ function drawBar(total, phase) {
       x = end;
     }
   }
-  if (withTicks) {
-    const line = Math.max(1, Math.round(scale));
-    const top = barHeight + Math.round(2 * scale);
-    for (let k = 0; k <= 10; k++) {
-      const major = k % 5 === 0;
-      ctx.fillStyle = major ? TICK_MID : TICK;
-      const x = Math.min(w - line, Math.round((k / 10) * w));
-      ctx.fillRect(x, top, line, Math.round((major ? 4 : 2) * scale));
-    }
+  const line = Math.max(1, Math.round(scale));
+  const top = barHeight + Math.round(3 * scale);
+  for (let k = 0; k <= 10; k++) {
+    const major = k % 5 === 0;
+    ctx.fillStyle = major ? TICK_MAJOR : TICK;
+    const x = Math.min(w - line, Math.round((k / 10) * w));
+    ctx.fillRect(x, top, line, Math.round((major ? 5 : 3) * scale));
   }
-  ctx.globalAlpha = 1;
 }
 
 new ResizeObserver(entries => {
@@ -366,28 +362,27 @@ new ResizeObserver(entries => {
   const w = Math.round(box.width * scale);
   const h = Math.round(box.height * scale);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  withTicks = panel.dataset.layout !== 'horizontal';
   barDirty = true;
+  drawnPhase = '';
   schedule();
 }).observe(canvas);
 
 // ------------------------------------------------------------------ settings + data
-settings({ layout: 'vertical', anchor: 'top-left', showRatio: true, showKps: true, showBrand: true }, s => {
-  const layout = s.layout === 'horizontal' ? 'horizontal' : 'vertical';
-  const anchor = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(s.anchor) ? s.anchor : 'top-left';
-  setAttr(panel, 'layout', layout);
-  setAttr(panel, 'anchor', anchor);
-  setAttr(chip, 'anchor', anchor);
-  setAttr(panel, 'ratio', String(s.showRatio));
-  setAttr(panel, 'kps', String(s.showKps));
-  setAttr(panel, 'brand', String(s.showBrand));
-  withTicks = layout !== 'horizontal';
-  barDirty = true;
+settings({ side: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', showRatio: true, showKps: true, showBrand: true }, s => {
+  options = s;
+  options.side = s.side === 'left' ? 'left' : 'right';
+  setAttr(hud, 'backing', ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none');
+  setAttr(hud, 'accent', s.accent === '18-lab' ? '18-lab' : 'map');
+  setAttr(hud, 'ratio', String(s.showRatio));
+  setAttr(hud, 'kps', String(s.showKps));
+  setAttr(hud, 'brand', String(s.showBrand));
+  placedFor = '';
+  loadPalette();
   schedule();
 });
 
 subscribe([
-  P.state, P.playMode, P.settingsMode, P.resultsMode, P.source,
-  ...PLAY_HITS, P.accuracy, P.combo, P.maxCombo, P.keys,
-  ...RESULT_HITS, P.resultsAccuracy, P.resultsCombo, P.keyCount,
+  P.state, P.client, P.playMode, P.settingsMode, P.resultsMode, P.source,
+  ...PLAY_HITS, P.accuracy, P.combo, P.keys,
+  ...RESULT_HITS, P.keyCount, P.checksum,
 ], onFrame, { onStatus });

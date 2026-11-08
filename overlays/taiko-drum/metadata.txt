@@ -1,5 +1,5 @@
 name = Taiko drum
 author = 18-LAB
-version = 0.1.0
-description = osu!taiko drum input: four zones that light on press, per-zone counts, hand balance, alternation rate, same-hand repeats and live KPS.
-resolution = [576,288]
+version = 0.2.0
+description = osu!taiko drum input under the lane: four zones that light on press, per-zone counts, hand balance, alternation rate, same-hand repeats and live KPS, with a one-line drum summary on results.
+resolution = [1920,1080]

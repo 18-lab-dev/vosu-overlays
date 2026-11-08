@@ -9,42 +9,34 @@
 </head>
 <body>
 <div id="stage">
-  <section id="panel" class="panel" data-style="radar" data-phase="idle" aria-label="osu! skill breakdown">
+  <section id="cluster" class="cluster" data-view="none" data-style="radar" data-backing="none" aria-label="osu! pp by skill">
     <header class="head">
-      <span class="brand" id="brand">18—LAB</span>
-      <span class="label">pp by skill</span>
-      <span class="spacer"></span>
-      <span class="mods" id="mods" hidden></span>
+      <span class="brand">18—LAB</span>
+      <span class="label" id="title">pp by skill</span>
       <span class="status" id="status" data-tone="wait"><i aria-hidden="true"></i><span id="status-text">connecting</span></span>
     </header>
 
     <div class="readout">
-      <div class="stat now">
-        <span class="label" id="now-label">Now</span>
-        <span class="value"><b id="now-value">—</b><small>pp</small></span>
-      </div>
-      <div class="stat fc">
-        <span class="label" id="fc-label">If FC</span>
-        <span class="value"><b id="fc-value">—</b><small>pp</small></span>
-      </div>
+      <span class="label now" id="now-label">Now</span>
+      <span class="value now"><b id="now-value">—</b><small>pp</small></span>
+      <span class="label fc" id="fc-label">If FC</span>
+      <span class="value fc"><b id="fc-value">—</b><small>pp</small></span>
     </div>
 
     <div class="chart">
       <canvas id="radar" aria-hidden="true"></canvas>
       <div class="table" role="table" aria-label="pp by skill">
         <div class="row th" role="row"><span role="columnheader">Skill</span><span class="bar" aria-hidden="true"></span><span class="lg" role="columnheader">Now</span><span class="lg fc" role="columnheader">FC</span></div>
-        <div class="row" role="row" data-skill="0"><span class="name" role="cell"><b>01</b>Aim</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
-        <div class="row" role="row" data-skill="1"><span class="name" role="cell"><b>02</b>Speed</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
-        <div class="row" role="row" data-skill="2"><span class="name" role="cell"><b>03</b>Accuracy</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
-        <div class="row" role="row" data-skill="3"><span class="name" role="cell"><b>04</b>Flashlight</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
+        <div class="row" role="row" data-skill="0"><span class="name" role="cell">Aim</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
+        <div class="row" role="row" data-skill="1"><span class="name" role="cell">Speed</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
+        <div class="row" role="row" data-skill="2"><span class="name" role="cell">Accuracy</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
+        <div class="row" role="row" data-skill="3"><span class="name" role="cell">Flashlight</span><span class="bar" aria-hidden="true"></span><span class="v" role="cell">—</span><span class="v fc" role="cell">—</span></div>
         <canvas id="bars" aria-hidden="true"></canvas>
       </div>
     </div>
 
     <div class="profile" id="profile">
       <div class="profile-head">
-        <span class="label">Map profile</span>
-        <span class="spacer"></span>
         <span class="key aim"><i aria-hidden="true"></i>Aim <b id="share-aim">—</b></span>
         <span class="key speed"><i aria-hidden="true"></i>Speed <b id="share-speed">—</b></span>
       </div>

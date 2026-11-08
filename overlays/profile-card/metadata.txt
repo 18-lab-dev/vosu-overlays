@@ -1,5 +1,5 @@
-name = Player card
+name = Player tag
 author = 18-LAB
-version = 0.1.0
-description = Profile card with avatar, global rank, pp, accuracy, play count, level progress, bancho status and session changes since the source loaded. Horizontal or vertical.
-resolution = [640,360]
+version = 0.2.0
+description = Floating player tag for gameplay: avatar, name, global rank and pp with this session's changes, placed in a free corner of osu!'s layout. Hidden in song select and results, which already show your profile.
+resolution = [1920,1080]

@@ -1,13 +1,18 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Hit error bar: judgement-window ladder, fading per-hit ticks, a moving-average marker and a
-// live distribution, with an optional osu!mania press/release split. Results hold the attempt.
-import { subscribe, settings, fit, activeMode, isPlaying, MODE_LABELS } from './vosu-overlay.js';
+// live distribution, with an optional osu!mania press/release split. It floats in the space osu!
+// leaves empty for the ruleset (osuLayout) and holds the attempt on stable's results screen.
+import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette, applyPalette, MODE_LABELS } from './vosu-overlay.js';
 
 const RESULTS = 7;
+const SONG_SELECT = 5;
 const P = {
   state: '/state/number',
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
+  client: '/client',
+  checksum: '/beatmap/checksum',
+  keys: '/beatmap/stats/cs/converted',
   windows: '/beatmap/stats/hitWindow',
   holds: '/beatmap/stats/objects/holds',
   all: '/play/hitErrorArray',
@@ -16,20 +21,35 @@ const P = {
 };
 
 const DEFAULTS = {
-  width: 520,
+  zone: 'auto',
+  offsetX: 0,
+  offsetY: 0,
+  size: 1,
+  width: 0,
   orientation: 'horizontal',
-  position: 'bottom',
-  inset: 40,
+  backing: 'none',
+  accent: 'map',
   lifetime: 4,
-  scale: 'judgement windows',
+  range: 'judgement windows',
   showUr: true,
   showMean: true,
   showEarlyLate: true,
   showDistribution: true,
   releaseRow: 'auto',
-  showIdle: true,
+  results: 'osu!stable only',
+  songSelect: true,
+  columnStart: 136,
+  columnWidth: 30,
   showBrand: true,
 };
+
+// Default zone per ruleset: osu! the band right of the playfield (under the key counter), mania
+// beside the stage on the left, taiko the empty area under the lane.
+const AUTO_ZONE = { osu: 'right', mania: 'left', taiko: 'below' };
+const SCREEN_W = 1920;
+const SCREEN_H = 1080;
+const MARGIN = 16;
+const PANEL_CHROME = 26; // panel padding + borders around the bar
 
 // Judgement classes index COLORS; 6 = neutral (release row, or no published windows).
 const BANDS = {
@@ -63,7 +83,7 @@ const FG = tok('--fg');
 const SIGNAL = tok('--signal');
 const ACCENT = tok('--accent');
 const SUNKEN = 'rgb(11 12 13 / .62)';
-const GRID = 'rgb(235 232 225 / .07)';
+const GRID = 'rgb(235 232 225 / .1)';
 
 const $ = id => document.getElementById(id);
 const dock = $('dock');
@@ -72,11 +92,12 @@ const chip = $('chip');
 const text = {
   chip: $('chip-text'), mode: $('mode'), ur: $('ur'), mean: $('mean'), dir: $('dir'),
   early: $('early'), late: $('late'), range: $('range'), relUr: $('rel-ur'), relMean: $('rel-mean'), mainLabel: $('main-label'),
+  rsUr: $('rs-ur'), rsMean: $('rs-mean'),
 };
 const releaseEl = $('row-release');
+const legend = $('legend');
 
 let cfg = { ...DEFAULTS };
-let vertical = false;
 let status = 'connecting';
 let values = {};
 let raf = 0;
@@ -88,7 +109,12 @@ let textDirty = true;
 const KERNEL = new Float32Array(65);
 for (let i = 0; i <= 64; i++) { const z = (i / 64) * 2.5; KERNEL[i] = Math.exp(-0.5 * z * z); }
 
-const view = { show: 'chip', mode: null, final: false, idle: true, split: false, missing: false, hist: true };
+const view = {
+  show: 'chip', chip: 'connecting', mode: null, final: false, idle: true, split: false, missing: false, hist: true,
+  keys: 4, lazer: false, vertical: false,
+};
+let placed = '';
+let checksum = '';
 const geo = { bands: [], range: 100, fallback: true, key: '' };
 
 function createRow(el, hasHist, neutral) {
@@ -207,7 +233,7 @@ function computeGeometry() {
     }
   }
   let range = bands.length ? bands[bands.length - 1].edge : 0;
-  if (cfg.scale === 'great window' && great) range = great * ZOOM;
+  if (cfg.range === 'great window' && great) range = great * ZOOM;
   const fallback = !range;
   if (fallback) {
     const m = Math.max(main.maxAbs, release.maxAbs);
@@ -220,26 +246,52 @@ function computeGeometry() {
   geo.range = range;
   geo.fallback = fallback;
   for (const row of ROWS) rebin(row);
+  buildLegend();
   textDirty = true;
   invalidate();
+}
+
+/** Song select: the rate-adjusted windows in ms, which osu! itself only shows as an OD number. */
+function buildLegend() {
+  legend.replaceChildren();
+  if (!geo.bands.length) return;
+  const head = document.createElement('span');
+  head.className = 'label';
+  head.textContent = 'Windows ±ms';
+  legend.append(head);
+  for (const band of geo.bands) {
+    const item = document.createElement('span');
+    const swatch = document.createElement('i');
+    swatch.style.background = COLORS[band.cls];
+    item.append(swatch, String(Math.round(band.edge * 10) / 10));
+    legend.append(item);
+  }
 }
 
 function evaluateView() {
   const state = values[P.state];
   const mode = activeMode(state, values[P.playMode], values[P.settingsMode]);
   const playing = isPlaying(state);
-  const final = state === RESULTS;
-  let show;
+  const lazer = values[P.client] === 'lazer';
+  // Results: lazer has its own timing statistics, so by default only stable gets the hold.
+  const final = state === RESULTS && (cfg.results === 'always' || (cfg.results === 'osu!stable only' && !lazer));
+  const select = state === SONG_SELECT && cfg.songSelect;
+  let show = 'none';
+  let chipState = status;
   if (status !== 'live') show = 'chip';
-  else if (mode === 'fruits') show = 'none';
-  else if (playing || final) show = 'panel';
-  else show = cfg.showIdle ? 'panel' : 'none';
+  else if (state === undefined) { show = 'chip'; chipState = 'idle'; }
+  else if (mode === 'fruits' || !mode) show = 'none';
+  else if (playing || final || select) show = 'panel';
   const idle = !playing && !final;
   const split = wantSplit(mode, idle);
+  const keys = Math.round(Number(values[P.keys]));
   const next = {
-    show, mode, final: final && show === 'panel', idle, split,
+    show, chip: chipState, mode, final: final && show === 'panel', idle, split,
     missing: split && !Array.isArray(values[P.release]),
     hist: !idle && (final || cfg.showDistribution),
+    keys: keys >= 1 && keys <= 18 ? keys : 4,
+    lazer,
+    vertical: cfg.orientation === 'vertical' && !idle && !final,
   };
   let changed = false;
   for (const key in next) if (view[key] !== next[key]) { view[key] = next[key]; changed = true; }
@@ -247,7 +299,15 @@ function evaluateView() {
   return changed;
 }
 
-const VIEW_POINTERS = [P.state, P.playMode, P.settingsMode, P.windows, P.holds, P.release];
+function loadPalette() {
+  const target = cfg.accent === 'map' ? checksum : '';
+  if (!target) { applyPalette(dock, null); return; }
+  mapPalette(target).then(palette => {
+    if (target === checksum && cfg.accent === 'map') applyPalette(dock, palette);
+  });
+}
+
+const VIEW_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.keys, P.windows, P.holds, P.release];
 
 subscribe(Object.values(P), (_, changed) => {
   values = _;
@@ -258,6 +318,10 @@ subscribe(Object.values(P), (_, changed) => {
     const before = view.mode;
     evaluateView();
     if (before !== view.mode || changed.has(P.windows)) computeGeometry();
+  }
+  if (changed.has(P.checksum) && values[P.checksum] !== checksum) {
+    checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : '';
+    loadPalette();
   }
   route(now);
   invalidate();
@@ -274,34 +338,100 @@ subscribe(Object.values(P), (_, changed) => {
 function setFlag(name, on) { panel.dataset[name] = on ? '1' : '0'; }
 
 settings(DEFAULTS, s => {
+  const accentChanged = s.accent !== cfg.accent;
   cfg = s;
-  const width = Math.round(Math.min(960, Math.max(280, cfg.width)) / 2) * 2;
-  vertical = cfg.orientation === 'vertical';
-  dock.dataset.orient = vertical ? 'v' : 'h';
-  dock.dataset.anchor = ['bottom', 'top', 'left', 'right', 'center'].includes(cfg.position) ? cfg.position : 'bottom';
-  dock.style.setProperty('--len', `${width}px`);
-  dock.style.setProperty('--inset', `${Math.max(0, Math.min(400, cfg.inset))}px`);
+  panel.dataset.backing = ['none', 'scrim', 'panel'].includes(cfg.backing) ? cfg.backing : 'none';
+  dock.dataset.accent = cfg.accent === '18-lab' ? 'lab' : 'map';
   setFlag('brand', cfg.showBrand);
   setFlag('ur', cfg.showUr);
   setFlag('mean', cfg.showMean);
   setFlag('el', cfg.showEarlyLate);
   setFlag('readouts', cfg.showUr || cfg.showMean);
+  if (accentChanged) loadPalette();
   evaluateView();
   viewDirty = true;
+  placed = '';
   computeGeometry();
   route(-1);
   for (const row of ROWS) row.histDirty = true;
   invalidate();
 });
 
+const even = v => Math.round(v / 2) * 2;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * Puts the cluster into the space osu! leaves empty: gameplay follows osuLayout() for the ruleset
+ * (busy = playfield/stage/lane); song select uses the centre column between the local leaderboard
+ * and the carousel; stable results the free right end of the header strip.
+ */
+function place() {
+  const mode = AUTO_ZONE[view.mode] ? view.mode : 'osu';
+  const chrome = cfg.backing === 'panel' ? PANEL_CHROME : 40;
+  let zone, len, ax, ay, align, from;
+  if (view.final) {
+    zone = 'results'; len = 560; align = 'end'; from = 'top'; ax = 1900; ay = 8;
+  } else if (view.idle && view.show === 'panel') {
+    zone = 'select'; len = 480; align = 'center'; from = 'bottom'; ax = 850; ay = 870;
+  } else {
+    const lay = osuLayout(mode, {
+      keys: view.keys, columnWidth: clamp(cfg.columnWidth, 5, 200), columnStart: clamp(cfg.columnStart, 0, 1000),
+      client: view.lazer ? 'lazer' : 'stable',
+    });
+    const b = lay.busy;
+    zone = cfg.zone === 'auto' ? AUTO_ZONE[mode] : cfg.zone === 'osu! bar' ? 'bar' : cfg.zone;
+    if (mode === 'taiko' && (zone === 'left' || zone === 'right')) zone = 'below';
+    if (zone === 'below' && mode !== 'taiko') zone = mode === 'mania' ? 'left' : 'bar';
+    // mania: line the bar up with the judgement line (stable default HitPosition 402 of 480).
+    const top = mode === 'mania' ? Math.round(lay.unit * 402) - 92 : Math.round(SCREEN_H * 0.7);
+    let avail;
+    if (zone === 'left') {
+      align = 'end'; from = 'top'; ax = b.x - 8; ay = top; avail = Math.min(360, ax - MARGIN);
+    } else if (zone === 'right') {
+      // Stable mania draws its HP bar just right of the stage.
+      align = 'start'; from = 'top'; ax = b.x + b.w + (mode === 'mania' ? 40 : 8); ay = top; avail = Math.min(360, SCREEN_W - MARGIN - ax);
+    } else if (zone === 'below') {
+      align = 'center'; from = 'top'; ax = SCREEN_W / 2; ay = b.y + b.h + 40; avail = 680;
+    } else {
+      zone = 'bar'; align = 'center'; from = 'bottom'; ax = SCREEN_W / 2; ay = SCREEN_H - 4; avail = 440;
+    }
+    len = cfg.width > 0 ? cfg.width : avail - chrome;
+    if (view.vertical) {
+      len = cfg.width > 0 ? cfg.width : 420;
+      if (zone === 'left' || zone === 'right') ay = Math.round((SCREEN_H - len) / 2) - 120;
+    }
+  }
+  len = even(clamp(len, 200, 960));
+  const x = Math.round(ax + cfg.offsetX);
+  const y = Math.round(ay + cfg.offsetY);
+  const size = clamp(cfg.size, 0.5, 2.5);
+  const key = `${zone}|${len}|${x}|${y}|${align}|${from}|${size}|${view.vertical}`;
+  if (key === placed) return;
+  placed = key;
+  const st = dock.style;
+  st.left = align === 'end' ? '' : `${x}px`;
+  st.right = align === 'end' ? `${SCREEN_W - x}px` : '';
+  st.top = from === 'top' ? `${y}px` : '';
+  st.bottom = from === 'bottom' ? `${SCREEN_H - y}px` : '';
+  st.transformOrigin = `${align === 'start' ? 'left' : align === 'end' ? 'right' : 'center'} ${from}`;
+  st.scale = String(size);
+  st.setProperty('--len', `${len}px`);
+  dock.dataset.zone = zone;
+  dock.dataset.align = align;
+  dock.dataset.from = from;
+  dock.dataset.orient = view.vertical ? 'v' : 'h';
+  resizeAll();
+}
+
 function sizeRow(row, w, h) {
-  const dpr = window.devicePixelRatio || 1;
+  // Back the canvas at the on-screen size so a scaled cluster stays crisp.
+  const dpr = (window.devicePixelRatio || 1) * clamp(cfg.size, 0.5, 2.5);
   if (w === row.w && h === row.h && dpr === row.dpr) return;
   row.w = w; row.h = h; row.dpr = dpr;
   row.canvas.width = Math.round(w * dpr);
   row.canvas.height = Math.round(h * dpr);
-  row.L = vertical ? h : w;
-  row.C = vertical ? w : h;
+  row.L = view.vertical ? h : w;
+  row.C = view.vertical ? w : h;
   row.nb = Math.min(MAX_BINS, Math.floor(row.L / 2));
   if (row.cache) {
     const histH = Math.max(0, row.C - BASE - HIST_GAP);
@@ -322,10 +452,11 @@ const observer = new ResizeObserver(entries => {
   invalidate();
 });
 for (const row of ROWS) observer.observe(row.canvas);
-addEventListener('resize', () => {
+function resizeAll() {
   for (const row of ROWS) if (row.w > 0) { const { w, h } = row; row.w = -1; sizeRow(row, w, h); }
   invalidate();
-});
+}
+addEventListener('resize', resizeAll);
 
 fit($('stage'), 1920, 1080);
 
@@ -342,9 +473,10 @@ const urOf = row => (row.n >= 2 ? (Math.sqrt(row.m2 / row.n) * 10).toFixed(2) : 
 
 function applyView() {
   viewDirty = false;
+  place();
   chip.dataset.show = view.show === 'chip' ? '1' : '0';
-  chip.dataset.state = status;
-  setText(text.chip, status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
+  chip.dataset.state = view.chip;
+  setText(text.chip, view.chip === 'offline' ? 'vosu offline' : view.chip === 'idle' ? 'osu! not running' : 'Connecting to vosu');
   panel.dataset.show = view.show === 'panel' ? '1' : '0';
   setFlag('final', view.final);
   setFlag('idle', view.idle);
@@ -370,6 +502,8 @@ function writeText() {
   setText(text.range, geo.bands.length || row.n ? `\u00b1${Math.round(geo.range)} ms` : '—');
   setText(text.relUr, urOf(release));
   setText(text.relMean, release.n ? signed(release.mean) : '—');
+  setText(text.rsUr, text.relUr.__text);
+  setText(text.rsMean, text.relMean.__text);
 }
 
 function classOf(e) {
@@ -429,7 +563,7 @@ function drawRow(row, now, dt) {
   ctx.clearRect(0, 0, row.canvas.width, row.canvas.height);
   if (!L || C < BASE) return false;
   // Vertical is the transpose of horizontal: the error axis runs down, early at the top.
-  if (vertical) ctx.setTransform(0, dpr, dpr, 0, 0, 0);
+  if (view.vertical) ctx.setTransform(0, dpr, dpr, 0, 0, 0);
   else ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const laneTop = C - BASE;
@@ -440,8 +574,11 @@ function drawRow(row, now, dt) {
   const nBands = bands.length;
   const live = !view.final && !view.idle;
 
-  ctx.fillStyle = SUNKEN;
-  ctx.fillRect(0, laneTop, L, LANE);
+  // The sunken lane belongs to the opt-in panel; floating, the window hairlines frame the ticks.
+  if (cfg.backing === 'panel') {
+    ctx.fillStyle = SUNKEN;
+    ctx.fillRect(0, laneTop, L, LANE);
+  }
 
   // Window edges as hairlines through the lane.
   ctx.fillStyle = GRID;

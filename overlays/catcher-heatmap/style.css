@@ -8,97 +8,113 @@ html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { font: 400 13px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; user-select: none; }
 
-#stage { position: relative; width: 1920px; height: 1080px; }
+/* The page is the overlay's box; overlay.js sets --u (1 at the design size) from the box and the
+   orientation, so type and spacing follow whatever size the host gives the page. */
+:root {
+  --u: 1;
+  --hl: var(--accent); --on-hl: var(--on-accent);
+  --fs-label: max(10px, calc(12px * var(--u)));
+  --fs-num: max(16px, calc(26px * var(--u)));
+  --fs-side: max(10px, calc(13px * var(--u)));
+  --gap: calc(8px * var(--u));
+  --pad: calc(6px * var(--u));
+}
+html[data-accent="map"] { --hl: var(--map-accent, var(--accent)); --on-hl: var(--map-on-accent, var(--on-accent)); }
 
-/* The zone is placed in a free region of osu!'s layout by overlay.js (translate + scale). */
-.zone { position: absolute; left: 0; top: 0; transform-origin: 0 0; --hl: var(--accent); --on-hl: var(--on-accent); }
-html[data-accent="map"] .zone { --hl: var(--map-accent, var(--accent)); --on-hl: var(--map-on-accent, var(--on-accent)); }
 .hud {
-  position: relative; width: 336px;
-  display: grid; grid-template-columns: 336px; grid-template-rows: 18px auto auto; row-gap: var(--space-2);
-  contain: layout style; /* not paint: the soft grounds/scrim extend past the box */
+  position: absolute; inset: 0; padding: var(--pad);
+  display: grid; gap: var(--gap);
+  isolation: isolate;
+  contain: layout style;
   text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft);
 }
 .hud[data-view="hidden"] { opacity: 0; transform: translateY(4px); }
-/* Results: osu!'s ranking screen only leaves the right of its header strip free (~122 px tall),
-   so the held attempt lies flat: strip left, readouts right. */
-.hud[data-view="held"] { width: 696px; grid-template-columns: 336px 336px; grid-template-rows: 18px auto; column-gap: 24px; }
-.hud[data-view="held"] .head { grid-column: 1 / -1; }
-.hud[data-view="held"] .stats { align-self: center; }
 
-/* Backing. none: type + shadow, with the strip's own soft ground. scrim: a soft local wash
-   behind the whole cluster that fades out (no box edge). panel: the graphite 18-LAB panel. */
-.hud::before { content: ""; position: absolute; z-index: -1; pointer-events: none; display: none; }
-.hud[data-backing="scrim"]::before {
-  display: block; inset: -28px -36px;
-  background: radial-gradient(closest-side, rgb(8 9 10 / .62) 55%, rgb(8 9 10 / 0));
-}
+/* Vertical (side corners, narrow cells): head, strip, 2×2 readouts. */
+html[data-orient="vertical"] .hud { grid-template: "head" auto "field" minmax(0, 1fr) "stats" auto / minmax(0, 1fr); }
+/* Horizontal (top/bottom bands): strip beside the readouts; align mirrors them. Bands up to
+   ~3.4:1 keep the 2×2 readouts; longer tickers put all four in one row. */
+html[data-orient="horizontal"] .hud { grid-template: "head stats" auto "field stats" minmax(0, 1fr) / minmax(0, 1fr) auto; column-gap: calc(16px * var(--u)); }
+html[data-orient="horizontal"][data-align="right"] .hud { grid-template: "stats head" auto "stats field" minmax(0, 1fr) / auto minmax(0, 1fr); }
+html[data-orient="horizontal"] .stats { align-self: center; }
+.stats { grid-template-columns: 1fr 1fr; row-gap: calc(6px * var(--u)); }
+.cell:nth-child(odd) { padding-left: 0; border-left: 0; }
+html[data-ticker] .stats { grid-template-columns: repeat(4, auto); column-gap: calc(10px * var(--u)); }
+html[data-ticker] .cell:nth-child(3) { padding-left: calc(10px * var(--u)); border-left: 1px solid rgb(235 232 225 / .22); }
+
+/* Backing. none: type + shadow, with a soft ground under the strip only. scrim: a soft wash
+   across the box that fades out at its edges. panel: the graphite 18-LAB panel. */
+.hud::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; display: none; }
+.hud[data-backing="scrim"]::before { display: block; background: radial-gradient(farthest-side, rgb(8 9 10 / .66) 62%, rgb(8 9 10 / 0)); }
 .hud[data-backing="panel"] { text-shadow: none; }
 .hud[data-backing="panel"]::before {
-  display: block; inset: -12px -14px;
+  display: block;
   background: rgb(17 18 20 / .86);
   border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius);
 }
-.hud { isolation: isolate; }
 
 /* header */
-.head { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; min-width: 0; }
-.brand { font: 600 16px/1 var(--font-display); letter-spacing: .04em; color: var(--fg); }
-.brand[hidden] { display: none; }
+.head { grid-area: head; display: flex; align-items: center; gap: var(--gap); white-space: nowrap; min-width: 0; }
 .title, .clock, .tag, .dash, .label, .axis, .status {
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: var(--fs-label); letter-spacing: .08em; text-transform: uppercase;
 }
-.title { color: var(--fg-dim); }
+.title { color: var(--fg-dim); overflow: hidden; }
 .spacer { flex: 1; }
 .clock { color: var(--fg-dim); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .tag { color: var(--fg); display: none; }
 .hud[data-view="held"] .tag { display: inline; }
 .dash {
   padding: 1px 6px 0; border: 1px solid rgb(235 232 225 / .35); border-radius: var(--radius);
-  color: var(--fg-dim); line-height: 14px; text-shadow: none; background: rgb(8 9 10 / .35);
+  color: var(--fg-dim); line-height: 1.2; text-shadow: none; background: rgb(8 9 10 / .35);
 }
 .hud[data-view="held"] .dash { display: none; }
 .dash[data-on] { background: var(--hl); border-color: var(--hl); color: var(--on-hl); }
 
 /* playfield strip; the soft ground under it keeps the heat legible on bright backgrounds */
-.field { position: relative; }
+.field { grid-area: field; position: relative; display: flex; flex-direction: column; min-height: 0; }
 .field::before {
-  content: ""; position: absolute; z-index: -1; left: -14px; right: -14px; top: -6px; height: 96px;
+  content: ""; position: absolute; z-index: -1; left: calc(-1 * var(--pad)); right: calc(-1 * var(--pad)); top: calc(-4px * var(--u)); bottom: 0;
   background: rgb(8 9 10 / .55);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  --feather: calc(10px * var(--u));
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent), linear-gradient(transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent);
   -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent), linear-gradient(transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent);
   mask-composite: intersect;
 }
 .hud[data-backing="panel"] .field::before { display: none; }
-#plot { display: block; width: 100%; height: 80px; }
-.axis { position: relative; height: 16px; color: var(--fg-dim); font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.axis span { position: absolute; top: 3px; transform: translateX(-50%); }
+.plot { position: relative; flex: 1; min-height: calc(36px * var(--u)); }
+#plot { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.axis { position: relative; flex: none; height: calc(var(--fs-label) + 4px); color: var(--fg-dim); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.axis span { position: absolute; top: 3px; transform: translateX(-50%); line-height: 1; }
 .axis span:first-child { transform: none; }
 .axis span:last-child { transform: translateX(-100%); }
 
 /* readouts */
-.stats { display: grid; grid-template-columns: 100px 84px 66px 1fr; }
-.cell { display: flex; flex-direction: column; gap: 3px; padding: 0 0 0 10px; border-left: 1px solid rgb(235 232 225 / .22); min-width: 0; }
-.cell:first-child { padding-left: 0; border-left: 0; }
-.label { color: var(--fg-dim); white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.stats { grid-area: stats; display: grid; }
+.cell { display: flex; flex-direction: column; gap: calc(3px * var(--u)); padding-left: calc(10px * var(--u)); border-left: 1px solid rgb(235 232 225 / .22); min-width: 0; }
+.label { color: var(--fg-dim); white-space: nowrap; display: flex; align-items: center; gap: calc(6px * var(--u)); }
 .label .sym { text-transform: none; letter-spacing: 0; margin-left: -2px; }
 .glyph-cg { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--j-max); }
 .read { display: flex; align-items: baseline; white-space: nowrap; }
-.read b { font: 600 26px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.read small { margin-left: 3px; font: 400 12px/1 var(--font-mono); color: var(--fg-dim); }
-.read em { margin-left: 6px; font: 500 13px/1 var(--font-body); font-style: normal; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.split { gap: 8px; }
-.divider { align-self: center; width: 1px; height: 16px; background: var(--fg-dim); }
+.read b { font: 600 var(--fs-num)/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
+.read small { margin-left: 3px; font: 400 var(--fs-label)/1 var(--font-mono); color: var(--fg-dim); }
+.read em { margin-left: calc(6px * var(--u)); font: 500 var(--fs-side)/1 var(--font-body); font-style: normal; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.split { gap: calc(8px * var(--u)); }
+.divider { align-self: center; width: 1px; height: calc(var(--fs-num) * .6); background: var(--fg-dim); }
 
-/* connection / no-data line, in the zone */
+/* Compact (about half the design size, e.g. 4-player renderer cells): drop the words that
+   don't carry data so the numbers keep their size. */
+html[data-compact] .title, html[data-compact] .axis .mid, html[data-compact] .read em, html[data-compact] .label .sym { display: none; }
+
+/* connection / no-data line, in the box corner on the aligned side */
 .status {
-  position: absolute; left: 0; top: 0; margin: 0;
+  position: absolute; left: var(--pad); top: var(--pad); margin: 0;
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   color: var(--fg); text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   transition: opacity 200ms var(--ease-draft);
 }
+html[data-align="right"] .status { left: auto; right: var(--pad); }
 .status i { width: 6px; height: 6px; border-radius: 50%; background: var(--caution); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
 .status[data-state="offline"] i { background: var(--danger); }
 .status[data-state="idle"] i { background: var(--muted); }

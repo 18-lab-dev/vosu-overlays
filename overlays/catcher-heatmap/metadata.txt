@@ -1,5 +1,6 @@
 name = Catcher heatmap
 author = 18-LAB
-version = 0.2.0
-description = osu!catch only. Floats in the empty side band beside the catch playfield: a top-down 0–512 strip of where the catcher spends its time this attempt, with the live catcher and dash state, centre of gravity, spread, dash share and left/right split. Holds the attempt in the free part of the results header. Needs vosu's /play/catcher data.
-resolution = [1920,1080]
+version = 0.3.0
+description = osu!catch only. A top-down 0–512 strip of where the catcher spends its time this attempt, with the live catcher and dash state, centre of gravity, spread, dash share and left/right split. Re-flows to its box: a column for corners, a band for the top or bottom edge. Holds the attempt on results. Needs vosu's /play/catcher data.
+resolution = [240,232]
+placement = {"fruits":["right-16","bottom-16"]}

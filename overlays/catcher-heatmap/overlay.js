@@ -1,14 +1,12 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Catcher heatmap: where the osu!catch catcher spends its time this attempt, as a top-down
-// 0–512 playfield strip floating in a side band beside osu!'s playfield. Time-weighted from
-// vosu's /play/catcher samples on the map clock.
+// 0–512 playfield strip. Time-weighted from vosu's /play/catcher samples on the map clock.
+// The page is the overlay's box: hosts (OBS, vosulay, the replay renderer) place and size it,
+// and the layout re-flows to that box (vertical column or horizontal band).
 import {
-  subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, mapPalette, applyPalette,
+  subscribe, settings, activeMode, isPlaying, formatDuration, mapPalette, applyPalette,
 } from './vosu-overlay.js';
 
-const W = 1920;
-const H = 1080;
-const ZONE_W = 336;
 const FIELD = 512;
 const BIN_CHOICES = [16, 32, 64, 128];
 const MISSING_AFTER_MS = 1500;   // grace before calling /play/catcher absent during play
@@ -16,6 +14,14 @@ const MAX_STEP_MS = 3000;        // larger clock gaps are seeks/hitches: resync,
 const RETRY_JUMP_MS = 1500;      // clock jumping back this far mid-play = a new attempt
 const TEXT_INTERVAL_MS = 200;    // readouts don't need 60 Hz; keeps layout/style idle
 const RESULTS = 7;
+// Design boxes (u = 1): the vertical column, the band with 2×2 readouts, and the ticker band
+// with readouts in one row.
+const VERTICAL = { w: 240, h: 232 };
+const BLOCK = { w: 420, h: 128 };
+const TICKER = { w: 560, h: 96 };
+const HORIZONTAL_ASPECT = 2;     // auto orientation: wider than 2:1 lays out as a band
+const TICKER_ASPECT = 3.4;       // bands wider than this put the readouts in one row
+const COMPACT_BELOW = 0.8;       // u below this drops non-data words (multiplayer cells)
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', selMode: '/settings/mode/number',
@@ -26,17 +32,15 @@ const P = {
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
-const zone = $('zone');
 const hud = $('hud');
+const plotBox = $('plotBox');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  brand: $('brand'), clock: $('clock'), dash: $('dash'),
+  clock: $('clock'), dash: $('dash'),
   cog: $('cog'), cogSide: $('cogSide'), spread: $('spread'), dashShare: $('dashShare'),
   left: $('left'), right: $('right'), status: $('status'), statusText: $('statusText'),
 };
-
-fit($('stage'), W, H);
 
 // ---------------------------------------------------------------- attempt accumulator
 // 1 px columns of the playfield; display bins are summed from these, so the bin setting
@@ -96,11 +100,11 @@ let raf = 0;
 let textDue = true;
 let textTimer = 0;
 let lastTextAt = -Infinity;
-let placementDue = true;
+let layoutDue = true;
 
 const opts = {
-  zone: 'right', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map',
-  bins: 64, intensity: 1, showMarker: true, showOnResults: true, showBrand: true,
+  orientation: 'auto', align: 'right', backing: 'none', accent: 'map',
+  bins: 64, intensity: 1, showMarker: true, showOnResults: true,
 };
 
 /** osu!catch catch range (lazer Catcher.CalculateCatchWidth): 106.75 × CS scale × 0.8. */
@@ -224,47 +228,46 @@ function loadPalette() {
   });
 }
 
-// ---------------------------------------------------------------- placement
-// Gameplay default: the right side band of osu!'s 4:3 catch playfield, right-aligned with the
-// score readout and below score/accuracy, above where skins put the key counter; `left` mirrors
-// it under the health bar. Results: osu!stable's ranking screen fills the screen except the right
-// of its header strip (title/mapper sit on the left), so the held attempt lies flat there.
-// x/y nudge and scale apply to both, for other skins.
-const RESULTS_W = 696;
-function place(name) {
-  const s = opts.scale;
-  let left;
-  let top;
-  if (name === 'held') {
-    left = W - 20 - RESULTS_W * s;
-    top = 8;
-  } else {
-    const { score, accuracy, health } = osuLayout('fruits').hud;
-    top = Math.max(accuracy.y + accuracy.h, health.y + health.h) + 40;
-    left = opts.zone === 'left' ? health.x : score.x + score.w - ZONE_W * s;
-  }
-  zone.style.transform = `translate(${Math.round(left + opts.x)}px, ${Math.round(top + opts.y)}px) scale(${s})`;
-  size();
+// ---------------------------------------------------------------- layout (follows the page's box)
+// Orientation from the box's aspect (or the setting); --u scales type and spacing so the design
+// holds from its default size down to roughly half (multiplayer renderer cells).
+let u = 1;
+function layout() {
+  const w = innerWidth;
+  const h = innerHeight;
+  const orient = opts.orientation === 'auto' ? (w / h > HORIZONTAL_ASPECT ? 'horizontal' : 'vertical') : opts.orientation;
+  const ticker = orient === 'horizontal' && w / h > TICKER_ASPECT;
+  const base = orient === 'vertical' ? VERTICAL : ticker ? TICKER : BLOCK;
+  u = Math.min(3, Math.max(0.4, Math.min(w / base.w, h / base.h)));
+  root.dataset.orient = orient;
+  root.toggleAttribute('data-ticker', ticker);
+  root.dataset.align = opts.align;
+  root.dataset.accent = opts.accent;
+  hud.dataset.backing = opts.backing;
+  root.style.setProperty('--u', u.toFixed(3));
+  root.toggleAttribute('data-compact', u < COMPACT_BELOW);
 }
+addEventListener('resize', () => { layoutDue = true; markDirty(true); });
 
-// ---------------------------------------------------------------- canvas geometry (CSS px)
+// ---------------------------------------------------------------- canvas geometry
+// Lanes in an 80-unit design height, scaled to the canvas: the strip stretches to its box.
 const LANE = { cgTop: 0, cgBottom: 6, histTop: 9, histBottom: 56, bandTop: 59, bandBottom: 66, plateTop: 69, plateBottom: 75, tickBottom: 80 };
-let k = 1;   // device px per CSS px (DPR × stage fit × zone scale)
+let k = 1;   // device px per hairline (DPR × type scale)
 let cw = 0;
 let ch = 0;
 
-function size() {
-  const fitScale = Math.min(innerWidth / W, innerHeight / H) || 1;
-  k = (devicePixelRatio || 1) * fitScale * opts.scale;
-  const w = Math.max(1, Math.round(canvas.clientWidth * k));
-  const h = Math.max(1, Math.round(canvas.clientHeight * k));
+function size(entries) {
+  const box = entries?.[0]?.contentRect;
+  const dpr = devicePixelRatio || 1;
+  k = dpr * Math.max(0.75, u);
+  const w = Math.max(1, Math.round((box ? box.width : plotBox.clientWidth) * dpr));
+  const h = Math.max(1, Math.round((box ? box.height : plotBox.clientHeight) * dpr));
   if (w !== cw || h !== ch) { cw = canvas.width = w; ch = canvas.height = h; }
   markDirty(false);
 }
-new ResizeObserver(size).observe(canvas);
-addEventListener('resize', size);
+new ResizeObserver(size).observe(plotBox);
 
-const Y = v => Math.round(v * k);
+const Y = v => Math.round(v / LANE.tickBottom * ch);
 const X = x => Math.round(x / FIELD * cw);
 
 /** Vertical rule (`width` css px) at playfield x from y0..y1 (css px), optionally dashed, with a dark halo. */
@@ -332,7 +335,7 @@ function drawHeat() {
 function drawCentreOfGravity(cog) {
   vline(cog, LANE.histTop, LANE.bandBottom, C.fg, true, 1);
   const cx = X(cog);
-  const half = Y(4);
+  const half = Math.round(4 * k);
   ctx.fillStyle = C.fg;
   ctx.beginPath();
   ctx.moveTo(cx - half, Y(LANE.cgTop));
@@ -373,7 +376,7 @@ function setText(node, text) {
 }
 const DASHES = [el.cog, el.spread, el.dashShare, el.left, el.right];
 
-/** What the zone shows: the strip during catch play, the held attempt on results, else nothing. */
+/** What the box shows: the strip during catch play, the held attempt on results, else nothing. */
 function currentView() {
   if (status !== 'live' || mode !== 'fruits') return 'hidden';
   if (playing) return missing ? 'hidden' : 'live';
@@ -417,7 +420,6 @@ function writeText() {
 let viewName = '';
 let lineName = '';
 let dashOn = null;
-let placedAs = 'live';
 
 function markDirty(text) {
   if (text) textDue = true;
@@ -430,15 +432,11 @@ function render(now) {
   if (!dirty) return;
   dirty = false;
   const name = currentView();
-  // Re-place only for a visible layout; while fading out the zone stays where it was.
-  const layoutName = name === 'hidden' ? placedAs : name;
-  if (placementDue || layoutName !== placedAs) {
-    placementDue = false;
-    placedAs = layoutName;
-    place(layoutName);
-    root.dataset.accent = opts.accent;
-    hud.dataset.backing = opts.backing;
-    el.brand.hidden = !opts.showBrand;
+  if (layoutDue) {
+    // Only on resize/settings: never per data frame.
+    layoutDue = false;
+    layout();
+    size();
   }
   if (name !== viewName) { viewName = name; hud.dataset.view = name; textDue = true; }
   const line = statusLine();
@@ -474,18 +472,15 @@ subscribe(Object.values(P), onFrame, { onStatus });
 
 // Numeric defaults (bins too) so both vosu's option strings and numeric pushes coerce.
 settings({ ...opts }, s => {
-  opts.zone = s.zone === 'left' ? 'left' : 'right';
-  opts.x = s.x;
-  opts.y = s.y;
-  opts.scale = Math.min(2, Math.max(0.5, s.scale));
+  opts.orientation = ['horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto';
+  opts.align = s.align === 'left' ? 'left' : 'right';
   opts.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   opts.accent = s.accent === '18-lab' ? '18-lab' : 'map';
   opts.bins = BIN_CHOICES.includes(s.bins) ? s.bins : 64;
   opts.intensity = Math.min(4, Math.max(0.25, s.intensity));
   opts.showMarker = s.showMarker;
   opts.showOnResults = s.showOnResults;
-  opts.showBrand = s.showBrand;
-  placementDue = true;
+  layoutDue = true;
   loadPalette();
   markDirty(true);
 });

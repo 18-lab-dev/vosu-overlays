@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"chartStyle","type":"options","title":"Chart style","options":["radar","bars"],"description":"radar = polar chart of aim, speed, accuracy and flashlight pp on one shared scale (flashlight appears as a fourth axis only with FL). bars = the same split as horizontal bars, more compact.","value":"radar"},
+ {"uniqueID":"showFc","type":"checkbox","title":"Show FC layer","description":"Draws the full-combo projection (dashed outline / ghost bar) behind the live split and shows the If FC pp column. The chart scale follows the FC values either way, so the live layer grows towards the edge as the play progresses.","value":true},
+ {"uniqueID":"showProfile","type":"checkbox","title":"Show map profile","description":"Strip under the chart: aim strain above the centre line, speed strain below, across the whole map, with the playback position during play and the map's overall aim/speed share.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Small brand tag in the panel header.","value":true}
+]

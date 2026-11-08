@@ -1,0 +1,149 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+/* tokens.css sets color-scheme: dark; inside a host page with another scheme Chromium would
+   paint an opaque backdrop behind the frame. */
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#stage { position: relative; }
+
+/* The strip spans the whole source; the bar hugs its content and sits at the chosen edge. */
+#bar {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: flex-start;
+  padding: 0 var(--space-3);
+  contain: strict;
+}
+#bar[data-align="center"] { justify-content: center; }
+#bar[data-align="right"] { justify-content: flex-end; }
+
+#panel {
+  position: relative;
+  display: flex; align-items: center;
+  height: 36px; min-width: 0;
+  max-width: min(var(--max-w, 760px), 100%);
+  padding: 2px 14px 1px;
+  color: var(--fg);
+  font: 500 16px/1 var(--font-body);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Surface lives on its own layer so a width change can be eased with transform alone. */
+.bg {
+  position: absolute; inset: 0;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  transform-origin: 0 0;
+}
+#bar[data-align="center"] .bg { transform-origin: 50% 0; }
+#bar[data-align="right"] .bg { transform-origin: 100% 0; }
+/* Amber marks a live map; transport status and "no map" stay quiet. */
+#panel:not([data-kind="map"]) .bg { border-top-color: var(--rule-strong); }
+
+/* Play progress: the bottom hairline fills from the left. */
+.prog {
+  position: absolute; left: -1px; right: -1px; bottom: -1px; height: 1px;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-draft);
+}
+#panel.playing .prog { opacity: 1; }
+.prog i {
+  display: block; height: 100%;
+  background: var(--accent);
+  transform-origin: 0 0; transform: scaleX(0);
+}
+
+.brand {
+  position: relative; flex: none;
+  margin-right: var(--space-3); padding-right: var(--space-3);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em;
+  color: var(--fg-dim);
+}
+.brand b { font-weight: 500; color: var(--accent); }
+.brand::after, .seg::before {
+  content: ""; position: absolute; top: 50%; width: 1px; height: 14px; margin-top: -7px;
+  background: var(--rule-strong);
+}
+.brand::after { right: 0; }
+#panel[data-brand="off"] .brand { display: none; }
+
+.roll { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+
+/* Title viewport: clips the marquee track (or ellipsizes it in truncate mode). */
+.vp { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: 24px; }
+.track { display: block; width: max-content; }
+#panel[data-overflow="truncate"] .track { width: auto; overflow: hidden; text-overflow: ellipsis; }
+.vp[data-edge="r"] {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+.vp[data-edge="l"] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px);
+  mask-image: linear-gradient(90deg, transparent, #000 28px);
+}
+.vp[data-edge="lr"] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
+.artist { font-weight: 400; color: var(--fg-dim); }
+.sep { margin: 0 .3em; font-weight: 400; color: var(--muted); }
+.title { font-weight: 600; color: var(--fg); }
+.ver { margin-left: .4em; font-weight: 400; color: var(--fg-dim); }
+.ver::before { content: "["; color: var(--muted); }
+.ver::after { content: "]"; color: var(--muted); }
+
+.seg {
+  position: relative; flex: none;
+  display: flex; align-items: center;
+  margin-left: var(--space-3); padding-left: var(--space-3);
+}
+.seg::before { left: 0; }
+
+.stars svg { width: 10px; height: 10px; margin: 0 5px 1px 0; fill: var(--accent); }
+.stars .num {
+  min-width: 3.1ch;
+  font: 600 19px/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.mods { gap: var(--space-1); }
+.mod {
+  padding: 3px 4px 2px;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  font: 500 10px/1 var(--font-mono); letter-spacing: .06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.mod span { margin-left: .4em; color: var(--fg-dim); }
+
+.by {
+  margin-right: 6px;
+  font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.mapper .name { font-size: 15px; font-weight: 500; color: var(--fg-dim); }
+
+.status {
+  display: flex; align-items: center; gap: var(--space-2);
+  font: 500 10px/24px var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+#panel[data-status="offline"] .dot { background: var(--danger); }
+
+/* Content kinds: transport status, no map, map. */
+#panel[data-kind="status"] .vp,
+#panel[data-kind="status"] .seg,
+#panel[data-kind="empty"] .seg,
+#panel[data-kind="empty"] .artist,
+#panel[data-kind="empty"] .sep,
+#panel[data-kind="empty"] .ver,
+#panel:not([data-kind="status"]) .status { display: none; }
+#panel[data-kind="empty"] .title { font-weight: 400; color: var(--muted); }

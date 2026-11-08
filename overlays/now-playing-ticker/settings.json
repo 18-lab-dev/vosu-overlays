@@ -1,0 +1,10 @@
+[
+ {"uniqueID":"unicode","type":"checkbox","title":"Original-language metadata","description":"Show artist and title in their original script when the map provides it; otherwise the romanised fields are used.","value":false},
+ {"uniqueID":"showStars","type":"checkbox","title":"Star rating","description":"Star rating with the active mods applied.","value":true},
+ {"uniqueID":"showMods","type":"checkbox","title":"Mods","description":"Selected mods in song select, played mods during play and on results. Hidden when no mods are active.","value":true},
+ {"uniqueID":"showMapper","type":"checkbox","title":"Mapper","value":true},
+ {"uniqueID":"overflow","type":"options","title":"Long titles","options":["marquee","truncate"],"description":"marquee scrolls a line that does not fit, pausing at both ends; truncate ends it with an ellipsis. Lines that fit never move.","value":"marquee"},
+ {"uniqueID":"align","type":"options","title":"Alignment","options":["left","center","right"],"description":"Where the bar sits inside the 1920 px wide source; it grows away from that edge.","value":"left"},
+ {"uniqueID":"maxWidth","type":"number","title":"Maximum width / px","description":"Widest the bar may grow before long titles scroll or truncate; clamped to 320–1896 px.","value":760},
+ {"uniqueID":"showBrand","type":"checkbox","title":"18—LAB tag","value":true}
+]

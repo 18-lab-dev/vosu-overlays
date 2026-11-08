@@ -1,0 +1,5 @@
+name = Now playing ticker
+author = 18-LAB
+version = 0.1.0
+description = Single-line map bar for any ruleset: artist, title, difficulty, star rating, mods and mapper, a play-progress hairline, a rolling change between maps and a paused marquee for long titles.
+resolution = [1920,52]

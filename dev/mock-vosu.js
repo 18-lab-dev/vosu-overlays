@@ -203,6 +203,9 @@ function documentAt() {
   const keyPress = Array.from({ length: mode === 'mania' ? scenario.columns : 0 }, () => []);
   const keyRelease = Array.from({ length: mode === 'mania' ? scenario.columns : 0 }, () => []);
   const hitOffsets = [];
+  // Judgement events in the order they happen: hold releases land after later presses, and
+  // vosu only ever appends to the hit-error arrays.
+  const timeline = [];
   let combo = 0, maxCombo = 0, judged = 0, score = 0, osuIndex = 0;
   for (const object of objects) {
     if (object.t + Math.max(0, object.error) > t) break;
@@ -217,19 +220,22 @@ function documentAt() {
     score += ({ geki: 320, katu: 200 }[result] ?? result) * (1 + combo / 25);
     if (!object.miss && mode !== 'fruits') {
       const errors = mode === 'mania' ? object.columnErrors : [object.error];
-      hitErrors.push(...errors);
-      pressHitErrors.push(...errors);
-      if (mode === 'mania') object.columns.forEach((column, i) => keyPress[column].push(errors[i]));
+      const columns = mode === 'mania' ? object.columns : [null];
+      errors.forEach((value, i) => timeline.push({ at: object.t + value, value, release: false, column: columns[i] }));
     }
     if (mode === 'osu' && !object.miss) {
       const triple = scenario.offsets[osuIndex++];
       if (triple) hitOffsets.push(...triple);
     }
     if (mode === 'mania' && object.ln && !object.miss && object.t + object.ln <= t) {
-      hitErrors.push(object.release);
-      releaseHitErrors.push(object.release);
-      for (const column of object.columns) keyRelease[column].push(object.release);
+      for (const column of object.columns) timeline.push({ at: object.t + object.ln + object.release, value: object.release, release: true, column });
     }
+  }
+  timeline.sort((a, b) => a.at - b.at);
+  for (const event of timeline) {
+    hitErrors.push(event.value);
+    (event.release ? releaseHitErrors : pressHitErrors).push(event.value);
+    if (event.column !== null) (event.release ? keyRelease : keyPress)[event.column].push(event.value);
   }
   const total = objects.length;
   const accuracy = accuracyOf(mode, hits);

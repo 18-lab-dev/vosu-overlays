@@ -1,0 +1,7 @@
+[
+ {"uniqueID":"graphHeight","type":"number","title":"Graph height / px","description":"Height of the strain plot; clamped to 40–160 px.","value":64},
+ {"uniqueID":"view","type":"options","title":"Skills","options":["combined","per-skill"],"description":"combined = one silhouette of the summed skill strains. per-skill = the same silhouette split into stacked bands: osu! aim and speed, taiko colour, rhythm and stamina. Catch (movement) and mania (strains) have a single skill.","value":"combined"},
+ {"uniqueID":"showTime","type":"checkbox","title":"Show time","description":"Time axis under the graph and the elapsed / total clock in the header.","value":true},
+ {"uniqueID":"showMarks","type":"checkbox","title":"Show kiai and breaks","description":"Marks kiai (amber) and break (hatched) sections. vosu reports them as the map clock passes them, in play and in the song-select preview; each map remembers the sections already seen.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

@@ -1,0 +1,5 @@
+name = Strain graph
+author = 18-LAB
+version = 0.1.0
+description = Difficulty strain over the whole map with a live playhead: played portion lit, the rest dimmed, kiai and breaks marked. Combined or stacked per-skill, every ruleset; the song-select preview follows the preview clock.
+resolution = [720,232]

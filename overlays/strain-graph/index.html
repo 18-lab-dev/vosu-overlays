@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Strain graph · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section class="panel" id="panel" aria-label="Difficulty strain graph">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="label">Strain</span>
+      <span class="rule" aria-hidden="true"></span>
+      <span class="map"><span id="title">—</span><span class="version" id="version"></span></span>
+      <span class="chip chip--kiai" id="kiai">Kiai</span>
+      <span class="chip chip--break" id="break">Break</span>
+      <span class="status" id="status" data-state="connecting"><i aria-hidden="true"></i><span id="statusText">Connecting…</span></span>
+      <span class="phase" id="phase"></span>
+      <span class="clock" id="clock"><b id="now">—</b><span class="total" id="total"></span></span>
+    </header>
+    <div class="plot" id="plot">
+      <canvas id="graph" aria-label="Strain over time with playback position"></canvas>
+      <p class="empty" id="empty">—</p>
+    </div>
+    <div class="axis" id="axis" aria-hidden="true"><div class="ticks" id="ticks"></div><span class="legend" id="legend"></span></div>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html[data-theme] { color-scheme: normal; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#stage { position: absolute; left: 0; top: 0; }
+
+.panel {
+  --graph-h: 64px;
+  position: absolute; left: 0; top: 0; width: 100%;
+  padding: 0 var(--space-3) var(--space-1);
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--fg);
+  contain: layout paint;
+  user-select: none;
+}
+.panel[data-time="off"]:not([data-legend="on"]) { padding-bottom: var(--space-3); }
+
+/* Header: brand, label, map, then live readouts pushed right. */
+.head {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: 36px; white-space: nowrap;
+  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.head > * { flex: 0 0 auto; }
+.brand { color: var(--fg); letter-spacing: .04em; }
+.brand[hidden] { display: none; }
+.rule { width: 1px; height: 12px; background: var(--rule-strong); margin: 0 var(--space-1); }
+.map {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font: 500 14px/1 var(--font-body); letter-spacing: 0; text-transform: none; color: var(--fg);
+}
+.version { margin-left: var(--space-2); color: var(--fg-dim); font-weight: 400; }
+
+.chip {
+  padding: 3px 5px 2px; border: 1px solid currentColor; border-radius: var(--radius);
+  font-size: 10px; line-height: 1; opacity: 0;
+  transition: opacity 160ms var(--ease-draft);
+}
+.chip--kiai { color: var(--accent); }
+.chip--break { color: var(--fg-dim); }
+.chip.on { opacity: 1; }
+.panel[data-marks="off"] .chip { display: none; }
+
+.status { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: 11px; letter-spacing: .02em; text-transform: none; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: var(--caution); }
+.status[data-state="offline"] i { background: var(--danger); }
+.status[hidden] { display: none; }
+
+.phase { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; margin-left: var(--space-1); }
+.phase:empty { display: none; }
+.panel[data-phase="play"] .phase::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.panel[data-phase="play"] .phase { color: var(--fg-dim); }
+
+.clock { display: inline-flex; align-items: baseline; gap: 5px; min-width: 76px; justify-content: flex-end; }
+.clock b {
+  font: 600 20px/1 var(--font-display); letter-spacing: .01em; color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.clock .total { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.panel[data-time="off"] .clock { display: none; }
+
+/* Plot: one canvas, redrawn only when the playhead crosses a device pixel. */
+.plot { position: relative; height: var(--graph-h); }
+.plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.empty {
+  position: absolute; inset: 0; margin: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: 400 11px/1 var(--font-mono); letter-spacing: .08em; color: var(--muted);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.empty[hidden] { display: none; }
+
+/* Axis row: time ticks, plus the skill legend at the right in per-skill view. */
+.axis {
+  position: relative; height: 18px;
+  font: 400 10px/1 var(--font-mono); letter-spacing: .02em; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.ticks { position: absolute; inset: 0; }
+.ticks span { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
+.ticks span:first-child { transform: none; }
+.legend {
+  position: absolute; right: 0; top: 4px; display: flex; gap: var(--space-3);
+  letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+}
+.legend:empty { display: none; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-dim); }
+.legend i { width: 8px; height: 8px; border-radius: 1px; background: var(--c); }
+.panel[data-time="off"] .ticks { display: none; }
+.panel[data-time="off"]:not([data-legend="on"]) .axis { display: none; }

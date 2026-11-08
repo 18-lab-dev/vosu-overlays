@@ -1,0 +1,7 @@
+[
+ {"uniqueID":"layout","type":"options","title":"Layout","description":"vertical = 288 px column with each judgement's share of the notes; horizontal = one strip about 80 px tall for the top or bottom edge of the screen.","options":["vertical","horizontal"],"value":"vertical"},
+ {"uniqueID":"anchor","type":"options","title":"Position anchor","description":"Corner of the source the panel hugs; place the source so this corner sits where you want the panel.","options":["top-left","top-right","bottom-left","bottom-right"],"value":"top-left"},
+ {"uniqueID":"showRatio","type":"checkbox","title":"Show MAX:300 ratio","description":"MAX (320) judgements per 300, to two decimals. Shows ∞ until the first 300.","value":true},
+ {"uniqueID":"showKps","type":"checkbox","title":"Show keys per second","description":"Live presses in the last second and the attempt's peak, counted from vosu's keys.all. Results and song select keep the peak of the attempt you just played.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

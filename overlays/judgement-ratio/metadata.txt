@@ -1,0 +1,5 @@
+name = Judgement ratio
+author = 18-LAB
+version = 0.1.0
+description = osu!mania judgement counter: MAX to MISS with a proportional bar, the MAX:300 ratio, accuracy, combo, and live and peak keys per second. Holds the result after the play.
+resolution = [1100,380]

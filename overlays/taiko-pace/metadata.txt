@@ -1,5 +1,6 @@
 name = Taiko pace
 author = 18-LAB
-version = 0.2.0
-description = osu!taiko accuracy pace under the lane: live and max achievable accuracy, the OKs and misses a target accuracy can still absorb, GREAT/OK/MISS, UR and pp.
-resolution = [1920,1080]
+version = 0.3.0
+description = osu!taiko accuracy pace strip: live and max achievable accuracy, the OKs and misses a target accuracy can still absorb, GREAT/OK/MISS, UR and pp.
+resolution = [1100,150]
+placement = {"taiko":["left+160","top+624"]}

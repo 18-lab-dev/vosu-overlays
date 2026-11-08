@@ -1,12 +1,9 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!taiko accuracy pace, floated in the empty space below the lane: how far the attempt can
-// still go, and how many OKs or misses the chosen target accuracy can still absorb. Song select
-// gets the map's budget for the target; results get the verdict against it, UR and pp.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+// osu!taiko accuracy pace: how far the attempt can still go, and how many OKs or misses the chosen
+// target accuracy can still absorb. The page is the overlay's own box (hosts place and size it);
+// the layout follows the box: a two-row strip, a one-line row for short boxes, or a column.
+import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const CLUSTER_WIDTH = 720;
 const EPS = 1e-9;
 
 const P = {
@@ -24,14 +21,6 @@ const P = {
   // ruleset being played, so it is also right for converts. objects/circles is the raw fallback.
   notes: '/beatmap/stats/maxCombo',
   circles: '/beatmap/stats/objects/circles',
-  greatWindow: '/beatmap/stats/hitWindow/great',
-  ppByAcc: '/performance/accuracy',
-  resultMode: '/resultsScreen/mode/number',
-  resultGreat: '/resultsScreen/hits/300',
-  resultOk: '/resultsScreen/hits/100',
-  resultMiss: '/resultsScreen/hits/0',
-  resultPp: '/resultsScreen/pp/current',
-  resultFc: '/resultsScreen/pp/fc',
 };
 
 /**
@@ -59,17 +48,12 @@ export function pace(great, ok, miss, notes, target) {
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
-const playSpot = $('playSpot');
 const budget = $('budget');
-const verdict = $('verdict');
 const canvas = $('tape');
 const ctx = canvas.getContext('2d', { alpha: true });
-const el = Object.fromEntries(['chipText', 'acc', 'max', 'budgetLabel', 'okBudget', 'budgetUnit', 'missLabel', 'missBudget',
-  'great', 'ok', 'miss', 'remaining', 'ur', 'pp', 'fc', 'preOk', 'preMiss', 'preNotes', 'preWindow', 'prePp', 'preSs',
-  'verdictLabel', 'delta', 'postUr', 'postPp', 'postFc']
-  .map(id => [id, $(id)]));
-const all = selector => [...document.querySelectorAll(selector)];
-const group = { target: all('[data-target]'), brand: all('.brand'), ur: all('[data-ur]'), pp: all('[data-pp]') };
+const el = Object.fromEntries(['chipText', 'acc', 'max', 'target', 'budgetLabel', 'okBudget', 'budgetUnit', 'missLabel',
+  'missBudget', 'great', 'ok', 'miss', 'remaining', 'urCell', 'ur', 'pp', 'fc'].map(id => [id, $(id)]));
+const ppCells = [...document.querySelectorAll('[data-pp]')];
 
 const put = (node, text) => { if (node.textContent !== text) node.textContent = text; };
 const attr = (node, name, value) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
@@ -85,10 +69,8 @@ const pct = fraction => (Math.floor(fraction * 1e4 + 1e-6) / 100).toFixed(2);
 const whole = value => (value === null ? DASH : String(Math.round(value)));
 
 const DEFAULTS = {
-  target: 99, zone: 'below lane', x: 0, y: 0, scale: 1, backing: 'none', accent: 'map',
-  showPp: true, showUr: true, showBrand: true, showSongSelect: true, showResults: true,
+  target: 99, orientation: 'auto', align: 'left', backing: 'none', accent: 'map', showPp: true, showUr: true,
 };
-let heldUr = null;
 let config = { ...DEFAULTS };
 let status = 'connecting';
 let values = null;
@@ -97,6 +79,30 @@ let lastJudged = 0;
 let lastView = '';
 let checksum = '';
 let palette = null;
+
+// ------------------------------------------------------------------ layout from the page's box
+// Design sizes per layout (CSS px at --u = 1): strip 1100×150, row 1100×56, column 320×460.
+// --u scales type and graphics so the design fits the box; widths re-flow around the tape.
+function layout() {
+  const W = innerWidth;
+  const H = innerHeight;
+  if (!W || !H) return;
+  const shape = config.orientation === 'vertical' ? 'column'
+    : config.orientation === 'horizontal' ? (H < 104 ? 'row' : 'strip')
+    : W / H < 2.2 ? 'column' : H < 104 || W / H > 14 ? 'row' : 'strip';
+  let u;
+  let room = 'full';
+  if (shape === 'strip') u = Math.min(H / 150, W / 860);
+  else if (shape === 'column') u = Math.min(W / 320, H / 470);
+  else {
+    u = Math.min(H / 56, W / 640);
+    const span = W / u; // width available in design px
+    room = span >= 1240 ? 'full' : span >= 900 ? 'stats' : 'core';
+  }
+  attr(stage, 'data-layout', shape);
+  attr(stage, 'data-room', room);
+  stage.style.setProperty('--u', Math.max(0.4, u).toFixed(3));
+}
 
 // ------------------------------------------------------------------ tape (canvas)
 const SPANS = [1, 2, 5, 10, 20, 50];
@@ -124,15 +130,19 @@ function readColours() {
 
 function drawTape() {
   const { w, h, dpr } = size;
-  if (!w || !colours) return;
+  if (!w || !h || !colours) return;
   const c = colours;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const lo = shown.lo;
   const x = v => ((v - lo) / (100 - lo)) * w;
   const px = v => Math.round(v * dpr) / dpr; // snap to device pixels
-  const Y0 = 10;
-  const Y1 = 30;
+  // Tall tapes carry tick labels under the axis; short ones (one-line layout) only ticks.
+  const labels = h >= 32;
+  const font = Math.round(Math.min(13, Math.max(10, h * 0.27)));
+  const Y0 = Math.max(5, Math.round(h * (labels ? 0.18 : 0.24)));
+  const Y1 = Math.round(labels ? h - font - 8 : h - 6);
+  const flag = Math.max(3, Y0 - 3);
   const shadow = on => {
     ctx.shadowColor = on ? 'rgb(0 0 0 / .65)' : 'transparent';
     ctx.shadowBlur = on ? 2 : 0;
@@ -177,22 +187,24 @@ function drawTape() {
   shadow(true);
   const tx = px(Math.min(w - 1, xTarget));
   ctx.fillStyle = c.fg;
-  ctx.fillRect(tx, Y0 - 3, 1, Y1 - Y0 + 3);
+  ctx.fillRect(tx, Y0 - 2, 1, Y1 - Y0 + 2);
   ctx.beginPath();
-  ctx.moveTo(tx + 0.5 - 5, 0);
-  ctx.lineTo(tx + 0.5 + 5, 0);
-  ctx.lineTo(tx + 0.5, 6);
+  ctx.moveTo(tx + 0.5 - flag * 0.85, 0);
+  ctx.lineTo(tx + 0.5 + flag * 0.85, 0);
+  ctx.lineTo(tx + 0.5, flag);
   ctx.closePath();
   ctx.fill();
 
   // Live accuracy.
   if (goal.acc !== null) {
     const raw = x(shown.acc);
+    const mid = (Y0 + Y1) / 2;
+    const half = (Y1 - Y0) / 2 - 2;
     if (raw < 0) {
       ctx.beginPath(); // pinned left: the attempt sits below the scale
-      ctx.moveTo(0, (Y0 + Y1) / 2);
-      ctx.lineTo(7, Y0 + 3);
-      ctx.lineTo(7, Y1 - 3);
+      ctx.moveTo(0, mid);
+      ctx.lineTo(half * 1.4, mid - half);
+      ctx.lineTo(half * 1.4, mid + half);
       ctx.closePath();
       ctx.fill();
     } else {
@@ -200,10 +212,10 @@ function drawTape() {
     }
   }
 
-  // Axis, ticks and labels.
+  // Axis ticks, labelled when there is room.
   const major = MAJOR[goal.span] ?? goal.span / 4;
   const minor = major / 5;
-  ctx.font = `500 12px ${c.mono}`;
+  ctx.font = `500 ${font}px ${c.mono}`;
   ctx.textBaseline = 'alphabetic';
   for (let k = Math.ceil(lo / minor - EPS); k * minor <= 100 + EPS; k++) {
     const isMajor = k % 5 === 0;
@@ -211,13 +223,13 @@ function drawTape() {
     const tickX = px(Math.min(w - 1, x(v)));
     ctx.fillStyle = isMajor ? c.fg : c.dim;
     ctx.globalAlpha = isMajor ? 0.8 : 0.5;
-    ctx.fillRect(tickX, Y1 + 2, 1, isMajor ? 5 : 3);
-    if (!isMajor) continue;
+    ctx.fillRect(tickX, Y1 + 2, 1, isMajor ? 4 : 2);
+    if (!isMajor || !labels) continue;
     ctx.globalAlpha = 1;
     ctx.fillStyle = c.dim;
     const label = String(Number(v.toFixed(2)));
     const width = ctx.measureText(label).width;
-    ctx.fillText(label, Math.round(Math.max(0, Math.min(w - width, tickX - width / 2))), 47);
+    ctx.fillText(label, Math.round(Math.max(0, Math.min(w - width, tickX - width / 2))), h - 2);
   }
   ctx.globalAlpha = 1;
   shadow(false);
@@ -234,28 +246,7 @@ function sizeCanvas(entry) {
   invalidate();
 }
 
-// ------------------------------------------------------------------ placement and colour
-/** Gameplay: below the lane (default) or in the band between the HP bar and the score. */
-function place() {
-  const layout = osuLayout('taiko');
-  const lane = layout.busy;
-  const below = layout.free.find(r => r.y >= lane.y + lane.h);
-  const above = layout.free.find(r => r.y + r.h <= lane.y);
-  const scale = Math.min(2, Math.max(0.5, config.scale));
-  let x;
-  let y;
-  if (config.zone === 'above lane' && above) {
-    x = above.x + (above.w - CLUSTER_WIDTH * scale) / 2;
-    y = above.y + 32;
-  } else {
-    x = below.x + 192; // under the hit target, where the player is already looking
-    y = below.y + 40;
-  }
-  playSpot.style.transform = `translate(${Math.round(x + config.x)}px, ${Math.round(y + config.y)}px) scale(${scale})`;
-  $('preSpot').style.transform = `scale(${scale})`;
-  $('postSpot').style.transform = `scale(${scale})`;
-}
-
+// ------------------------------------------------------------------ colour
 function tint() {
   applyPalette(document.documentElement, config.accent === 'map' ? palette : null);
   attr(stage, 'data-accent', config.accent === 'map' ? 'map' : '18-lab');
@@ -277,14 +268,14 @@ function follow(next) {
 }
 
 // ------------------------------------------------------------------ model -> view
+// Gameplay only: osu! song select and results already show what this would add there, and the
+// page's box is placed for gameplay (it would land on the local ranking or the ranking panel).
 function viewOf(v) {
   if (status !== 'live') return status;
   const state = num(v[P.state]);
   if (state === null) return 'idle'; // osu! is not running
-  if (state === 2) return activeMode(state, v[P.playMode], v[P.settingsMode]) === 'taiko' ? 'pace' : 'hidden';
-  if (state === 5) return config.showSongSelect && num(v[P.settingsMode]) === 1 ? 'pre' : 'hidden';
-  if (state === 7) return config.showResults && (num(v[P.resultMode]) ?? num(v[P.settingsMode])) === 1 ? 'post' : 'hidden';
-  return 'hidden';
+  if (state !== 2) return 'hidden';
+  return activeMode(state, v[P.playMode], v[P.settingsMode]) === 'taiko' ? 'pace' : 'hidden';
 }
 
 function setTape(max, acc) {
@@ -306,16 +297,21 @@ function setBudget(tone, label, value, unit, subLabel, sub) {
   put(el.missBudget, sub);
 }
 
-function ppAtTarget(table, target) {
-  if (!table || typeof table !== 'object') return null;
-  const lo = Math.floor(target);
-  const hi = Math.ceil(target);
-  const a = num(table[String(lo)]);
-  const b = num(table[String(hi)]);
-  return a === null || b === null ? null : a + (b - a) * (target - lo);
-}
+function renderData() {
+  const v = values ?? {};
+  const view = viewOf(v);
+  follow(typeof v[P.checksum] === 'string' ? v[P.checksum] : '');
 
-function renderPlay(v, target) {
+  const chip = view === 'connecting' || view === 'offline' || view === 'idle';
+  attr(stage, 'data-view', chip ? 'chip' : view);
+  attr(stage, 'data-status', view);
+  put(el.chipText, view === 'offline' ? 'vosu offline' : view === 'idle' ? 'Waiting for osu!' : 'Connecting');
+  if (view !== lastView) snap = true;
+  lastView = view;
+  if (view !== 'pace') return;
+
+  const target = config.target / 100;
+  put(el.target, `${config.target.toFixed(2)}%`);
   const great = int(v[P.great]) ?? 0;
   const ok = int(v[P.ok]) ?? 0;
   const miss = int(v[P.miss]) ?? 0;
@@ -347,69 +343,9 @@ function renderPlay(v, target) {
   }
 
   const ur = num(v[P.ur]);
-  if (judged > 1 && ur !== null) heldUr = ur;
   put(el.ur, judged > 1 && ur !== null ? ur.toFixed(1) : DASH);
   put(el.pp, whole(num(v[P.pp])));
   put(el.fc, whole(num(v[P.fc])));
-}
-
-/** Song select: what osu! does not show there — the budget for the target, timing window, pp at target. */
-function renderPre(v, target) {
-  heldUr = null;
-  lastJudged = 0;
-  const notes = int(v[P.notes]) || int(v[P.circles]) || null;
-  const p = notes ? pace(0, 0, 0, notes, target) : null;
-  put(el.preOk, p ? String(p.okBudget) : DASH);
-  put(el.preMiss, p ? String(p.missBudget) : DASH);
-  put(el.preNotes, notes ? String(notes) : DASH);
-  for (const id of ['preOk', 'preMiss', 'preNotes']) el[id].parentElement.classList.toggle('empty', !p);
-  const window = num(v[P.greatWindow]);
-  put(el.preWindow, window === null ? DASH : `±${Number(window.toFixed(1))} ms`);
-  put(el.prePp, whole(ppAtTarget(v[P.ppByAcc], config.target)));
-  put(el.preSs, whole(num(v[P.ppByAcc]?.['100'])));
-}
-
-/** Results: osu! shows the accuracy; this adds the verdict against the target, UR and pp. */
-function renderPost(v, target) {
-  lastJudged = 0;
-  const p = pace(int(v[P.resultGreat]) ?? 0, int(v[P.resultOk]) ?? 0, int(v[P.resultMiss]) ?? 0, 0, target);
-  if (p.judged) {
-    const delta = p.accuracy - target;
-    const met = delta >= -EPS;
-    attr(verdict, 'data-tone', met ? 'met' : 'missed');
-    put(el.verdictLabel, met ? 'Met' : 'Missed');
-    put(el.delta, met
-      ? `+${(Math.floor(Math.max(0, delta) * 1e4 + 1e-6) / 100).toFixed(2)}%`
-      : `${MINUS}${Math.max(0.01, Math.ceil(-delta * 1e4 - 1e-6) / 100).toFixed(2)}%`);
-  } else {
-    attr(verdict, 'data-tone', 'idle');
-    put(el.verdictLabel, 'Vs');
-    put(el.delta, DASH);
-  }
-  const lastUr = num(v[P.ur]);
-  const ur = heldUr ?? (lastUr ? lastUr : null);
-  put(el.postUr, ur === null ? DASH : ur.toFixed(1));
-  put(el.postPp, whole(num(v[P.resultPp])));
-  put(el.postFc, whole(num(v[P.resultFc])));
-}
-
-function renderData() {
-  const v = values ?? {};
-  const view = viewOf(v);
-  follow(typeof v[P.checksum] === 'string' ? v[P.checksum] : '');
-
-  const chip = view === 'connecting' || view === 'offline' || view === 'idle';
-  attr(stage, 'data-view', chip ? 'chip' : view);
-  attr(stage, 'data-status', view);
-  put(el.chipText, view === 'offline' ? 'vosu offline' : view === 'idle' ? 'Waiting for osu!' : 'Connecting');
-  if (view !== lastView) snap = true;
-  lastView = view;
-
-  const target = config.target / 100;
-  for (const node of group.target) put(node, `${config.target.toFixed(2)}%`);
-  if (view === 'pace') renderPlay(v, target);
-  else if (view === 'pre') renderPre(v, target);
-  else if (view === 'post') renderPost(v, target);
 }
 
 // ------------------------------------------------------------------ frame loop
@@ -453,8 +389,9 @@ function frame(now) {
 }
 
 // ------------------------------------------------------------------ wiring
-fit(stage, WIDTH, HEIGHT);
 readColours();
+layout();
+addEventListener('resize', layout);
 document.fonts?.ready.then(() => { tapeDirty = true; invalidate(); });
 new ResizeObserver(entries => sizeCanvas(entries[entries.length - 1])).observe(canvas, { box: 'device-pixel-content-box' });
 
@@ -463,13 +400,15 @@ settings(DEFAULTS, s => {
   config = {
     ...s,
     target: Math.round(target * 100) / 100,
+    orientation: ['auto', 'horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto',
+    align: ['left', 'center', 'right'].includes(s.align) ? s.align : 'left',
     backing: ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none',
   };
+  attr(stage, 'data-align', config.align);
   attr(stage, 'data-backing', config.backing);
-  for (const node of group.brand) hide(node, !config.showBrand);
-  for (const node of group.ur) hide(node, !config.showUr);
-  for (const node of group.pp) hide(node, !config.showPp);
-  place();
+  hide(el.urCell, !config.showUr);
+  for (const node of ppCells) hide(node, !config.showPp);
+  layout();
   tint();
   dataDirty = true;
   snap = true;

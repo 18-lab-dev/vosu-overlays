@@ -47,7 +47,15 @@ const page = await context.newPage();
 await context.route('https://a.ppy.sh/**', route => route.abort());
 const errors = [];
 page.on('pageerror', error => errors.push(String(error)));
-page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+// A failed request (e.g. an optional /files/skin/skin.ini that returns 404) is network noise the
+// overlay may handle on purpose, not a script error; list it separately.
+const network = [];
+page.on('console', message => {
+  if (message.type() !== 'error') return;
+  (message.text().startsWith('Failed to load resource') ? network : errors).push(message.text());
+});
+page.on('requestfailed', request => network.push(`${request.failure()?.errorText ?? 'failed'} ${request.url()}`));
+page.on('response', response => { if (response.status() >= 400) network.push(`${response.status()} ${response.url()}`); });
 
 const reset = async query => {
   // Baseline every unspecified dimension so cases do not inherit each other's toggles.
@@ -103,4 +111,5 @@ if (perf !== 'none') {
   }));
 }
 if (errors.length) console.log('PAGE ERRORS:\n' + [...new Set(errors)].join('\n'));
+if (network.length) console.log('NETWORK (not page errors):\n' + [...new Set(network.filter(line => !line.startsWith('Failed to load resource')))].join('\n'));
 await browser.close();

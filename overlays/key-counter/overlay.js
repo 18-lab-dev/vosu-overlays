@@ -412,6 +412,7 @@ function buildLayout() {
 
   for (let i = 0; i < view.caps.length; i++) if (rects[i]) caps.push(planCap(view.caps[i], rects[i], i));
   if (stat.show) planStats();
+  planClears();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   forceRedraw();
@@ -528,6 +529,28 @@ function capPress(cap, p) {
   cap.ty[p] = cy * dpr;
   cap.bh[p] = Math.max(2, Math.round(Math.min(3, cap.h * 0.045) * dpr * scale));
   if (TEXT_A[p] === null) TEXT_A[p] = dpr * scale;
+}
+
+/**
+ * Extends each cap's cleared area down to where its tile reaches when fully pressed (the cap
+ * travels 1 px down, which in short caps outruns the 94 % shrink), so a redraw erases the previous
+ * pressed tile instead of leaving a smear below it. The area stops at the next tile below, so a
+ * redraw never erases a neighbour. The tile's lowest edge is at rest or fully pressed (it moves
+ * linearly with the eased progress).
+ */
+function planClears() {
+  for (let i = 0; i < caps.length; i++) {
+    const cap = caps[i], X1 = cap.X0 + cap.CW, Y1 = cap.Y0 + cap.CH;
+    const cy = cap.ry + cap.h / 2 + EASE[ANIM], hh = cap.h * SCALE[ANIM] / 2;
+    const pressedY1 = Math.round((cy + hh) * dpr);
+    let bottom = pressedY1 > Y1 ? pressedY1 : Y1;
+    for (let j = 0; j < caps.length; j++) {
+      const o = caps[j];
+      if (j !== i && o.Y0 >= Y1 && o.Y0 < bottom && o.X0 < X1 && o.X0 + o.CW > cap.X0) bottom = o.Y0;
+    }
+    if (stat.show && stat.Y0 >= Y1 && stat.Y0 < bottom && stat.X0 < X1 && stat.X1 > cap.X0) bottom = stat.Y0;
+    cap.CH = bottom - cap.Y0;
+  }
 }
 
 /**

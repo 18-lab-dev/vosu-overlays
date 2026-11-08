@@ -319,6 +319,21 @@ function zeroHits() { return { 0: 0, 50: 0, 100: 0, 300: 0, geki: 0, katu: 0, sl
 
 const MOCK_USER_ID = 999999999;
 
+/**
+ * Minimal `/api/calculate/pp` for the selected mock map: `difficulty` carries the object counts
+ * vosu's calculator reports (camelCase), enough for overlays that need map composition.
+ */
+function calculatePp() {
+  if (!current) return new Response('osu is not ready/running', { status: 503 });
+  const { objects, mode, map } = scenario;
+  const count = kind => objects.filter(o => o.kind === kind).length;
+  const difficulty = { stars: map.stars, maxCombo: objects.length, nObjects: objects.length };
+  if (mode === 'fruits') Object.assign(difficulty, { nFruits: count('fruit'), nDroplets: count('drop'), nTinyDroplets: count('droplet') });
+  if (mode === 'osu') Object.assign(difficulty, { nCircles: count('circle'), nSliders: count('slider'), nSpinners: 0 });
+  if (mode === 'mania') Object.assign(difficulty, { nHoldNotes: objects.filter(o => o.ln).length });
+  return Response.json({ difficulty, pp: PP_FULL[mode] });
+}
+
 const RIVALS = ['kestrel', 'nullpoint', 'hanabi_7', 'quietstorm', 'Velvet Axis', 'mintcircuit', 'oriole', 'paperlantern', 'Tsubame', 'graphite', 'lowtide', 'Ember Rail', 'sundial'];
 
 /**
@@ -550,6 +565,7 @@ Bun.serve({
     if (path === '/websocket/v2' || path === '/websocket/v2/precise') return server.upgrade(request, { data: { kind: path.endsWith('precise') ? 'precise' : 'v2' } }) ? undefined : new Response('upgrade', { status: 400 });
     if (path === '/json/v2') return current ? Response.json(current.doc) : Response.json({ error: 'osu is not ready/running' });
     if (path === '/json/v2/precise') return current ? Response.json(current.precise) : Response.json({ error: 'osu is not ready/running' });
+    if (path === '/api/calculate/pp') return calculatePp();
     if (path === '/files/beatmap/background') return new Response(background(), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } });
     if (path.startsWith('/assets/')) return assets(path);
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });

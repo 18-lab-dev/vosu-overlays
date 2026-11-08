@@ -1,0 +1,5 @@
+name = Catcher heatmap
+author = 18-LAB
+version = 0.1.0
+description = osu!catch only. A top-down 0–512 playfield strip showing where the catcher spends its time this attempt, with the live catcher and dash state, centre of gravity, spread, dash share and left/right balance. Holds the attempt on the results screen. Needs vosu's /play/catcher data.
+resolution = [640,208]

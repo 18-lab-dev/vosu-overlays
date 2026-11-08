@@ -1,0 +1,6 @@
+[
+ {"uniqueID":"bins","type":"options","title":"Heatmap bins","description":"How many columns the 0–512 playfield is split into. Fewer bins read as broad zones, more show fine positioning. Changes apply to the whole attempt instantly.","options":["16","32","64","128"],"value":"64"},
+ {"uniqueID":"intensity","type":"number","title":"Colour intensity","description":"Brightness curve of the heat colours, 0.25–4. 1 is linear; higher values lift rarely visited zones, lower values keep only the hottest spots bright. Bar heights stay linear.","value":1},
+ {"uniqueID":"showMarker","type":"checkbox","title":"Show catcher marker","description":"Draw the live catcher (true catch range for the map's CS, filled while dashing) and its position line during play.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Show the 18—LAB tag in the panel header.","value":true}
+]

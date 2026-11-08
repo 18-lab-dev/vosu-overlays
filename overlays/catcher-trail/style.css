@@ -8,110 +8,110 @@ html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { color: var(--fg); font: 400 14px/1.25 var(--font-body); -webkit-font-smoothing: antialiased; }
 
-#stage { position: absolute; left: 0; top: 0; --ct-accent: var(--accent); --ct-shadow: 0 1px 2px rgb(0 0 0 / .7); }
-
-/* The cluster floats in the side band beside the catch playfield; overlay.js places it. */
-.cluster {
-  position: absolute; left: 72px; bottom: 106px;
-  display: flex; flex-direction: column;
-  width: 300px; padding: 12px 14px;
+/* The page is the overlay's box; hosts size it. --k scales type with the box (overlay.js). */
+#root {
+  --k: 1; --ct-accent: var(--accent); --ct-shadow: 0 1px 2px rgb(0 0 0 / .7);
+  --label: max(11px, calc(12px * var(--k)));
+  --value: max(20px, calc(28px * var(--k)));
+  --pad: calc(8px * var(--k));
+  position: fixed; inset: 0;
+  display: grid; gap: calc(10px * var(--k));
+  padding: var(--pad);
   border: 1px solid transparent; border-radius: var(--radius);
-  contain: layout style;
+  contain: strict;
   opacity: 0; transition: opacity 200ms var(--ease-draft);
   text-shadow: var(--ct-shadow);
-  user-select: none; pointer-events: none;
+  user-select: none;
 }
-[data-view="live"] .cluster, [data-view="final"] .cluster, [data-view="missing"] .cluster,
-[data-view="nodata"] .cluster, [data-view="offline"] .cluster { opacity: 1; }
-[data-view="connecting"] .cluster { opacity: 1; transition-delay: 600ms; }
+[data-view="live"]#root, [data-view="final"]#root, [data-view="missing"]#root,
+[data-view="nodata"]#root, [data-view="offline"]#root { opacity: 1; }
+[data-view="connecting"]#root { opacity: 1; transition-delay: 600ms; }
 
-/* Backing: none (default) floats on the game; scrim fades out with no edge; panel is the 18-LAB panel. */
-[data-backing="scrim"] .cluster::before {
-  content: ""; position: absolute; inset: -44px -60px; z-index: -1;
-  background: radial-gradient(farthest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .52) 50%, rgb(5 6 7 / .3) 76%, rgb(5 6 7 / 0));
-}
-/* The fade stops at the playfield edge; it only spreads outward. */
-[data-zone="left"][data-backing="scrim"] .cluster::before { right: -12px; }
-[data-zone="right"][data-backing="scrim"] .cluster::before { left: -12px; }
-[data-backing="panel"] .cluster {
-  background: rgb(17 18 20 / .86);
-  border-color: var(--rule-strong); border-top: 2px solid var(--ct-accent);
-  text-shadow: none;
+/* Backing: none floats on the game; scrim fades to nothing at the box edge; panel is a graphite panel. */
+[data-backing="scrim"]#root { background: radial-gradient(farthest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .5) 55%, rgb(5 6 7 / .26) 80%, rgb(5 6 7 / 0)); }
+[data-backing="panel"]#root { background: rgb(17 18 20 / .86); border-color: var(--rule-strong); border-top: 2px solid var(--ct-accent); text-shadow: none; }
+
+.stat dt, .unit, .span, .ruler, .chip {
+  font-family: var(--font-mono); font-size: var(--label); line-height: 1; letter-spacing: .08em; text-transform: uppercase;
 }
 
-.head { display: flex; align-items: center; gap: var(--space-2); height: 18px; white-space: nowrap; }
-.brand { font: 600 16px/1 var(--font-display); letter-spacing: .04em; color: var(--fg); }
-.brand[hidden] { display: none; }
-.title, .status, .stat dt, .unit, .span, .ruler, .chip {
-  font-family: var(--font-mono); font-size: 12px; line-height: 1; letter-spacing: .08em; text-transform: uppercase;
-}
-.title { color: var(--fg-dim); }
-.brand:not([hidden]) + .title { padding-left: var(--space-2); border-left: 1px solid rgb(235 232 225 / .3); }
-.status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); }
-.status i, .chip i { width: 7px; height: 7px; border-radius: 50%; box-shadow: var(--ct-shadow); }
-[data-view="live"] .status i { background: var(--ct-accent); }
-[data-view="final"] .status i { background: var(--fg-dim); }
-
-/* Stats: an instrument column — label, right-aligned value, unit. */
-.stats { display: grid; gap: 2px; margin: 10px 0 0; }
-.stats[hidden] { display: none; }
-.stat { display: grid; grid-template-columns: 76px 92px 1fr; align-items: baseline; column-gap: 8px; height: 30px; }
-.stat dt { display: flex; align-items: center; gap: 6px; color: var(--fg-dim); }
+/* Stats */
+.stats { margin: 0; min-width: 0; }
+.stat { min-width: 0; }
+.stat dt { display: flex; align-items: center; gap: 6px; color: var(--fg-dim); white-space: nowrap; }
+#root .stats[hidden] { display: none; }
 .stat .key { width: 10px; height: 3px; background: var(--ct-accent); box-shadow: var(--ct-shadow); }
-.stat dd { margin: 0; }
-.stat dd:not(.unit) {
-  justify-self: end;
-  font: 600 30px/30px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; color: var(--fg);
-}
+.stat dd { margin: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.stat b { font: 600 var(--value)/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; color: var(--fg); }
 .unit { color: var(--fg-dim); letter-spacing: .04em; text-transform: none; }
 
 /* Plot: canvas carries the dash lane, the trace and the ruler ticks; labels stay in the DOM. */
-.plot {
-  position: relative; margin-top: 14px;
-  display: grid; grid-template-columns: 266px; grid-template-rows: 532px 16px;
-}
-canvas { display: block; width: 100%; height: 100%; }
-.ruler { position: relative; margin: 4px 0 0 10px; padding: 0; width: 256px; list-style: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.ruler li { position: absolute; top: 0; transform: translateX(-50%); }
-.ruler li:nth-child(1) { left: 0; transform: none; }
-.ruler li:nth-child(2) { left: 25%; }
-.ruler li:nth-child(3) { left: 50%; }
-.ruler li:nth-child(4) { left: 75%; }
-.ruler li:nth-child(5) { left: 100%; transform: translateX(-100%); }
-.span { position: absolute; top: 4px; right: 6px; color: var(--fg-dim); font-variant-numeric: tabular-nums; text-transform: none; }
+.plot { position: relative; display: grid; min-width: 0; min-height: 0; }
+canvas { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.ruler { position: relative; margin: 0; padding: 0; list-style: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.ruler li { position: absolute; }
+.span { position: absolute; color: var(--fg-dim); font-variant-numeric: tabular-nums; text-transform: none; }
 
-[data-orient="horizontal"] .plot { grid-template-columns: 238px 34px; grid-template-rows: 266px; }
-[data-orient="horizontal"] .ruler { margin: 10px 0 0 6px; width: auto; height: 256px; }
+/* Vertical: a row of readouts over the trace; the ruler runs along the bottom like the playfield. */
+[data-orient="vertical"]#root { grid-template-rows: auto minmax(0, 1fr); }
+[data-orient="vertical"] .stats { display: flex; justify-content: space-between; gap: calc(14px * var(--k)); }
+[data-orient="vertical"] .stat dd { margin-top: calc(6px * var(--k)); }
+[data-orient="vertical"] .plot { grid-template-rows: minmax(0, 1fr) calc(var(--label) + 4px); }
+[data-orient="vertical"] .ruler { margin: 4px 10px 0 0; }
+[data-orient="vertical"][data-align="left"] .ruler { margin: 4px 0 0 10px; }
+[data-orient="vertical"] .ruler li { top: 0; transform: translateX(-50%); }
+[data-orient="vertical"] .ruler li:nth-child(1) { left: 0; transform: none; }
+[data-orient="vertical"] .ruler li:nth-child(2) { left: 25%; }
+[data-orient="vertical"] .ruler li:nth-child(3) { left: 50%; }
+[data-orient="vertical"] .ruler li:nth-child(4) { left: 75%; }
+[data-orient="vertical"] .ruler li:nth-child(5) { left: 100%; transform: translateX(-100%); }
+/* Narrow vertical boxes (renderer side bands): stats stack, the ruler keeps 0 / 256 / 512. */
+[data-narrow] .stats { flex-direction: column; justify-content: start; gap: calc(6px * var(--k)); }
+[data-narrow] .stat dd { margin-top: 2px; }
+[data-narrow] .ruler li:nth-child(2), [data-narrow] .ruler li:nth-child(4) { visibility: hidden; }
+[data-orient="vertical"] .span { top: 4px; left: 6px; }
+[data-orient="vertical"][data-align="left"] .span { left: auto; right: 6px; }
+
+/* Horizontal: an instrument column beside the trace; newest movement at the right. */
+[data-orient="horizontal"]#root { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; }
+[data-orient="horizontal"][data-align="right"]#root { grid-template-columns: minmax(0, 1fr) auto; }
+[data-orient="horizontal"][data-align="right"] .stats { order: 2; }
+[data-orient="horizontal"] .stats { display: grid; align-content: center; row-gap: calc(4px * var(--k)); }
+[data-orient="horizontal"] .stat { display: grid; grid-template-columns: calc(70px * var(--k)) auto; align-items: baseline; column-gap: 8px; }
+[data-orient="horizontal"] .stat dd b { min-width: calc(54px * var(--k)); text-align: right; }
+[data-orient="horizontal"] .plot { grid-template-columns: minmax(0, 1fr) calc(var(--label) * 2.9); }
+[data-orient="horizontal"] .ruler { margin: 10px 0 0 6px; }
 [data-orient="horizontal"] .ruler li { left: 0; transform: translateY(-50%); }
 [data-orient="horizontal"] .ruler li:nth-child(1) { top: 0; transform: none; }
 [data-orient="horizontal"] .ruler li:nth-child(2) { top: 25%; }
 [data-orient="horizontal"] .ruler li:nth-child(3) { top: 50%; }
 [data-orient="horizontal"] .ruler li:nth-child(4) { top: 75%; }
 [data-orient="horizontal"] .ruler li:nth-child(5) { top: 100%; transform: translateY(-100%); }
-[data-orient="horizontal"] .span { top: auto; right: auto; bottom: 4px; left: 16px; }
+[data-orient="horizontal"] .span { bottom: 4px; left: 6px; }
 
-/* One-line states: missing extension (note) and connection / no data (chip). */
-.note, .chip { display: none; margin: 0; }
-.note { margin-top: 8px; font: 500 15px/1.3 var(--font-body); color: var(--fg); }
-.chip { align-items: center; gap: var(--space-2); color: var(--fg-dim); }
-.chip i { background: var(--muted); }
-[data-view="offline"] .chip i { background: var(--danger); }
-
-[data-view="missing"] .stats, [data-view="missing"] .plot { display: none; }
-[data-view="missing"] .status { visibility: hidden; }
-[data-view="missing"] .note { display: block; }
-[data-view="connecting"] .cluster > :not(.chip), [data-view="offline"] .cluster > :not(.chip),
-[data-view="nodata"] .cluster > :not(.chip) { display: none; }
-[data-view="connecting"] .chip, [data-view="offline"] .chip, [data-view="nodata"] .chip { display: inline-flex; }
-/* A lone chip needs no backing. */
-[data-view="connecting"] .cluster, [data-view="offline"] .cluster, [data-view="nodata"] .cluster { background: none; border-color: transparent; }
-[data-view="connecting"] .cluster::before, [data-view="offline"] .cluster::before, [data-view="nodata"] .cluster::before { display: none; }
-
-/* Results: one row in the header strip — header line, then the three readouts side by side. */
-[data-view="final"] .cluster { width: auto; }
+/* Results: the final readouts only, along the bottom of the box (clear of osu!'s replay button). */
+[data-view="final"]#root { grid-template-rows: none; grid-template-columns: none; align-content: end; }
 [data-view="final"] .plot { display: none; }
-[data-view="final"] .head { justify-content: flex-end; }
-[data-view="final"] .status { margin-left: var(--space-3); }
-[data-view="final"] .stats { grid-auto-flow: column; justify-content: end; gap: 28px; margin-top: 8px; }
-[data-view="final"] .stat { grid-template-columns: auto auto; grid-template-rows: 16px 30px; column-gap: 6px; row-gap: 4px; height: auto; }
-[data-view="final"] .stat dt { grid-column: 1 / -1; }
+[data-view="final"] .stats { display: flex; justify-content: space-between; gap: calc(14px * var(--k)); }
+[data-view="final"] .stat { display: block; }
+[data-view="final"] .stat dd { margin-top: calc(6px * var(--k)); }
+[data-view="final"] .stat dd b { min-width: 0; }
+
+/* One-line states: missing extension (note) and connection / no data (chip), at the box's lower edge. */
+.note, .chip { display: none; margin: 0; align-self: end; }
+.note { font: 500 max(13px, calc(15px * var(--k)))/1.3 var(--font-body); color: var(--fg); }
+.chip { align-items: center; gap: var(--space-2); color: var(--fg-dim); }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: var(--ct-shadow); }
+[data-view="offline"] .chip i { background: var(--danger); }
+[data-align="right"] .note, [data-align="right"] .chip { justify-self: end; }
+[data-view="missing"]#root, [data-view="connecting"]#root, [data-view="offline"]#root, [data-view="nodata"]#root {
+  grid-template-rows: none; grid-template-columns: none; align-content: end;
+}
+[data-view="missing"] .stats, [data-view="missing"] .plot { display: none; }
+[data-view="missing"] .note { display: block; }
+[data-view="connecting"] .stats, [data-view="connecting"] .plot,
+[data-view="offline"] .stats, [data-view="offline"] .plot,
+[data-view="nodata"] .stats, [data-view="nodata"] .plot { display: none; }
+[data-view="connecting"] .chip, [data-view="offline"] .chip, [data-view="nodata"] .chip { display: inline-flex; }
+/* A lone line needs no backing. */
+[data-view="connecting"]#root, [data-view="offline"]#root, [data-view="nodata"]#root, [data-view="missing"]#root { background: none; border-color: transparent; }

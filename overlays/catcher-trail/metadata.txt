@@ -1,5 +1,6 @@
 name = Catcher trail
 author = 18-LAB
-version = 0.2.0
-description = osu!catch movement seismograph in the side band beside the playfield: a scrolling trace of the catcher's position with dash marked, a 0–512 playfield ruler level with the catcher, dash share, distance travelled and direction changes per minute. Holds the final values on results. Needs vosu's catcher state.
-resolution = [1920,1080]
+version = 0.3.0
+description = osu!catch movement seismograph: a scrolling trace of the catcher's position with dash marked, a 0–512 playfield ruler, dash share, distance travelled and direction changes per minute. Tall boxes stack stats over the trace; wide boxes put them beside it. Holds the final stats on results. Needs vosu's catcher state.
+resolution = [340,280]
+placement = {"fruits":["right-24","bottom-40"]}

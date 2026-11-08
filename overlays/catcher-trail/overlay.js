@@ -1,18 +1,14 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Catcher trail: an osu!catch movement seismograph from vosu's /play/catcher {x, dashing}, placed in
-// the side band beside the catch playfield with its ruler level with the catcher.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette } from './vosu-overlay.js';
+// Catcher trail: an osu!catch movement seismograph from vosu's /play/catcher {x, dashing}.
+// The page is the overlay's box (hosts place and size it); the layout re-flows to the box's shape.
+import { subscribe, settings, activeMode, isPlaying, mapPalette } from './vosu-overlay.js';
 
-const W = 1920, H = 1080;        // transparent source over the full osu! window
 const PLAYFIELD = 512;           // catcher x range in osu! pixels; one "screen" of travel
 const LANE = 4, GAP = 6;         // dash event lane, then the chart
-const CHART = LANE + GAP;        // chart start on the across axis
-const SPAN = 256;                // chart width: half a playfield pixel per osu! pixel
+const CHART = LANE + GAP;        // lane + gap on the across axis
 const RULER = 12;                // tick band past the "now" edge
-const OUTER_W = 302;             // cluster box incl. padding and border (style.css)
-const BELOW_BASELINE = 40;       // ruler band + labels + padding under the "now" edge
-const EDGE_GAP = 12;             // cluster box to playfield edge
-const CATCHER_LIFT = 56;         // "now" edge above the playfield's bottom, level with the catcher plate
+const WIDE = 1.8;                // auto orientation: boxes at least this wide lay out horizontally
+const NARROW = 240;              // vertical boxes narrower than this stack the stats
 const RESULTS = 7;
 const GRACE = 1500;              // ms of catch play without /play/catcher before naming vosu
 const EXTRAPOLATE = 100;         // ms the head may run past the newest sample (hides frame jitter)
@@ -20,7 +16,6 @@ const SETTLE = 160;              // ms without samples before the loop parks (pa
 const TURN = 8;                  // px of reversal before a direction change counts
 const STATS_EVERY = 250;         // readout refresh, ms
 const CAP = 4096;                // trace ring; the sampling floor keeps 30 s under ~2.5k samples
-const RESULTS_RIGHT = 20, RESULTS_TOP = 22; // results: right end of stable's top header strip (x≈1000–1900, y≈8–130)
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', selMode: '/settings/mode/number',
@@ -28,13 +23,11 @@ const P = {
   modsRate: '/play/mods/rate', brk: '/beatmap/isBreak', checksum: '/beatmap/checksum',
 };
 
-const stage = document.getElementById('stage');
-const cluster = document.getElementById('cluster');
+const root = document.getElementById('root');
 const canvas = document.getElementById('trace');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  chip: document.getElementById('chip-text'), status: document.getElementById('status-text'),
-  brand: document.getElementById('brand'), stats: document.getElementById('stats'), span: document.getElementById('span'),
+  chip: document.getElementById('chip-text'), stats: document.getElementById('stats'), span: document.getElementById('span'),
   dash: document.getElementById('dash'), travel: document.getElementById('travel'), turns: document.getElementById('turns'),
 };
 
@@ -49,24 +42,22 @@ const INK = {
   gridMinor: rgba(C.fg, 0.07), gridMajor: rgba(C.fg, 0.16), edge: rgba(C.fg, 0.24),
   lane: rgba(C.fg, 0.12), guide: rgba(C.fg, 0.16), tick: C.dim, now: rgba(C.fg, 0.42), halo: 'rgb(0 0 0 / .55)',
 };
-let accent = C.amber;            // map tone or 18-LAB amber; drives the dash marks and live markers
+let accent = C.amber;            // map tone or amber; drives the dash marks and live markers
 let palette = null, paletteFor = '';
 
 // ---------------------------------------------------------------- state
-const DEFAULTS = {
-  zone: 'auto', x: 0, y: 0, scale: 1, window: 6, orientation: 'vertical',
-  showStats: true, showOnResults: true, backing: 'none', accent: 'map', showBrand: true,
-};
+const DEFAULTS = { orientation: 'auto', align: 'right', window: 6, showStats: true, showOnResults: true, backing: 'none', accent: 'map' };
 let opts = { ...DEFAULTS };
 let status = 'connecting';
 let view = 'connecting';
-let viewDirty = true, placeDirty = true, statsDirty = true, statsAt = 0, raf = 0;
+let viewDirty = true, layoutDirty = true, statsDirty = true, statsAt = 0, raf = 0;
 let wasPlaying = false;
 let missingSince = 0;
 let graceTimer = 0;
 let values = null;
-let dpr = 1, cssW = 0, cssH = 0, plotLen = 0, line = 1;   // canvas geometry (measure)
-let traceInk = null, dashInk = null, haloInk = null;     // age gradients (buildInks)
+let orient = 'vertical', narrow = false, laneLeft = false, typeScale = 1;   // box layout (layoutBox)
+let dpr = 1, cssW = 0, cssH = 0, plotLen = 0, span = 0, line = 1;   // canvas geometry (measure)
+let traceInk = null, dashInk = null, haloInk = null;         // age gradients (buildInks)
 
 // Trace ring (decimated) and attempt statistics (every sample).
 const ringT = new Float64Array(CAP), ringX = new Float32Array(CAP), ringD = new Uint8Array(CAP);
@@ -108,8 +99,8 @@ function ingest(t, x, dashing, inBreak, now) {
       } else if (x < extreme) extreme = x;
       else if (x - extreme > TURN) { turns++; dir = 1; extreme = x; }
     }
-    // Store about two samples per pixel of the longest plot (~600 px), but never shave a turning
-    // point or a dash edge: a pending sample that was an extreme is stored before it is superseded.
+    // Store about two samples per pixel of a ~600 px plot, but never shave a turning point or a
+    // dash edge: a pending sample that was an extreme is stored before it is superseded.
     const gap = Math.max(4, (opts.window * 1000) / 1200);
     if (pending && (x - pendX) * (pendX - pushX) < 0) store(pendT, pendX, pendD);
     if (t - pushT >= gap || d !== pushD) store(t, x, d);
@@ -170,7 +161,6 @@ function evaluate(now) {
 function setView(next) {
   if (next === view) return;
   view = next; viewDirty = true; statsDirty = true;
-  if (next !== 'hidden') placeDirty = true;   // fade out where it was
   kick();
 }
 
@@ -191,7 +181,7 @@ function setAccent(result) {
   const next = result?.accent || C.amber;
   if (next === accent) return;
   accent = next;
-  stage.style.setProperty('--ct-accent', accent);
+  root.style.setProperty('--ct-accent', accent);
   buildInks();
   kick();
 }
@@ -199,58 +189,42 @@ function setAccent(result) {
 // ---------------------------------------------------------------- settings
 settings(DEFAULTS, s => {
   opts = {
-    zone: s.zone === 'right' ? 'right' : s.zone === 'left' ? 'left' : 'auto',
-    x: s.x, y: s.y, scale: Math.min(2, Math.max(0.5, s.scale)),
+    orientation: ['vertical', 'horizontal'].includes(s.orientation) ? s.orientation : 'auto',
+    align: s.align === 'left' ? 'left' : 'right',
     window: Math.min(30, Math.max(2, s.window)),
-    orientation: s.orientation === 'horizontal' ? 'horizontal' : 'vertical',
-    showStats: s.showStats, showOnResults: s.showOnResults, showBrand: s.showBrand,
+    showStats: s.showStats, showOnResults: s.showOnResults,
     backing: ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none',
     accent: s.accent === '18-lab' ? '18-lab' : 'map',
   };
-  viewDirty = true; placeDirty = true;
+  viewDirty = true;
   if (values) { loadPalette(); evaluate(performance.now()); }
-  measure();
+  layoutBox();
 });
 
-fit(stage, W, H);
-
-// ---------------------------------------------------------------- placement
-/**
- * Gameplay: the side band beside the catch playfield, hugging its edge, with the "now" edge level
- * with the catcher. Results: a single stats row at the right end of the header strip, the one area
- * the ranking screen leaves free. Nudge and scale apply to both.
- */
-function place() {
-  placeDirty = false;
-  const { busy } = osuLayout('fruits', { width: W, height: H });
-  const side = opts.zone === 'right' ? 'right' : 'left';
-  const s = cluster.style;
-  stage.dataset.zone = side;
-  s.transform = opts.scale === 1 ? '' : `scale(${opts.scale})`;
-  if (view === 'final') {
-    s.left = s.bottom = '';
-    s.right = `${Math.round(RESULTS_RIGHT - opts.x)}px`;
-    s.top = `${Math.round(RESULTS_TOP + opts.y)}px`;
-    s.transformOrigin = '100% 0';
-    return;
-  }
-  const left = side === 'left' ? busy.x - EDGE_GAP - OUTER_W : busy.x + busy.w + EDGE_GAP;
-  const baseline = busy.y + busy.h - CATCHER_LIFT;
-  s.right = s.top = '';
-  s.left = `${Math.round(left + opts.x)}px`;
-  s.bottom = `${Math.round(H - baseline - BELOW_BASELINE - opts.y)}px`;
-  s.transformOrigin = side === 'left' ? '100% 100%' : '0 100%';
+// ---------------------------------------------------------------- box layout
+/** Orientation from the box's aspect (or the setting) and a type scale from its size. */
+function layoutBox() {
+  const w = innerWidth || 340, h = innerHeight || 280;
+  orient = opts.orientation === 'auto' ? (w / h >= WIDE ? 'horizontal' : 'vertical') : opts.orientation;
+  laneLeft = orient === 'horizontal' || opts.align === 'left';
+  narrow = orient === 'vertical' && w < NARROW;
+  const k = orient === 'vertical' ? Math.min(w / 340, h / 280) : Math.min(h / 150, w / 700);
+  typeScale = Math.round(Math.min(1.6, Math.max(0.75, k)) * 100) / 100;
+  layoutDirty = true;
+  measure();
+  kick();
 }
+addEventListener('resize', layoutBox);
 
 // ---------------------------------------------------------------- canvas geometry
-
 function measure() {
   if (!cssW) return;
-  const fitScale = Math.min(innerWidth / W, innerHeight / H) || 1;
-  dpr = (devicePixelRatio || 1) * fitScale * opts.scale;
+  dpr = devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(cssW * dpr));
   canvas.height = Math.max(1, Math.round(cssH * dpr));
-  plotLen = Math.max(1, (opts.orientation === 'vertical' ? cssH : cssW) - RULER);
+  const vertical = orient === 'vertical';
+  span = Math.max(1, (vertical ? cssW : cssH) - CHART);
+  plotLen = Math.max(1, (vertical ? cssH : cssW) - RULER);
   line = Math.max(1, Math.round(dpr)) / dpr;
   buildInks();
   kick();
@@ -276,7 +250,6 @@ new ResizeObserver(([entry]) => {
   cssW = entry.contentRect.width; cssH = entry.contentRect.height;
   measure();
 }).observe(canvas);
-addEventListener('resize', measure);
 
 /** Centre of a crisp hairline at logical coordinate p. */
 const snap = p => (Math.round(p * dpr - 0.5 * line * dpr) + 0.5 * line * dpr) / dpr;
@@ -286,30 +259,35 @@ function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
 function frame(now) {
   raf = 0;
-  if (placeDirty) place();
+  if (layoutDirty) applyLayout();
   if (viewDirty) applyView();
   const animating = view === 'live' && now - sampleWall < SETTLE;
   if (view === 'live' && lastT !== null) {
     const target = lastT + Math.min(now - sampleWall, EXTRAPOLATE);
     if (target > headT) headT = target;
   }
-  if ((view === 'live' || view === 'final') && cssW) draw();
+  if (view === 'live' && cssW) draw();
   if (statsDirty || (animating && now - statsAt >= STATS_EVERY) || (!animating && view === 'live')) {
     writeStats(); statsAt = now; statsDirty = false;
   }
   if (animating) raf = requestAnimationFrame(frame);
 }
 
+function applyLayout() {
+  layoutDirty = false;
+  if (root.dataset.orient !== orient) root.dataset.orient = orient;
+  if (root.dataset.align !== opts.align) root.dataset.align = opts.align;
+  root.toggleAttribute('data-narrow', narrow);
+  root.style.setProperty('--k', typeScale);
+}
+
 function applyView() {
   viewDirty = false;
-  stage.dataset.view = view;
-  if (stage.dataset.orient !== opts.orientation) stage.dataset.orient = opts.orientation;
-  if (stage.dataset.backing !== opts.backing) stage.dataset.backing = opts.backing;
-  el.brand.hidden = !opts.showBrand;
+  root.dataset.view = view;
+  if (root.dataset.backing !== opts.backing) root.dataset.backing = opts.backing;
   el.stats.hidden = !opts.showStats;
   setText(el.span, `−${opts.window} s`);
   setText(el.chip, { offline: 'vosu offline', nodata: 'No data' }[view] || 'Connecting');
-  setText(el.status, view === 'final' ? 'Final' : 'Live');
 }
 
 function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
@@ -327,38 +305,40 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   // Draw in logical "vertical" coordinates: u across (playfield), v along (time, 0 = oldest).
   // Horizontal is the transpose, so one code path serves both orientations.
-  if (opts.orientation === 'vertical') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (orient === 'vertical') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   else ctx.setTransform(0, dpr, dpr, 0, 0, 0);
 
-  const len = plotLen, end = CHART + SPAN;
+  const len = plotLen;
+  const c0 = laneLeft ? CHART : 0, end = c0 + span;             // chart on the across axis
+  const lane0 = laneLeft ? 0 : span + GAP;                        // dash lane on the outer side
   const windowMs = opts.window * 1000;
   const traced = ringCount > 0;
   const head = traced ? (headT > -Infinity ? headT : lastT) : 0;
   const pxPerMs = len / windowMs;
-  const uOf = x => CHART + (x / PLAYFIELD) * SPAN;
+  const uOf = x => c0 + (x / PLAYFIELD) * span;
 
   // Lane bed and playfield grid: edges and centre stronger, 64 px divisions faint.
   ctx.fillStyle = INK.lane;
-  ctx.fillRect(0, 0, LANE, len);
+  ctx.fillRect(lane0, 0, LANE, len);
   ctx.lineWidth = line;
   ctx.beginPath();
-  for (let k = 1; k < 8; k++) if (k !== 4) { const u = snap(CHART + (k * SPAN) / 8); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
+  for (let k = 1; k < 8; k++) if (k !== 4) { const u = snap(c0 + (k * span) / 8); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
   // Seconds scroll with gameplay time; every fifth is major.
   const first = Math.ceil((head - windowMs) / 1000);
   for (let s = first; s * 1000 <= head; s++) {
     if (!(s % 5)) continue;
-    const v = snap(len - (head - s * 1000) * pxPerMs); ctx.moveTo(CHART, v); ctx.lineTo(end, v);
+    const v = snap(len - (head - s * 1000) * pxPerMs); ctx.moveTo(c0, v); ctx.lineTo(end, v);
   }
   ctx.strokeStyle = INK.gridMinor; ctx.stroke();
   ctx.beginPath();
-  { const u = snap(CHART + SPAN / 2); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
+  { const u = snap(c0 + span / 2); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
   for (let s = first; s * 1000 <= head; s++) {
     if (s % 5) continue;
-    const v = snap(len - (head - s * 1000) * pxPerMs); ctx.moveTo(CHART, v); ctx.lineTo(end, v);
+    const v = snap(len - (head - s * 1000) * pxPerMs); ctx.moveTo(c0, v); ctx.lineTo(end, v);
   }
   ctx.strokeStyle = INK.gridMajor; ctx.stroke();
   ctx.beginPath();
-  for (const u0 of [CHART, end]) { const u = snap(u0); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
+  for (const u0 of [c0, end]) { const u = snap(u0); ctx.moveTo(u, 0); ctx.lineTo(u, len); }
   ctx.strokeStyle = INK.edge; ctx.stroke();
 
   // Ruler ticks: 32 px minor, 64 px mid, 128 px labelled.
@@ -369,7 +349,8 @@ function draw() {
     ctx.moveTo(u, len + 2); ctx.lineTo(u, len + 2 + h);
   }
   ctx.strokeStyle = INK.tick; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, snap(len)); ctx.lineTo(end, snap(len)); ctx.strokeStyle = INK.now; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(Math.min(c0, lane0), snap(len)); ctx.lineTo(Math.max(end, lane0 + LANE), snap(len));
+  ctx.strokeStyle = INK.now; ctx.stroke();
   if (!traced) return;
 
   // Oldest visible sample (one before the window edge keeps the line continuous).
@@ -391,14 +372,14 @@ function draw() {
     if (k === 0) ctx.moveTo(u, v); else ctx.lineTo(u, v);
     if (k > 0) {
       if (pd && runFrom < 0) runFrom = pv;
-      if (!pd && runFrom >= 0) { ctx.fillRect(0, runFrom, LANE, pv - runFrom); runFrom = -1; }
+      if (!pd && runFrom >= 0) { ctx.fillRect(lane0, runFrom, LANE, pv - runFrom); runFrom = -1; }
     }
     pv = v; pd = ringD[j];
   }
   const nu = uOf(lastX);
   ctx.lineTo(nu, len);
   if (lastD && runFrom < 0) runFrom = pv;
-  if (runFrom >= 0) ctx.fillRect(0, runFrom, LANE, len - runFrom);
+  if (runFrom >= 0) ctx.fillRect(lane0, runFrom, LANE, len - runFrom);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   ctx.strokeStyle = haloInk; ctx.lineWidth = 4.5; ctx.stroke();
   ctx.strokeStyle = traceInk; ctx.lineWidth = 1.75; ctx.stroke();

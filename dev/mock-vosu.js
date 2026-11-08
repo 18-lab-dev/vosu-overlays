@@ -6,7 +6,7 @@
 //
 //   bun dev/mock-vosu.js [--port 24100] [--mode osu|taiko|fruits|mania] [--state play|menu|results|offline|down]
 //                        [--client stable|lazer] [--keys 4|7] [--ext 1|0] [--freeze <ms>] [--speed 1] [--start <ms>]
-//                        [--catchHits vosu|legacy] [--compat vosu|tosu]
+//                        [--catchHits vosu|legacy] [--compat vosu|tosu] [--mods HD|HDDT|HR|FL|NM…]
 //   offline = osu! not running (pointers absent); down = vosu unreachable (sockets closed).
 //   start = live attempt begins this far into the map; ext=0 drops ENABLE_* extensions
 //   (hitOffsets, keyHitErrors); compat=tosu drops every vosu-only field (keys.all, catcher, …).
@@ -51,12 +51,13 @@ let config = {
   mode: arg('mode', 'osu'), state: arg('state', 'play'), client: arg('client', 'stable'),
   keys: Number(arg('keys', 4)), ext: arg('ext', '1') !== '0', freeze: arg('freeze', null), speed: Number(arg('speed', 1)),
   start: Number(arg('start', 0)), catchHits: arg('catchHits', 'vosu'), compat: arg('compat', 'vosu'),
+  mods: arg('mods', 'HD'),
 };
 let scenario;
 
 const MAPS = {
   osu: { artist: 'xi', title: 'FREEDOM DiVE', version: "FOUR DIMENSIONS", mapper: 'Nakagawa-Kanon', bpm: 222.22, stars: 7.01, ar: 9, cs: 4, od: 8, hp: 6, length: 150000 },
-  taiko: { artist: 'Camellia', title: 'Exit This Earth\'s Atomosphere', version: 'Inner Oni', mapper: 'Mikii', bpm: 200, stars: 6.42, ar: 5, cs: 5, od: 6, hp: 5, length: 150000 },
+  taiko: { artist: 'Camellia', artistUnicode: 'かめりあ', title: 'Exit This Earth\'s Atomosphere', titleUnicode: '地球の大気圏を出て', version: 'Inner Oni', mapper: 'Mikii', bpm: 200, stars: 6.42, ar: 5, cs: 5, od: 6, hp: 5, length: 150000 },
   fruits: { artist: 'Sakuzyo', title: 'Altale', version: 'Overdose', mapper: 'Spectator', bpm: 190, stars: 6.1, ar: 9, cs: 4.2, od: 9, hp: 6, length: 150000 },
   mania: { artist: 'cYsmix', title: 'Peer Gynt', version: 'Lv.28', mapper: 'Sky_Demon', bpm: 175, stars: 5.33, ar: 5, cs: 4, od: 8, hp: 8, length: 150000 },
 };
@@ -240,7 +241,8 @@ function documentAt() {
     maxAchieved: Math.round(ppFull * Math.pow(progress, 1.1) * accFactor * missFactor * 100) / 100,
     maxAchievable: Math.round(ppFull * Math.pow((accuracy * progress + 100 * (1 - progress)) / 100, mode === 'mania' ? 8 : 5) * missFactor * 100) / 100,
   };
-  const split = { aim: 0.48, speed: 0.31, accuracy: 0.17, flashlight: 0, difficulty: mode === 'osu' ? 0 : 0.7 };
+  const flashlight = /FL/.test(config.mods);
+  const split = { aim: 0.48, speed: 0.31, accuracy: 0.17, flashlight: flashlight && mode === 'osu' ? 0.12 : 0, difficulty: mode === 'osu' ? 0 : 0.7 };
   const detail = total => Object.fromEntries([...Object.entries(split).map(([k, v]) => [k, Math.round(total * v * 100) / 100]), ['total', total]]);
   pp.detailed = { current: detail(pp.current), fc: detail(pp.fc) };
   const ur = hitErrors.length > 1 ? stddev(hitErrors) * 10 : 0;
@@ -251,7 +253,7 @@ function documentAt() {
   if (mode === 'fruits' && config.client === 'stable') for (const key of keysAll.slice(0, 2)) Object.assign(key, { isPressed: false, count: 0, pressedAt: null, releasedAt: null });
   const legacy = i => ({ isPressed: keysAll[i]?.isPressed ?? false, count: keysAll[i]?.count ?? 0 });
   const keys = { k1: legacy(0), k2: legacy(1), m1: { isPressed: false, count: 0 }, m2: { isPressed: false, count: 0 }, all: mode === 'osu' ? keysAll : keysAll };
-  const mods = { checksum: 'HD', number: 8, name: 'HD', array: [{ acronym: 'HD' }], rate: 1 };
+  const { mods, rate, adjusted } = modsFor(map, mode);
   const modeObj = { number: MODE_NUMBER[mode], name: mode };
   const play = {
     failed: false, playerName: 'sxlvia', mode: modeObj, score: Math.round(score), accuracy, healthBar: { normal: 180, smooth: 178 },
@@ -282,16 +284,16 @@ function documentAt() {
     },
     beatmap: {
       isKiai: kiai, isBreak: live > 61500 && live < 66500, isConvert: false,
-      time: { live, firstObject: scenario.first, lastObject: scenario.end, mp3Length: map.length, rate: 1, running: true },
+      time: { live, firstObject: scenario.first, lastObject: scenario.end, mp3Length: map.length, rate, running: true },
       status: { number: 4, name: 'ranked' }, checksum, id: 129891 + MODE_NUMBER[mode], set: 39804, mode: modeObj,
-      artist: map.artist, artistUnicode: map.artist, title: map.title, titleUnicode: map.title, mapper: map.mapper, version: mode === 'mania' ? `${config.keys}K ${map.version}` : map.version,
+      artist: map.artist, artistUnicode: map.artistUnicode ?? map.artist, title: map.title, titleUnicode: map.titleUnicode ?? map.title, mapper: map.mapper, version: mode === 'mania' ? `${config.keys}K ${map.version}` : map.version,
       source: '', tags: '',
       stats: {
         stars: { live: Math.round(stars * Math.min(1, 0.4 + progress) * 100) / 100, total: stars },
-        ar: { original: map.ar, converted: Math.min(10, map.ar) }, cs: { original: mode === 'mania' ? config.keys : map.cs, converted: mode === 'mania' ? config.keys : map.cs },
-        od: { original: map.od, converted: map.od }, hp: { original: map.hp, converted: map.hp },
-        bpm: { realtime: kiai ? map.bpm : map.bpm, common: map.bpm, min: Math.round(map.bpm * 0.75), max: map.bpm },
-        objects: countObjects(mode, objects), hitWindow: windows, maxCombo: total,
+        ar: { original: map.ar, converted: adjusted.ar }, cs: { original: mode === 'mania' ? config.keys : map.cs, converted: mode === 'mania' ? config.keys : adjusted.cs },
+        od: { original: map.od, converted: adjusted.od }, hp: { original: map.hp, converted: adjusted.hp },
+        bpm: { realtime: map.bpm * rate, common: map.bpm * rate, min: Math.round(map.bpm * 0.75 * rate), max: map.bpm * rate },
+        objects: countObjects(mode, objects), hitWindow: Object.fromEntries(Object.entries(windows).map(([k, v]) => [k, Math.round(v / rate * 100) / 100])), maxCombo: total,
       },
     },
     play,
@@ -326,6 +328,30 @@ function documentAt() {
 }
 
 function zeroHits() { return { 0: 0, 50: 0, 100: 0, 300: 0, geki: 0, katu: 0, sliderEndHits: 0, smallTickHits: 0, largeTickHits: 0 }; }
+
+const MOD_RATE = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
+
+/** Mods from `config.mods` (acronyms run together, e.g. `HDDT`; `NM` = none) and their stat effects. */
+function modsFor(map, mode) {
+  const acronyms = config.mods === 'NM' ? [] : config.mods.match(/[A-Z]{2}/g) || [];
+  const rate = acronyms.reduce((r, a) => MOD_RATE[a] ?? r, 1);
+  const hr = acronyms.includes('HR') ? 1.4 : acronyms.includes('EZ') ? 0.5 : 1;
+  const clamp = v => Math.round(Math.min(10, v) * 100) / 100;
+  // Approach and timing windows shrink with rate; AR/OD are reported in rate-adjusted terms.
+  const arMs = ar => (ar <= 5 ? 1800 - 120 * ar : 1200 - 150 * (ar - 5)) / rate;
+  const arFrom = ms => (ms >= 1200 ? (1800 - ms) / 120 : 5 + (1200 - ms) / 150);
+  const odFrom = od => (80 - (80 - 6 * od) / rate) / 6;
+  const adjusted = {
+    // Rate pushes AR/OD past 10 (DT AR9 → 10.33); only the HR/EZ multiplier is capped.
+    ar: Math.round(arFrom(arMs(Math.min(10, map.ar * hr))) * 100) / 100,
+    od: mode === 'mania' ? map.od : Math.round(odFrom(Math.min(10, map.od * hr)) * 100) / 100,
+    hp: clamp(map.hp * hr),
+    cs: clamp(map.cs * (hr === 1.4 ? 1.3 : hr === 0.5 ? 0.5 : 1)),
+  };
+  const name = acronyms.join('');
+  const mods = { checksum: name, number: 0, name, array: acronyms.map(acronym => (MOD_RATE[acronym] ? { acronym, settings: { speed_change: rate } } : { acronym })), rate };
+  return { mods, rate, adjusted };
+}
 
 const MOCK_USER_ID = 999999999;
 
@@ -551,6 +577,7 @@ function reset(params) {
   if (params.has('keys')) config.keys = Number(params.get('keys'));
   if (params.has('catchHits')) config.catchHits = params.get('catchHits');
   if (params.has('compat')) config.compat = params.get('compat');
+  if (params.has('mods')) config.mods = params.get('mods') || 'NM';
   if (params.has('ext')) config.ext = params.get('ext') !== '0';
   if (params.has('freeze')) config.freeze = params.get('freeze') || null;
   if (params.has('speed')) config.speed = Number(params.get('speed')) || 1;

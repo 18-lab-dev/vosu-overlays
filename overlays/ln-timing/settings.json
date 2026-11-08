@@ -1,0 +1,5 @@
+[
+ {"uniqueID":"bins","type":"number","title":"Histogram bins","description":"Number of bins across the chart (the mania 100 window either side of 0 ms). Rounded up to an odd count so one bin sits on 0 ms; clamped to 9–61.","value":31},
+ {"uniqueID":"perColumn","type":"checkbox","title":"Per-column release","description":"Shows each column's mean release error under the chart. Needs ENABLE_MANIA_KEY_HIT_ERRORS = true in the vosu config; without it a one-line note names the setting.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag in the panel header.","value":true}
+]

@@ -1,0 +1,10 @@
+[
+ {"uniqueID":"scene","type":"options","title":"Scene","description":"starting-soon, be-right-back or ending. Sets the default headline, subline, countdown label and map label. Changing it restarts the countdown.","options":["starting-soon","be-right-back","ending"],"value":"starting-soon"},
+ {"uniqueID":"headline","type":"text","title":"Headline","description":"Big title text. Leave empty for the scene's default (Starting soon / Be right back / Thanks for watching).","value":""},
+ {"uniqueID":"subline","type":"text","title":"Subline","description":"Line under the headline. Leave empty for the scene's default; enter a single - to hide it.","value":""},
+ {"uniqueID":"minutes","type":"number","title":"Countdown / minutes","description":"Length of the countdown, started when the source loads (or when this or the scene changes). 0 hides the countdown. Up to 600.","value":5},
+ {"uniqueID":"showMap","type":"checkbox","title":"Show map","description":"Card with the map currently selected or played in osu!, with its background.","value":true},
+ {"uniqueID":"showSession","type":"checkbox","title":"Show session","description":"Plays and playtime of this osu! session, from vosu.","value":true},
+ {"uniqueID":"backdrop","type":"options","title":"Backdrop","description":"map = the selected map's background, dimmed. graphite = plain 18-LAB sheet. transparent = nothing behind the text, for your own scene background.","options":["map","graphite","transparent"],"value":"map"},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

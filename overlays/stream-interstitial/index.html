@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stream interstitial · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="stage" data-scene="starting-soon" data-backdrop="map" data-enter>
+  <div class="backdrop" aria-hidden="true">
+    <img class="backdrop__img" alt="" decoding="async">
+    <img class="backdrop__img" alt="" decoding="async">
+    <div class="backdrop__scrim"></div>
+    <div class="backdrop__grid"></div>
+  </div>
+
+  <i class="crop crop--tl" aria-hidden="true"></i><i class="crop crop--tr" aria-hidden="true"></i>
+  <i class="crop crop--bl" aria-hidden="true"></i><i class="crop crop--br" aria-hidden="true"></i>
+
+  <header class="sheet-head">
+    <span class="brand" id="brand">18—LAB</span>
+    <span class="label"><b id="scene-index">01</b> / <span id="scene-code">Pre-show</span></span>
+    <span class="sheet-head__spacer"></span>
+    <span class="status" id="status" data-state="connecting" hidden><i class="status__dot"></i><span id="status-text">Connecting to vosu</span></span>
+    <span class="label" id="date"></span>
+  </header>
+
+  <section class="hero">
+    <div class="hero__words">
+      <h1 class="headline" id="headline">Starting soon</h1>
+      <p class="subline" id="subline">Warming up</p>
+    </div>
+    <div class="countdown" id="countdown" aria-live="off">
+      <span class="label countdown__label"><i class="countdown__mark"></i><span id="countdown-label">Starts in</span></span>
+      <div class="countdown__digits" id="digits" role="timer"></div>
+      <div class="ruler" aria-hidden="true">
+        <div class="ruler__fill" id="ruler-fill"></div>
+        <div class="ruler__ticks" id="ruler-ticks"></div>
+      </div>
+      <div class="ruler__scale label" aria-hidden="true"><span>0</span><span id="ruler-max">5 min</span></div>
+    </div>
+  </section>
+
+  <section class="block" id="block" aria-label="Map and session">
+    <figure class="thumb" id="thumb" data-empty>
+      <img class="thumb__img" alt="" decoding="async">
+      <img class="thumb__img" alt="" decoding="async">
+      <figcaption class="thumb__empty label">No map</figcaption>
+    </figure>
+    <div class="cell cell--map" id="map-cell">
+      <div class="cell__head">
+        <span class="label" id="map-label">Up first</span>
+        <span class="tag" id="map-mode" hidden></span>
+        <span class="tag tag--status" id="map-status" hidden></span>
+      </div>
+      <div class="map__title" id="map-title">—</div>
+      <div class="map__artist" id="map-artist"></div>
+      <div class="map__diff"><b id="map-version"></b><span id="map-mapper"></span></div>
+    </div>
+    <div class="cell cell--stat" id="stat-stars"><span class="label">Stars</span><span class="readout"><span class="readout__v" id="v-stars">—</span><span class="readout__u" id="v-stars-u"></span></span></div>
+    <div class="cell cell--stat" id="stat-bpm"><span class="label">BPM</span><span class="readout"><span class="readout__v" id="v-bpm">—</span></span></div>
+    <div class="cell cell--stat" id="stat-length"><span class="label">Length</span><span class="readout"><span class="readout__v" id="v-length">—</span></span></div>
+    <div class="cell cell--session" id="session-cell">
+      <span class="label" id="session-label">This session</span>
+      <div class="session">
+        <div class="session__item">
+          <span class="readout"><span class="readout__v" id="v-plays">—</span></span>
+          <span class="label label--sub">Plays</span>
+        </div>
+        <div class="session__item">
+          <span class="readout" id="v-time"><span class="readout__v" id="v-time-a">—</span><span class="readout__u" id="v-time-ua"></span><span class="readout__v" id="v-time-b"></span><span class="readout__u" id="v-time-ub"></span></span>
+          <span class="label label--sub">Playtime</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

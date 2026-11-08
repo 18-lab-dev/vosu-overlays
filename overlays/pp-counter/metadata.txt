@@ -1,5 +1,6 @@
 name = Performance counter
 author = 18-LAB
-version = 0.2.0
-description = Floating pp readout beside osu!'s score: live pp with a count-up, if-FC and max-achievable on a rail scaled to SS, and the pp breakdown. Song select gets an accuracy→pp ladder; results add the if-FC gap. All rulesets.
-resolution = [1920,1080]
+version = 0.3.0
+description = Live pp with a count-up, if-FC and max achievable on a rail scaled to SS, and the pp breakdown; an accuracy→pp ladder in song select and the if-FC gap at results. A vertical column, or a horizontal strip in wide boxes. All rulesets.
+resolution = [300,184]
+placement = {"osu":["right-24","bottom-24"],"fruits":["right-24","bottom-24"],"mania":["right-24","bottom-24"],"taiko":["right-24","bottom-24",720,80]}

@@ -3,27 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Performance counter · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Performance counter</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <section id="cluster" class="cluster" data-view="offline" data-align="right" data-backing="none" data-accent="map" aria-label="Performance points">
-    <div class="tag">
-      <i class="dot"></i>
-      <span id="brand" class="brand">18—LAB</span>
-      <span id="kicker" class="kicker">pp</span>
-      <span id="state" class="state"></span>
+<main id="root" class="root" data-view="offline" data-orient="vertical" data-align="right" data-backing="none" data-accent="map" aria-label="Performance points">
+  <div class="cluster">
+    <div class="head">
+      <div class="tag"><i class="dot"></i><span id="kicker" class="kicker"></span><span id="state" class="state"></span></div>
+      <div id="big" class="big"><span id="int">—</span><span id="frac" class="frac"></span><span class="unit">pp</span></div>
     </div>
-    <div id="big" class="big"><span id="int">—</span><span id="frac" class="frac"></span><span class="unit">pp</span></div>
     <div id="pairs" class="pairs">
       <span id="rowA" class="pair"><span id="labelA" class="label">If FC</span><b id="valA">—</b></span>
       <span id="rowB" class="pair"><span id="labelB" class="label">Max</span><b id="valB">—</b></span>
     </div>
-    <div id="gauge" class="gauge">
-      <canvas id="rail" aria-hidden="true"></canvas>
-      <div class="scale"><span>0</span><span id="scaleMax">SS —</span></div>
+    <div class="meter">
+      <div class="gauge">
+        <canvas id="rail" aria-hidden="true"></canvas>
+        <div class="scale"><span>0</span><span id="scaleMax">SS —</span></div>
+      </div>
+      <ul id="chips" class="chips"></ul>
     </div>
     <ol id="ladder" class="ladder">
       <li><span class="label">95%</span><b>—</b></li>
@@ -32,9 +32,8 @@
       <li><span class="label">99%</span><b>—</b></li>
       <li><span class="label">SS</span><b>—</b></li>
     </ol>
-    <ul id="chips" class="chips"></ul>
-  </section>
-</div>
+  </div>
+</main>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

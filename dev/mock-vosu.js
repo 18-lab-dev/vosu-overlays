@@ -575,21 +575,25 @@ function layoutSvg() {
 }
 
 /**
- * One overlay on a 1920×1080 stand-in osu! screen: dimmed map background, the ruleset's busy
- * regions (layoutSvg) and the overlay at its declared resolution, at `x`,`y` (default 0,0).
- * `layout=0` hides the wireframe; `dim` sets background dim (osu! default 0.55-ish).
+ * Overlays on a 1920×1080 stand-in osu! screen: dimmed map background, the skin backdrop or the
+ * ruleset's busy regions (layoutSvg), then each overlay at its declared resolution at `x`,`y`
+ * (default 0,0). `id` may list several overlays (`a,b,c`) to check how their default placements
+ * share the screen. `layout=0` hides the wireframe; `dim` sets background dim.
  */
 function stagePage(id, params) {
-  let [width, height] = overlayMeta(id).resolution;
-  width = Number(params.get('w')) || width;
-  height = Number(params.get('h')) || height;
   const dim = Number(params.get('dim') ?? 0.55);
   const x = Number(params.get('x') ?? 0);
   const y = Number(params.get('y') ?? 0);
+  const frames = id.split(',').filter(Boolean).map(one => {
+    let [width, height] = overlayMeta(one).resolution;
+    width = Number(params.get('w')) || width;
+    height = Number(params.get('h')) || height;
+    return `<iframe src="/${one}/" style="width:${width}px;height:${height}px" allowtransparency="true"></iframe>`;
+  }).join('');
   // Wireframe when there is no backdrop for this ruleset, or when asked for explicitly (layout=1).
   const backdrop = backdropFile() && params.get('layout') !== '1' ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
   const layout = backdrop || params.get('layout') === '0' ? backdrop : layoutSvg();
-  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;border:0;background:transparent;color-scheme:normal}</style>${layout}<iframe src="/${id}/" allowtransparency="true"></iframe>`;
+  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}`;
 }
 
 /** Every overlay live at once, each on its own scaled stand-in osu! screen, for review. */

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fruit ledger · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <p id="chip" class="chip" data-state="connecting"><i></i><span id="chip-text">Connecting to vosu</span></p>
+  <section id="ledger" class="ledger is-hidden" aria-label="Catch judgement ledger">
+    <header class="head">
+      <span class="brand" id="brand">18—LAB</span>
+      <span class="title">Catch ledger</span>
+      <span class="phase" id="phase" data-phase="map">Map</span>
+      <span class="verdict" id="verdict" data-tone="none">—</span>
+    </header>
+    <div class="table">
+      <span class="colhead c-caught" id="col-caught">Caught</span>
+      <span class="colhead c-missed">Missed</span>
+
+      <span class="label l-fruit"><i class="pip pip-fruit"></i><span class="lt">Fruits</span></span>
+      <span class="track t-fruit"><b class="seg seg-fruit" id="seg-fruit"></b></span>
+      <span class="num n-fruit" id="n-fruit">—</span>
+
+      <span class="label l-drop"><i class="pip pip-drop"></i><span class="lt">Drops</span></span>
+      <span class="track t-drop"><b class="seg seg-drop" id="seg-drop"></b><b class="seg seg-miss" id="seg-miss"></b></span>
+      <span class="num n-drop" id="n-drop">—</span>
+
+      <span class="miss n-miss" id="n-miss-cell"><i class="pip pip-x"></i><span class="num" id="n-miss">—</span></span>
+
+      <span class="label l-tiny"><i class="pip pip-tiny"></i><span class="lt">Droplets</span></span>
+      <span class="track t-tiny"><b class="seg seg-tiny" id="seg-tiny"></b><b class="seg seg-miss" id="seg-dmiss"></b></span>
+      <span class="num n-tiny" id="n-tiny">—</span>
+      <span class="miss n-dmiss"><i class="pip pip-tiny pip-tiny-x"></i><span class="num" id="n-dmiss">—</span></span>
+
+      <i class="rule rule-1"></i>
+      <i class="rule rule-2"></i>
+    </div>
+    <footer class="foot">
+      <div class="stat stat-acc"><span class="k">Acc</span><span class="v"><span id="acc">—</span><small class="u">%</small></span></div>
+      <div class="stat stat-max"><span class="k">Max</span><span class="v"><span id="max">—</span><small class="u">%</small></span></div>
+      <div class="stat stat-combo"><span class="k" id="combo-key">Combo</span><span class="v"><span id="combo">—</span><small class="u">×</small><small class="of" id="combo-of"></small></span></div>
+    </footer>
+  </section>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

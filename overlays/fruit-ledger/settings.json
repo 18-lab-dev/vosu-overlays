@@ -1,0 +1,5 @@
+[
+ {"uniqueID":"compact","type":"checkbox","title":"Compact strip","description":"One 36 px line: caught counts per class, misses, accuracy and combo status. Drops the proportion bars, column headings and the max-achievable readout.","value":false},
+ {"uniqueID":"showAcc","type":"checkbox","title":"Show accuracy","description":"Shows accuracy and, during play, the maximum accuracy still reachable if every remaining object is caught (needs vosu's or tosu's /api/calculate/pp for the map's object counts).","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"The small brand tag at the left of the header.","value":true}
+]

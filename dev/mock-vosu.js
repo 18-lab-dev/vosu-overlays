@@ -29,6 +29,17 @@ const arg = (name, fallback) => {
 const PORT = Number(arg('port', 24100));
 const VOSU_URL = process.env.VOSU_URL || 'http://127.0.0.1:24050';
 const VOSU_ASSETS = process.env.VOSU_ASSETS || '';
+// Optional directory of 1920×1080 transparent gameplay captures (osu.png, taiko.png, fruits.png,
+// mania-<keys>k.png), e.g. renders of your own skin. The stage draws them over the background in
+// place of the wireframe, so overlays are judged against real HUD and playfield placement.
+const STAGE_BACKDROPS = process.env.VOSU_STAGE_BACKDROPS || '';
+
+function backdropFile() {
+  if (!STAGE_BACKDROPS) return null;
+  const name = config.mode === 'mania' ? `mania-${config.keys}k.png` : `${config.mode}.png`;
+  const file = join(STAGE_BACKDROPS, name);
+  return existsSync(file) ? file : null;
+}
 
 // ---------------------------------------------------------------- deterministic randomness
 function rng(seed) {
@@ -517,26 +528,75 @@ function overlayMeta(id) {
   return meta;
 }
 
-/** Overlay framed at its declared resolution over a dimmed mock gameplay background. */
+/**
+ * Approximate osu!stable 1920×1080 gameplay layout for the current ruleset, drawn as the busy
+ * regions an overlay must leave alone: playfield/stage with stand-in objects, and default HUD
+ * elements. Approximate by design (skins and lazer move things); overlays stay user-positionable.
+ */
+function layoutSvg() {
+  const box = (x, y, w, h, label, strong) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="rgb(255 255 255 / ${strong ? 0.05 : 0.03})" stroke="rgb(255 255 255 / .28)" stroke-dasharray="6 6"/><text x="${x + 8}" y="${y + 20}" fill="rgb(255 255 255 / .45)" font-size="14" font-family="monospace">${label}</text>`;
+  const hud = [
+    box(16, 12, 720, 34, 'HP bar'),
+    box(1500, 8, 404, 70, 'score'),
+    box(1640, 82, 264, 40, 'accuracy · progress'),
+    box(16, 970, 260, 96, 'combo'),
+  ];
+  const mode = config.mode;
+  const parts = [];
+  if (mode === 'osu' || mode === 'fruits') {
+    parts.push(box(384, 126, 1152, 864, mode === 'osu' ? 'playfield (512×384 @ 2.25)' : 'playfield', true));
+    if (mode === 'osu') {
+      // CS 4 circle radius: (54.4 − 4.48·4) playfield px × 2.25 ≈ 82 px.
+      for (let i = 0; i < 9; i++) parts.push(`<circle cx="${560 + ((i * 263) % 800)}" cy="${260 + ((i * 197) % 560)}" r="82" fill="rgb(255 255 255 / .10)" stroke="rgb(255 255 255 / .55)" stroke-width="6"/>`);
+      hud.push(box(1840, 470, 72, 150, 'keys'), box(760, 1048, 400, 26, 'hit error'), box(0, 300, 230, 400, 'leaderboard'));
+    } else {
+      for (let i = 0; i < 14; i++) parts.push(`<circle cx="${520 + ((i * 331) % 880)}" cy="${170 + ((i * 89) % 640)}" r="${i % 3 ? 26 : 12}" fill="rgb(255 255 255 / .35)"/>`);
+      parts.push(`<rect x="880" y="900" width="200" height="60" rx="10" fill="rgb(255 255 255 / .25)"/><text x="900" y="940" fill="rgb(0 0 0 / .6)" font-size="16" font-family="monospace">catcher</text>`);
+    }
+  } else if (mode === 'taiko') {
+    // Stable taiko lane: lines 216–416 of 768.
+    parts.push(box(0, 304, 1920, 281, 'taiko lane', true), box(0, 304, 300, 281, 'drum'));
+    for (let i = 0; i < 10; i++) parts.push(`<circle cx="${420 + i * 150}" cy="444" r="${i % 4 ? 46 : 66}" fill="${i % 3 ? 'rgb(235 69 44 / .7)' : 'rgb(68 141 171 / .7)'}" stroke="white" stroke-width="5"/>`);
+    parts.push(box(40, 80, 300, 210, 'mascot'));
+  } else {
+    const width = config.keys * 67.5;
+    // Stable places the stage's left edge at ColumnStart (default 136 of 480 lines), not centred.
+    const x = 136 * 2.25;
+    parts.push(box(x, 0, width, 1080, `${config.keys}K stage (67.5 px columns)`, true), box(x + width + 8, 120, 26, 760, 'HP'));
+    for (let i = 0; i < 26; i++) parts.push(`<rect x="${x + 4 + (i * 3 % config.keys) * 67.5}" y="${((i * 157) % 860)}" width="59" height="${i % 7 ? 26 : 140}" rx="4" fill="rgb(255 255 255 / .55)"/>`);
+    parts.push(`<rect x="${x}" y="904" width="${width}" height="6" fill="rgb(255 255 255 / .6)"/>`, box(x, 930, width, 140, 'keys / receptors'));
+    hud.splice(3, 1);
+    parts.push(box(x + width / 2 - 90, 420, 180, 70, 'combo'));
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" style="position:absolute;inset:0">${parts.join('')}${hud.join('')}</svg>`;
+}
+
+/**
+ * One overlay on a 1920×1080 stand-in osu! screen: dimmed map background, the ruleset's busy
+ * regions (layoutSvg) and the overlay at its declared resolution, at `x`,`y` (default 0,0).
+ * `layout=0` hides the wireframe; `dim` sets background dim (osu! default 0.55-ish).
+ */
 function stagePage(id, params) {
   let [width, height] = overlayMeta(id).resolution;
   width = Number(params.get('w')) || width;
   height = Number(params.get('h')) || height;
   const dim = Number(params.get('dim') ?? 0.55);
-  const pad = Number(params.get('pad') ?? 32);
-  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000}body{width:${width + pad * 2}px;height:${height + pad * 2}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${pad}px;top:${pad}px;width:${width}px;height:${height}px;border:0;outline:1px dashed rgb(255 255 255 / .18);background:transparent}</style><iframe src="/${id}/" allowtransparency="true"></iframe>`;
+  const x = Number(params.get('x') ?? 0);
+  const y = Number(params.get('y') ?? 0);
+  // Wireframe when there is no backdrop for this ruleset, or when asked for explicitly (layout=1).
+  const backdrop = backdropFile() && params.get('layout') !== '1' ? `<img src="/__dev/backdrop?${encodeURIComponent(config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
+  const layout = backdrop || params.get('layout') === '0' ? backdrop : layoutSvg();
+  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;border:0;background:transparent;color-scheme:normal}</style>${layout}<iframe src="/${id}/" allowtransparency="true"></iframe>`;
 }
 
-/** Every overlay live at once, each scaled into a card over the mock background, for review. */
+/** Every overlay live at once, each on its own scaled stand-in osu! screen, for review. */
 function galleryPage() {
-  const cards = overlayIds().map(overlayMeta).map(({ id, name, description, resolution: [w, h] }) => {
-    const scale = Math.min(1, 440 / w, 300 / h);
-    return `<figure><div class="frame" style="height:${Math.ceil(h * scale)}px"><iframe src="/${id}/" style="width:${w}px;height:${h}px;transform:scale(${scale})" loading="lazy"></iframe></div><figcaption><a href="/__dev/stage?id=${id}" target="_blank">${name}</a> <code>${id} · ${w}×${h}</code><p>${description}</p></figcaption></figure>`;
-  }).join('');
+  const cards = overlayIds().map(overlayMeta).map(({ id, name, description, resolution: [w, h] }) =>
+    `<figure><div class="frame"><iframe src="/__dev/stage?id=${id}" loading="lazy"></iframe></div><figcaption><a href="/__dev/stage?id=${id}" target="_blank">${name}</a> <code>${id} · ${w}×${h}</code><p>${description}</p></figcaption></figure>`).join('');
   const modes = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['menu', 'play', 'results'].map(state => `<button data-q="mode=${mode}&state=${state}&freeze=">${mode} ${state}</button>`)).join('');
   const toggles = [['state=offline', 'osu! closed'], ['state=down', 'vosu down'], ['ext=0', 'ext off'], ['ext=1', 'ext on'], ['keys=7', '7K'], ['keys=4', '4K'], ['client=lazer', 'lazer'], ['client=stable', 'stable'], ['mods=HDDT', 'HDDT'], ['mods=HD', 'HD'], ['compat=tosu', 'tosu'], ['compat=vosu', 'vosu'], ['start=110000', 'late attempt']]
     .map(([q, label]) => `<button data-q="${q}">${label}</button>`).join('');
-  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}${toggles}</header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
+  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(502px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;width:480px;height:270px;overflow:hidden}iframe{position:absolute;left:0;top:0;width:1920px;height:1080px;border:0;transform:scale(.25);transform-origin:0 0}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}${toggles}</header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=async()=>{await fetch('/__dev/scenario?'+b.dataset.q);for(const f of document.querySelectorAll('iframe'))f.contentWindow.location.reload()}</script>`;
 }
 
 function overlaySettings(id) {
@@ -625,6 +685,10 @@ Bun.serve({
     if (path.startsWith('/assets/')) return assets(path);
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });
     if (path === '/__dev/stage') return new Response(stagePage(url.searchParams.get('id') || '', url.searchParams), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
+    if (path === '/__dev/backdrop') {
+      const file = backdropFile();
+      return file ? new Response(Bun.file(file), { headers: { 'content-type': 'image/png', 'cache-control': 'no-store' } }) : new Response('no backdrop', { status: 404 });
+    }
     if (path === '/__dev/gallery') return new Response(galleryPage(), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
     if (path === '/__dev/scenario') {
       if ([...url.searchParams.keys()].length) reset(url.searchParams);

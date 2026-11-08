@@ -193,3 +193,129 @@ export function formatDuration(ms) {
 export function backgroundUrl(checksum) {
   return `/files/beatmap/background?${encodeURIComponent(checksum || '')}`;
 }
+
+/**
+ * Where osu! draws things on a `width`×`height` screen (default 1920×1080), so overlays share the
+ * screen with the game instead of covering it. Rects are `{ x, y, w, h }` in CSS px.
+ *
+ * Geometry follows osu!stable's default skin, scaled from its 480-line virtual canvas to the screen
+ * height: the osu!/catch playfield is 512×384 placed 64 px from the left and 56 px from the top of
+ * a 4:3 box centred horizontally; the taiko lane spans 216–416 of 768 lines; a mania column is
+ * `columnWidth` virtual px (skin ColumnWidth, default 30) and stable places the stage's left edge at
+ * `columnStart` (skin ColumnStart, default 136) — it is not centred — while lazer centres it
+ * (`client: 'lazer'`). Skins move things, so treat this as the default placement and keep user
+ * offsets (or columnStart/columnWidth settings) for anything aligned to it.
+ *
+ * `free` lists the regions osu! leaves empty for the ruleset, largest first; `hud` the default
+ * HUD elements to keep clear of; `busy` the playfield/stage/lane.
+ */
+export function osuLayout(mode, { keys = 4, columnWidth = 30, columnStart = 136, client = 'stable', width = 1920, height = 1080 } = {}) {
+  const unit = height / 480;
+  const rect = (x, y, w, h) => ({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+  const hud = {
+    health: rect(width * 0.008, height * 0.011, 320 * unit, 16 * unit),
+    score: rect(width - 180 * unit, height * 0.007, 180 * unit - width * 0.008, 32 * unit),
+    accuracy: rect(width - 118 * unit, 36 * unit, 118 * unit - width * 0.008, 18 * unit),
+    combo: rect(width * 0.008, height - 44 * unit, 116 * unit, 42 * unit),
+  };
+  let busy;
+  if (mode === 'mania') {
+    const stageWidth = keys * columnWidth * unit;
+    busy = rect(client === 'lazer' ? (width - stageWidth) / 2 : columnStart * unit, 0, stageWidth, height);
+    delete hud.combo; // mania draws combo inside the stage
+  } else if (mode === 'taiko') {
+    busy = rect(0, height * 216 / 768, width, height * 200 / 768);
+  } else {
+    const boxX = (width - 640 * unit) / 2;
+    busy = rect(boxX + 64 * unit, 56 * unit, 512 * unit, 384 * unit);
+  }
+  if (mode === 'osu') {
+    hud.keys = rect(width - 32 * unit, height * 0.435, 32 * unit, 66 * unit);
+    hud.hitError = rect(width / 2 - 90 * unit, height - 12 * unit, 180 * unit, 12 * unit);
+    hud.leaderboard = rect(0, height * 0.28, 102 * unit, height * 0.37);
+  }
+  const top = hud.health.y + hud.health.h;
+  const free = mode === 'taiko'
+    ? [rect(0, busy.y + busy.h, width, height - busy.y - busy.h), rect(hud.health.x + hud.health.w, 0, hud.score.x - hud.health.x - hud.health.w, busy.y)]
+    : [rect(0, top, busy.x, height - top - (hud.combo ? hud.combo.h : 0)), rect(busy.x + busy.w, hud.accuracy.y + hud.accuracy.h, width - busy.x - busy.w, height - hud.accuracy.y - hud.accuracy.h)];
+  if (mode === 'osu' || mode === 'fruits') free.push(rect(busy.x, busy.y + busy.h, busy.w, height - busy.y - busy.h));
+  return { width, height, unit, busy, hud, free: free.filter(r => r.w > 0 && r.h > 0).sort((a, b) => b.w * b.h - a.w * a.h) };
+}
+
+const palettes = new Map();
+const PALETTE_KEYS = ['accent', 'onAccent', 'container', 'onContainer', 'secondary', 'tertiary', 'surface', 'outline'];
+
+/**
+ * Material 3 tonal-spot colours for the current map, derived from its background: the overlay is
+ * tinted to the map without showing the background art itself (which would fight the 18-LAB look).
+ * Resolves to `{ source, accent, onAccent, container, onContainer, secondary, tertiary, surface,
+ * outline }` as `#rrggbb` dark-scheme roles, or null when the map has no usable background (none,
+ * unreadable, or too grey to score). Requires the overlay folder to carry `m3.js`. Cached per map.
+ */
+export function mapPalette(checksum) {
+  if (!checksum) return Promise.resolve(null);
+  if (!palettes.has(checksum)) palettes.set(checksum, derivePalette(checksum));
+  return palettes.get(checksum);
+}
+
+/** Sets `--map-<role>` custom properties on `element` from a mapPalette() result; null clears them. */
+export function applyPalette(element, palette) {
+  for (const key of PALETTE_KEYS) {
+    const name = `--map-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`;
+    if (palette) element.style.setProperty(name, palette[key]);
+    else element.style.removeProperty(name);
+  }
+}
+
+async function derivePalette(checksum) {
+  try {
+    const [{ QuantizerCelebi, Score, TonalPalette }, image] = await Promise.all([import('./m3.js'), loadImage(backgroundUrl(checksum))]);
+    // A 128 px thumbnail keeps quantization in the low milliseconds; colour, not detail, matters.
+    const scale = Math.min(1, 128 / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = new OffscreenCanvas(width, height).getContext('2d', { willReadFrequently: true });
+    context.drawImage(image, 0, 0, width, height);
+    const data = context.getImageData(0, 0, width, height).data;
+    const pixels = [];
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 255) pixels.push((0xff000000 | (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]) >>> 0);
+    }
+    // Fallback 0 marks "nothing chromatic enough": a grey background keeps the 18-LAB accent
+    // instead of M3's default blue.
+    const [source] = Score.score(QuantizerCelebi.quantize(pixels, 128), { desired: 1, fallbackColorARGB: 0 });
+    if (!source) return null;
+    const hue = TonalPalette.fromInt(source).hue;
+    // Tonal spot: primary chroma 36, secondary 16, tertiary hue + 60 at 24, neutrals 6 / 8.
+    const primary = TonalPalette.fromHueAndChroma(hue, 36);
+    const secondary = TonalPalette.fromHueAndChroma(hue, 16);
+    const tertiary = TonalPalette.fromHueAndChroma((hue + 60) % 360, 24);
+    const neutral = TonalPalette.fromHueAndChroma(hue, 6);
+    const neutralVariant = TonalPalette.fromHueAndChroma(hue, 8);
+    const hex = argb => `#${(argb & 0xffffff).toString(16).padStart(6, '0')}`;
+    return {
+      source: hex(source),
+      accent: hex(primary.tone(80)),
+      onAccent: hex(primary.tone(20)),
+      container: hex(primary.tone(30)),
+      onContainer: hex(primary.tone(90)),
+      secondary: hex(secondary.tone(80)),
+      tertiary: hex(tertiary.tone(80)),
+      surface: hex(neutral.tone(6)),
+      outline: hex(neutralVariant.tone(60)),
+    };
+  } catch {
+    palettes.delete(checksum);
+    return null;
+  }
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('background unavailable'));
+    image.src = url;
+  });
+}

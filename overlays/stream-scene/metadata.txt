@@ -1,0 +1,5 @@
+name = Stream scene
+author = 18-LAB
+version = 0.1.0
+description = Full 1080p streamer scene: a transparent 16:9 gameplay window and webcam slot framed in graphite, with now playing, live pp/acc/combo/UR, a results band, player card and session stats. All rulesets.
+resolution = [1920,1080]

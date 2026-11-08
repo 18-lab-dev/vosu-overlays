@@ -1,0 +1,18 @@
+[
+ {"uniqueID":"camCorner","type":"options","title":"Webcam corner","description":"Corner of the scene for the webcam slot. Left corners mirror the scene: the side column moves left and the gameplay window right.","options":["top-right","bottom-right","top-left","bottom-left"],"value":"top-right"},
+ {"uniqueID":"camSize","type":"options","title":"Webcam size","description":"Webcam slot: small = 440×248 (16:9), medium = 440×330 (4:3), large = 440×440 (1:1). The slot is a transparent frame; place your OBS webcam source under it (turn on alignment guides to read exact coordinates).","options":["small","medium","large"],"value":"small"},
+ {"uniqueID":"handle","type":"text","title":"Streamer handle","description":"Name shown under the webcam. Leave empty to use the osu! profile name.","value":""},
+ {"uniqueID":"social","type":"text","title":"Social text","description":"Short text beside the handle, e.g. twitch.tv/name · x.com/name. Leave empty to hide.","value":""},
+ {"uniqueID":"backdrop","type":"options","title":"Backdrop","description":"Fill around the gameplay window and webcam: grid = graphite with a drafting grid, solid = plain graphite, none = transparent (panels float over a full-screen capture). The gameplay window and webcam slot are always fully transparent.","options":["grid","solid","none"],"value":"grid"},
+ {"uniqueID":"showCam","type":"checkbox","title":"Show webcam frame","description":"Off removes the webcam slot; the side column starts at the top.","value":true},
+ {"uniqueID":"showCaption","type":"checkbox","title":"Show handle caption","description":"Handle and social text attached to the webcam frame.","value":true},
+ {"uniqueID":"showFrame","type":"checkbox","title":"Show gameplay frame","description":"Hairline and corner marks around the gameplay window.","value":true},
+ {"uniqueID":"showNowPlaying","type":"checkbox","title":"Show now playing","description":"Map title, artist, difficulty, stats and progress in the bottom deck.","value":true},
+ {"uniqueID":"showPlay","type":"checkbox","title":"Show live play strip","description":"PP now and if FC, accuracy, combo, UR and mods while playing; pp by accuracy in song select.","value":true},
+ {"uniqueID":"showResults","type":"checkbox","title":"Show results band","description":"Grade, pp, accuracy, max combo and judgements on the results screen.","value":true},
+ {"uniqueID":"showPlayer","type":"checkbox","title":"Show player card","description":"Profile name, country, global rank, pp, accuracy, level and play count.","value":true},
+ {"uniqueID":"showSession","type":"checkbox","title":"Show session stats","description":"Plays and playtime from vosu, plus pp and global rank change since this source loaded.","value":true},
+ {"uniqueID":"showStatus","type":"checkbox","title":"Show status rail","description":"Connection dot, game state and ruleset under the gameplay window.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true},
+ {"uniqueID":"showGuides","type":"checkbox","title":"Alignment guides","description":"Setup aid: labels the gameplay window and webcam slot with their exact pixel position and size. Turn off before going live.","value":false}
+]

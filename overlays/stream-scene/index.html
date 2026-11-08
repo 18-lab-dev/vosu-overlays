@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stream scene · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage" data-strip="menu">
+  <canvas id="backdrop" aria-hidden="true"></canvas>
+
+  <div id="game" class="frame" aria-label="Gameplay window">
+    <i class="tk tl"></i><i class="tk tr"></i><i class="tk bl"></i><i class="tk br"></i>
+    <span class="guide" id="game-guide"></span>
+  </div>
+
+  <div id="rail" class="rail">
+    <span id="dot" class="dot" data-status="connecting"></span>
+    <span id="status">Connecting</span>
+    <span id="phase" class="phase"></span>
+    <span id="ruleset" class="ruleset"></span>
+  </div>
+
+  <section id="deck" class="panel primary" aria-label="Now playing">
+    <header class="deck-head">
+      <b id="brand" class="brand">18—LAB</b>
+      <span id="deck-label" class="k">Selected</span>
+      <span id="np-status" class="tag" hidden></span>
+      <span class="grow"></span>
+      <span id="np-time" class="time"><b id="t-now"></b><span id="t-total">—</span></span>
+    </header>
+    <div id="np" class="np">
+      <div class="thumb"><img id="np-bg" alt="" decoding="async" hidden></div>
+      <div class="np-text">
+        <div id="np-title" class="np-title">—</div>
+        <div class="np-sub"><span id="np-artist"></span><span id="np-version" class="ver"></span><span id="np-mapper" class="by"></span></div>
+      </div>
+      <dl class="np-stats">
+        <div><dt>Stars</dt><dd id="np-stars">—</dd></div>
+        <div><dt>BPM</dt><dd id="np-bpm">—</dd></div>
+        <div><dt id="np-k4">AR</dt><dd id="np-v4">—</dd></div>
+        <div><dt>Length</dt><dd id="np-len">—</dd></div>
+      </dl>
+    </div>
+    <div class="progress" id="progress"><i id="np-fill"></i></div>
+    <div id="strips" class="strips">
+      <div id="strip-play" class="strip" data-name="play">
+        <div class="cell c-pp"><span class="k">PP</span><span class="v"><b id="pp-now">—</b><small>pp</small></span><span class="s">if FC <b id="pp-fc">—</b></span></div>
+        <div class="cell"><span class="k">Accuracy</span><span class="v"><b id="acc">—</b><small>%</small></span><span class="s">grade <b id="grade-now">—</b></span></div>
+        <div class="cell"><span class="k">Combo</span><span class="v"><b id="combo">—</b><small>×</small></span><span class="s">max <b id="combo-max">—</b></span></div>
+        <div class="cell"><span class="k" id="ur-k">UR</span><span class="v"><b id="ur">—</b></span><span class="s" id="ur-s">unstable rate</span></div>
+        <div class="cell c-mods"><span class="k">Mods</span><span class="mods" id="mods"></span><span class="s" id="rate"></span></div>
+      </div>
+      <div id="strip-menu" class="strip" data-name="menu">
+        <div class="cell c-pp"><span class="k">PP · 100%</span><span class="v"><b id="pp-100">—</b><small>pp</small></span><span class="s">max combo <b id="menu-combo">—</b></span></div>
+        <div class="cell"><span class="k">PP · 99%</span><span class="v"><b id="pp-99">—</b><small>pp</small></span></div>
+        <div class="cell"><span class="k">PP · 98%</span><span class="v"><b id="pp-98">—</b><small>pp</small></span></div>
+        <div class="cell"><span class="k">PP · 95%</span><span class="v"><b id="pp-95">—</b><small>pp</small></span></div>
+        <div class="cell c-mods"><span class="k">Mods</span><span class="mods" id="menu-mods"></span><span class="s" id="menu-rate"></span></div>
+      </div>
+      <div id="strip-results" class="strip" data-name="results">
+        <div class="cell c-grade"><span id="r-grade" class="grade" data-grade="">—</span></div>
+        <div class="cell c-pp"><span class="k">PP</span><span class="v"><b id="r-pp">—</b><small>pp</small></span><span class="s">if FC <b id="r-fc">—</b></span></div>
+        <div class="cell"><span class="k">Accuracy</span><span class="v"><b id="r-acc">—</b><small>%</small></span><span class="s">mods <b id="r-mods">—</b></span></div>
+        <div class="cell"><span class="k">Max combo</span><span class="v"><b id="r-combo">—</b><small>×</small></span><span class="s">score <b id="r-score">—</b></span></div>
+        <div class="cell c-hits"><span class="k">Judgements</span><ul id="r-hits" class="hits"></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <aside id="side" class="side">
+    <div id="cam-group" class="cam-group">
+      <div id="cam" class="frame cam" aria-label="Webcam">
+        <i class="tk tl"></i><i class="tk tr"></i><i class="tk bl"></i><i class="tk br"></i>
+        <span class="guide" id="cam-guide"></span>
+      </div>
+      <div id="caption" class="caption">
+        <span class="live-mark" aria-hidden="true"></span>
+        <span id="handle" class="handle">—</span>
+        <span id="social" class="social"></span>
+      </div>
+    </div>
+
+    <section id="player" class="panel player" aria-label="Player">
+      <header class="p-head"><span class="k">Player</span><span id="p-mode" class="k dim"></span><span class="grow"></span><span id="p-country" class="cc">—</span></header>
+      <div id="p-name" class="p-name">—</div>
+      <div class="p-grid">
+        <div class="cell"><span class="k">Global rank</span><span class="v"><small>#</small><b id="p-rank">—</b></span></div>
+        <div class="cell"><span class="k">Performance</span><span class="v"><b id="p-pp">—</b><small>pp</small></span></div>
+        <div class="cell"><span class="k">Accuracy</span><span class="v"><b id="p-acc">—</b><small>%</small></span></div>
+      </div>
+      <footer class="p-foot"><span>Level <b id="p-level">—</b></span><span>Plays <b id="p-plays">—</b></span></footer>
+    </section>
+
+    <section id="session" class="panel session" aria-label="Session">
+      <header class="p-head"><span class="k">Session</span></header>
+      <div class="s-grid">
+        <div class="cell"><span class="k">Plays</span><span class="v"><b id="s-plays">—</b></span></div>
+        <div class="cell"><span class="k">Playtime</span><span class="v"><b id="s-time">—</b></span></div>
+        <div class="cell"><span class="k">PP gained</span><span class="v"><b id="s-pp" class="delta">—</b></span></div>
+        <div class="cell"><span class="k">Rank moved</span><span class="v"><b id="s-rank" class="delta">—</b></span></div>
+      </div>
+      <header class="p-head sub"><span class="k">Recent results</span><span class="grow"></span><span class="k">Acc</span><span class="k r-pp-k">PP</span></header>
+      <div class="recent-wrap">
+        <ol id="recent" class="recent"></ol>
+        <p id="recent-empty" class="empty">No results yet</p>
+      </div>
+    </section>
+  </aside>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

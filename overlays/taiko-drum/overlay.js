@@ -1,11 +1,10 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!taiko drum input, floating in the free area below the lane: four drum zones lighting on
-// press, per-zone counts, hand balance, alternation, same-hand repeats and live KPS.
-// Data comes only from vosu's `/keys/all`; shown during taiko gameplay only.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+// osu!taiko drum input: four drum zones lighting on press, per-zone counts, live KPS and peak,
+// hand balance, the recent hits by hand, alternation and same-hand repeats. Data comes only from
+// vosu's `/keys/all`; shown during taiko gameplay only. The page is content-sized: it re-flows to
+// whatever box its host gives it (one row for strips, a column for tall boxes).
+import { subscribe, settings, activeMode, isPlaying, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
 const POINTERS = ['/state/number', '/play/mode/number', '/settings/mode/number', '/keys/all', '/beatmap/checksum'];
 
 // keys.all order in taiko: B1 left rim (kat), B2 left centre (don), B3 right centre (don), B4 right rim (kat).
@@ -16,16 +15,25 @@ const KPS_WINDOW = 1000;
 const KPS_RING = 256;
 const CHORD_MS = 12;           // both hands within this = one doubled (big-note) hit, not an alternation
 const MAX_FRAME_PRESSES = 24;  // bigger jumps are an attach/baseline, not playing
-const SEQ = 24;                // hits in the hand sequence strip
+const SEQ_MAX = 48;            // hits kept for the hand strip; the box decides how many show
 const CHORD = 2;               // prevHand value after a doubled hit
 const NONE = -1;
 const DASH = '—';
-const RESULTS = 7;
+
+// Design sizes (CSS px before scaling) — must match style.css.
+const ROW_HEIGHT = { full: 96, compact: 60 };
+const FULL_MIN_SCALE = 0.75;   // below this a full row's 12 px labels get too small: go compact
+const BLOCK = {
+  full: { drum: 76, counts: 216, kps: 64, peak: 52, hands: 184, seq: 120, alt: 100, rep: 84, gap: 24, pad: 12 },
+  compact: { drum: 48, counts: 194, kps: 70, peak: 80, hands: 150, seq: 100, alt: 80, rep: 70, gap: 18, pad: 6 },
+};
+const STAT_BLOCKS = ['drum', 'counts', 'kps', 'peak', 'hands', 'seq', 'alt', 'rep'];
+const DROP_ORDER = ['rep', 'peak', 'seq', 'alt', 'hands']; // first to go when the box is too narrow
+const COLUMN = { w: 296, h: 520, hBare: 276 };
+const SEQ_PITCH = { full: 7, compact: 6, vertical: 11 };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
-const anchor = $('anchor');
-const group = $('group');
+const ov = $('ov');
 const chip = $('chip');
 const chipText = $('chip-text');
 const countEls = [$('c0'), $('c1'), $('c2'), $('c3')];
@@ -36,18 +44,10 @@ const balR = $('bal-r');
 const balFill = $('bal-fill');
 const altEl = $('alt');
 const repEl = $('rep');
-const rPeak = $('r-peak');
-const rLeft = $('r-left');
-const rRight = $('r-right');
-const rAlt = $('r-alt');
-const rRep = $('r-rep');
-const rZones = $('r-zones');
 const drumCanvas = $('drum-canvas');
 const seqCanvas = $('seq-canvas');
 const drumCtx = drumCanvas.getContext('2d', { alpha: true });
 const seqCtx = seqCanvas.getContext('2d', { alpha: true });
-
-fit(stage, WIDTH, HEIGHT);
 
 // ------------------------------------------------------------------ state
 const live = new Int32Array(4);        // vosu counts as last received
@@ -69,7 +69,7 @@ const kpsTimes = new Float64Array(KPS_RING);
 let kpsHead = 0;
 let kpsLen = 0;
 let kpsTimer = 0;
-const seq = new Uint8Array(SEQ);       // zone bitmask per hit, ring
+const seq = new Uint8Array(SEQ_MAX);   // zone bitmask per hit, ring
 let seqHead = 0;
 let seqLen = 0;
 
@@ -78,8 +78,6 @@ let online = false;
 let offline = false;
 let game = false;
 let wasPlaying = false;
-let results = false;
-let summary = false;  // a taiko attempt's drum summary is held for its results screen
 let checksum = '';
 let palette = null;
 let current = null;    // latest settings
@@ -95,10 +93,7 @@ let tokens = null;
 function readTokens() {
   const css = getComputedStyle(document.documentElement);
   const get = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-  tokens = {
-    fg: get('--fg', '#ebe8e1'), signal: get('--signal', '#7fa6cf'), danger: get('--danger', '#ef5b4f'),
-    accent: get('--accent', '#ff963f'),
-  };
+  tokens = { fg: get('--fg', '#ebe8e1'), signal: get('--signal', '#7fa6cf'), danger: get('--danger', '#ef5b4f'), accent: get('--accent', '#ff963f') };
 }
 
 function resetRun() {
@@ -118,7 +113,7 @@ function press(zone, t, now) {
   const timed = Number.isFinite(t) && Number.isFinite(prevT);
   if ((prevHand === 0 || prevHand === 1) && hand !== prevHand && timed && t - prevT <= CHORD_MS) {
     // Both hands together: a big-note double, merged into the previous strip slot.
-    seq[(seqHead + SEQ - 1) % SEQ] |= 1 << zone;
+    seq[(seqHead + SEQ_MAX - 1) % SEQ_MAX] |= 1 << zone;
     prevHand = CHORD;
   } else {
     if (prevHand === 0 || prevHand === 1) {
@@ -127,8 +122,8 @@ function press(zone, t, now) {
     }
     prevHand = hand;
     seq[seqHead] = 1 << zone;
-    seqHead = (seqHead + 1) % SEQ;
-    if (seqLen < SEQ) seqLen++;
+    seqHead = (seqHead + 1) % SEQ_MAX;
+    if (seqLen < SEQ_MAX) seqLen++;
   }
   if (Number.isFinite(t)) prevT = t;
   litAt[zone] = now;
@@ -202,20 +197,18 @@ function onFrame(values, changed) {
   const playing = isPlaying(state) && mode === 'taiko';
   game = state !== undefined;
 
-  if (playing && !wasPlaying) { resetRun(); summary = false; }
-  if (!playing && wasPlaying) holdSummary(now);
-  if ((isPlaying(state) && !playing) || !game) summary = false; // another ruleset's attempt, or osu! closed
+  if (playing && !wasPlaying) resetRun();
   wasPlaying = playing;
-  results = state === RESULTS;
 
   if (Array.isArray(all)) ingestKeys(all, playing, now);
   else if (hasLive) { hasLive = false; textDirty = true; }
 
-  if (changed.has('/beatmap/checksum')) loadPalette(values['/beatmap/checksum'] || '');
+  if (mode === 'taiko') loadPalette(values['/beatmap/checksum'] || ''); // no-op unless the map changed
   updateShow();
   requestRender();
 }
 
+/** Gameplay shows the drum; song select, results and other rulesets show nothing. */
 function updateShow() {
   let next = 'none';
   let text = '';
@@ -224,26 +217,9 @@ function updateShow() {
   else if (!online) { next = connectingShown ? 'chip' : 'none'; text = 'Connecting to vosu'; tone = 'connecting'; }
   else if (!game) { next = 'chip'; text = 'osu! not running'; }
   else if (wasPlaying) next = hasLive ? 'play' : 'note';
-  else if (results && summary && current?.showResults) next = 'result';
   if (text) setText(chipText, text);
   if (chip.dataset.tone !== tone) chip.dataset.tone = tone;
-  if (next !== show) { show = next; stage.dataset.show = next; textDirty = drumDirty = seqDirty = true; }
-}
-
-/** Freezes the attempt's drum summary for the results screen (osu! shows none of it). */
-function holdSummary(now) {
-  expireKps(now);
-  const total = live[0] + live[1] + live[2] + live[3];
-  const pairs = alternations + repeats;
-  summary = hasLive && total > 0 && pairs > 0;
-  if (!summary) return;
-  const left = Math.round((live[0] + live[1]) / total * 100);
-  setText(rPeak, peak ? String(peak) : DASH);
-  setText(rLeft, String(left));
-  setText(rRight, String(100 - left));
-  setText(rAlt, `${Math.round(alternations / pairs * 100)}%`);
-  setText(rRep, String(repeats));
-  setText(rZones, `${live[0]} · ${live[1]} · ${live[2]} · ${live[3]}`);
+  if (next !== show) { show = next; ov.dataset.show = next; textDirty = drumDirty = seqDirty = true; }
 }
 
 let connectingTimer = 0;
@@ -264,70 +240,90 @@ function loadPalette(next) {
   if (next === checksum) return;
   checksum = next;
   palette = null;
-  applyPalette(stage, null);
+  applyPalette(ov, null);
   if (!next) return;
   mapPalette(next).then(result => {
     if (checksum !== next) return; // the map changed while the background was decoding
     palette = result;
-    if (current?.accent === 'map') applyPalette(stage, palette);
+    if (current?.accent === 'map') applyPalette(ov, palette);
   });
 }
 
-// ------------------------------------------------------------------ settings + placement
+// ------------------------------------------------------------------ settings + layout
 const COLOUR_MODES = { 'Don red / kat blue': 'don-kat', 'Left blue / right amber': 'hands', Monochrome: 'mono' };
-const SIZES = new Set(['small', 'medium', 'large']);
-const LAYOUT = osuLayout('taiko');
-const LANE = LAYOUT.busy;
-const ABOVE = LAYOUT.free.find(r => r.y + r.h <= LANE.y) || { x: 0, y: 0, w: WIDTH, h: LANE.y };
-const BELOW = LANE.y + LANE.h;
-const INSET = 96;
-// x, y = anchor point on screen; ax, ay = which point of the group sits on it (0 / -50 / -100 %).
-const ZONES = {
-  'below lane, left': { x: INSET, y: BELOW + 40, ax: 0, ay: 0, align: 'start' },
-  'below lane, centre': { x: WIDTH / 2, y: BELOW + 40, ax: -50, ay: 0, align: 'center' },
-  'below lane, right': { x: WIDTH - INSET, y: BELOW + 40, ax: -100, ay: 0, align: 'end' },
-  'above lane': { x: ABOVE.x + 48, y: ABOVE.y + ABOVE.h / 2, ax: 0, ay: -50, align: 'start' },
-};
-let userScale = 1;
 
 function applySettings(s) {
   current = s;
   readTokens();
   const colour = COLOUR_MODES[s.colourMode] || 'don-kat';
-  group.dataset.colour = colour;
-  group.dataset.size = SIZES.has(s.drumSize) ? s.drumSize : 'medium';
-  group.dataset.stats = String(s.showStats);
-  stage.dataset.brand = String(s.showBrand);
-  group.dataset.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
-  stage.dataset.accent = s.accent === '18-lab' ? '18-lab' : 'map';
-  applyPalette(stage, s.accent === 'map' ? palette : null);
-  updateShow(); // showResults may change what this state shows
-
-  const zone = ZONES[s.zone] || ZONES['below lane, left'];
-  userScale = Math.min(2, Math.max(0.5, s.scale || 1));
-  group.dataset.align = zone.align;
-  anchor.style.transform = `translate(${Math.round(zone.x + s.offsetX)}px, ${Math.round(zone.y + s.offsetY)}px)`;
-  group.style.transformOrigin = `${-zone.ax}% ${-zone.ay}%`;
-  group.style.transform = `translate(${zone.ax}%, ${zone.ay}%) scale(${userScale})`;
-
+  ov.dataset.colour = colour;
+  ov.dataset.stats = String(s.showStats);
+  ov.dataset.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
+  ov.dataset.accent = s.accent === '18-lab' ? '18-lab' : 'map';
+  ov.dataset.align = ['left', 'centre', 'right'].includes(s.align) ? s.align : 'left';
+  applyPalette(ov, s.accent === 'map' ? palette : null);
   zoneColour = colour === 'hands' ? [tokens.signal, tokens.signal, tokens.accent, tokens.accent]
     : colour === 'mono' ? [tokens.fg, tokens.fg, tokens.fg, tokens.fg]
     : [tokens.signal, tokens.danger, tokens.danger, tokens.signal];
-  // Backing stores follow the user scale (CSS transforms don't reach the observed box).
+  layout();
+}
+
+let pageScale = 1;
+let seqPitch = SEQ_PITCH.full;
+
+/**
+ * Re-flows to the page box: a single row for wide boxes (full, or compact with inline labels
+ * when the box is short), a column for tall ones. Blocks drop by priority when a row is too
+ * narrow; the design is then scaled to the box. Runs on resize/settings only, never in rAF.
+ */
+function layout() {
+  const W = Math.max(1, innerWidth);
+  const H = Math.max(1, innerHeight);
+  const pick = current?.orientation;
+  const orient = pick === 'horizontal' || pick === 'vertical' ? pick : W / H >= 2 ? 'horizontal' : 'vertical';
+  const stats = current?.showStats !== false;
+  let density = 'full';
+  let scale;
+  const drop = [];
+  if (orient === 'vertical') {
+    scale = Math.min(W / COLUMN.w, H / (stats ? COLUMN.h : COLUMN.hBare));
+    seqPitch = SEQ_PITCH.vertical;
+  } else {
+    density = H / ROW_HEIGHT.full >= FULL_MIN_SCALE ? 'full' : 'compact';
+    const b = BLOCK[density];
+    const width = list => b.pad * 2 + list.reduce((sum, key) => sum + b[key], 0) + b.gap * (list.length - 1);
+    scale = H / ROW_HEIGHT[density];
+    let shown = stats ? STAT_BLOCKS.slice() : ['drum', 'counts'];
+    for (const key of DROP_ORDER) {
+      if (width(shown) <= W / scale) break;
+      if (shown.includes(key)) { shown = shown.filter(k => k !== key); drop.push(key); }
+    }
+    scale = Math.min(scale, W / width(shown));
+    seqPitch = SEQ_PITCH[density];
+  }
+  pageScale = scale;
+  ov.dataset.orient = orient;
+  ov.dataset.density = density;
+  ov.dataset.drop = drop.join(' ');
+  ov.style.width = `${W / scale}px`;
+  ov.style.height = `${H / scale}px`;
+  ov.style.transform = `scale(${scale})`;
   sizeCanvas(drumCanvas, drumBox);
   sizeCanvas(seqCanvas, seqBox);
   drumDirty = seqDirty = true;
   requestRender();
 }
+addEventListener('resize', layout);
 
 // ------------------------------------------------------------------ canvas sizing
 const drumBox = { w: 0, h: 0, scale: 1 };
 const seqBox = { w: 0, h: 0, scale: 1 };
 const zonePaths = [null, null, null, null];
 
+/** Backing stores follow devicePixelRatio × the page scale (CSS transforms don't reach the observed box). */
 function sizeCanvas(canvas, box) {
   if (!box.w || !box.h) return;
-  box.scale = (window.devicePixelRatio || 1) * userScale;
+  box.scale = (window.devicePixelRatio || 1) * pageScale;
   const w = Math.round(box.w * box.scale);
   const h = Math.round(box.h * box.scale);
   if (canvas.width !== w) canvas.width = w;
@@ -339,7 +335,7 @@ const resizer = new ResizeObserver(entries => {
     const css = entry.contentBoxSize?.[0];
     const w = css ? css.inlineSize : entry.contentRect.width;
     const h = css ? css.blockSize : entry.contentRect.height;
-    if (!w || !h) continue; // hidden (stats off): keep the old backing store
+    if (!w || !h) continue; // hidden (stats off or dropped): keep the old backing store
     const canvas = entry.target;
     const box = canvas === drumCanvas ? drumBox : seqBox;
     box.w = w;
@@ -355,10 +351,10 @@ resizer.observe(seqCanvas);
 /** Four zone outlines with a parallel centre split and a gap between rim and face. */
 function buildPaths(size) {
   const c = size / 2;
-  const gap = Math.max(2, Math.round(size / 64));
+  const gap = Math.max(2, Math.round(size / 48));
   const h = gap / 2;
   const outer = c - 1;
-  const inner = Math.round(outer * 0.69);
+  const inner = Math.round(outer * 0.66);
   const face = inner - gap;
   const a = r => Math.asin(Math.min(1, h / r));
   const HALF = Math.PI / 2;
@@ -427,7 +423,7 @@ function drawDrum() {
     ctx.fillStyle = KAT[i] ? RIM_REST : FACE_REST;
     ctx.fill(path);
     // Resting zones keep their colour identity, quietly; a press fills them.
-    ctx.globalAlpha = (KAT[i] ? 0.1 : 0.08) + lit * (KAT[i] ? 0.72 : 0.6);
+    ctx.globalAlpha = (KAT[i] ? 0.12 : 0.1) + lit * (KAT[i] ? 0.76 : 0.72);
     ctx.fillStyle = colour;
     ctx.fill(path);
     ctx.globalAlpha = 0.5 + 0.5 * lit;
@@ -444,7 +440,8 @@ function drawSeq() {
   const h = seqBox.h;
   ctx.setTransform(seqBox.scale, 0, 0, seqBox.scale, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  const pitch = w / SEQ;
+  const slots = Math.max(4, Math.min(SEQ_MAX, Math.floor(w / seqPitch)));
+  const pitch = w / slots;
   const block = Math.max(2, Math.floor(pitch) - 2);
   const row = Math.floor((h - 2) / 2);
   const top = 0;
@@ -452,16 +449,17 @@ function drawSeq() {
   // Dark cells make a track that stays legible over bright map backgrounds.
   ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgb(5 6 7 / 0.45)';
-  for (let s = 0; s < SEQ; s++) {
+  for (let s = 0; s < slots; s++) {
     const x = Math.round(s * pitch);
     ctx.fillRect(x, top, block, row);
     ctx.fillRect(x, bottom, block, row);
   }
   ctx.lineWidth = 1;
-  for (let k = 0; k < seqLen; k++) {
-    const mask = seq[(seqHead - seqLen + k + SEQ) % SEQ];
-    const x = Math.round((SEQ - seqLen + k) * pitch);
-    const age = (k + 1) / seqLen;
+  const count = Math.min(seqLen, slots);
+  for (let k = 0; k < count; k++) {
+    const mask = seq[(seqHead - count + k + SEQ_MAX) % SEQ_MAX];
+    const x = Math.round((slots - count + k) * pitch);
+    const age = (k + 1) / count;
     ctx.globalAlpha = 0.3 + 0.7 * age * age;
     for (let zone = 0; zone < 4; zone++) {
       if (!(mask & (1 << zone))) continue;
@@ -505,7 +503,7 @@ function writeText() {
     setText(balR, DASH);
   }
   if (balFill._transform !== transform) { balFill._transform = transform; balFill.style.transform = transform; }
-  if (group.dataset.empty !== String(total === 0)) group.dataset.empty = String(total === 0);
+  if (ov.dataset.empty !== String(total === 0)) ov.dataset.empty = String(total === 0);
 
   const pairs = alternations + repeats;
   setText(altEl, pairs ? `${Math.round(alternations / pairs * 100)}%` : DASH);
@@ -516,7 +514,7 @@ function writeText() {
 
 // ------------------------------------------------------------------ start
 settings({
-  zone: 'below lane, left', offsetX: 0, offsetY: 0, scale: 1, backing: 'none', accent: 'map',
-  showStats: true, drumSize: 'medium', colourMode: 'Don red / kat blue', showBrand: true, showResults: true,
+  orientation: 'auto', align: 'left', backing: 'none', accent: 'map',
+  showStats: true, colourMode: 'Don red / kat blue',
 }, applySettings);
 subscribe(POINTERS, onFrame, { onStatus: status });

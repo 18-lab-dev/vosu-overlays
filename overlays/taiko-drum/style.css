@@ -6,13 +6,31 @@
 html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
-#stage { position: absolute; left: 0; top: 0; }
 
-/* Map tint for identity marks only; drum colours keep their meaning. */
-#stage { --tint: var(--map-accent, var(--accent)); }
-#stage[data-accent="18-lab"] { --tint: var(--accent); }
+/* The page is laid out at design size (JS sets width/height in design px) and scaled to the box. */
+#ov {
+  --tint: var(--map-accent, var(--accent));
+  --z0: var(--signal); --z1: var(--danger); --z2: var(--danger); --z3: var(--signal);
+  --d: 76px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  transform-origin: 0 0;
+  contain: layout paint style;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
+}
+#ov > * { grid-area: 1 / 1; }
+#ov[data-accent="18-lab"] { --tint: var(--accent); }
+#ov[data-colour="hands"] { --z0: var(--signal); --z1: var(--signal); --z2: var(--accent); --z3: var(--accent); }
+#ov[data-colour="mono"] { --z0: var(--fg); --z1: var(--fg); --z2: var(--fg); --z3: var(--fg); }
 
-.label, .num, .hand, .don-label, .seq-hands, .brand, .title, .chip {
+/* Backing: none floats on the game; scrim fades out before the box edge; panel is the graphite card. */
+#ov::before { content: ""; grid-area: 1 / 1; border-radius: var(--radius); pointer-events: none; }
+#ov[data-backing="scrim"]::before { background: radial-gradient(farthest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .35) 65%, rgb(5 6 7 / 0)); }
+#ov[data-backing="panel"]::before { background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--tint); }
+
+.label, .hand, .pct, .seq-hands, .chip {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 14px;
@@ -21,9 +39,8 @@ body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoot
   color: var(--fg-dim);
   white-space: nowrap;
 }
-.num { color: var(--fg); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
-b { font-weight: 600; }
-.count, .big, .mid, .don, .peak {
+.pct { color: var(--fg); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.num-l, .num-xl {
   font-family: var(--font-display);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -31,139 +48,132 @@ b { font-weight: 600; }
   white-space: nowrap;
   line-height: 1;
 }
+/* Every labelled block shares one grid: a 14 px label line, 4 px, a 34 px value line. */
+.num-l { font-size: 24px; line-height: 34px; }
+.num-xl { font-size: 32px; line-height: 34px; }
+.tint { color: var(--tint); }
+.empty { color: var(--fg-dim); }
+.short { display: none; }
 
-/* Placement: the anchor sits on a point of osu!'s free area; the group hangs off it. ---- */
-.anchor { position: absolute; left: 0; top: 0; }
-.group {
-  --d: 156px;
-  display: grid;
-  transform-origin: 0 0;
-  contain: layout style;
-}
-.group > * { grid-area: 1 / 1; justify-self: start; }
-.group[data-align="center"] > * { justify-self: center; }
-.group[data-align="end"] > * { justify-self: end; }
-.group[data-size="small"] { --d: 128px; }
-.group[data-size="large"] { --d: 196px; }
-
-.cluster, .chip, .result {
+/* Visibility: one of the row (gameplay) or the chip (connection / no data). */
+.row, .chip {
   opacity: 0;
   visibility: hidden;
-  transform: translateY(4px);
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s linear 200ms;
+  transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms;
 }
-#stage[data-show="play"] .cluster,
-#stage[data-show="chip"] .chip,
-#stage[data-show="note"] .chip,
-#stage[data-show="result"] .result {
+#ov[data-show="play"] .row,
+#ov[data-show="chip"] .chip,
+#ov[data-show="note"] .chip {
   opacity: 1;
   visibility: visible;
-  transform: none;
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s;
+  transition: opacity 200ms var(--ease-draft), visibility 0s;
 }
 
-/* Floating on the game: weight and a restrained shadow carry legibility, not a box. */
-.cluster { position: relative; padding: 12px 16px 16px; text-shadow: 0 1px 2px rgb(0 0 0 / .65); }
-.cluster::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: var(--radius); pointer-events: none; }
-.group[data-backing="scrim"] .cluster::before {
-  inset: -40px -56px;
-  background: radial-gradient(closest-side, rgb(5 6 7 / .62), rgb(5 6 7 / .36) 60%, rgb(5 6 7 / 0));
-}
-.group[data-backing="panel"] .cluster::before {
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--tint);
-}
+.block { flex: none; min-width: 0; }
+.b-drum { width: var(--d); height: var(--d); position: relative; }
+.b-drum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.b-counts { display: grid; grid-template-columns: repeat(4, 48px); column-gap: 8px; }
+.zc { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.zt { position: absolute; bottom: -3px; width: 16px; height: 3px; border-radius: 1px; background: var(--z0); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.zt-1 { background: var(--z1); }
+.zt-2 { background: var(--z2); }
+.zt-3 { background: var(--z3); }
+.stat { display: flex; flex-direction: column; gap: 4px; }
 
-.head { display: flex; align-items: center; gap: 8px; height: 14px; margin-bottom: 12px; }
-.tick { width: 12px; height: 2px; background: var(--tint); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
-.brand { color: var(--fg); letter-spacing: .1em; }
-.title { color: var(--fg-dim); }
-#stage[data-brand="false"] .head { display: none; }
-
-.body { display: flex; align-items: center; }
-
-/* Drum ------------------------------------------------------------------- */
-.drum-col { display: flex; align-items: center; gap: 12px; }
-.kat { display: flex; flex-direction: column; gap: 6px; min-width: 48px; }
-.kat-l { align-items: flex-end; }
-.kat-r { align-items: flex-start; }
-.count { font-size: clamp(24px, calc(var(--d) * .15), 30px); }
-
-.drum { position: relative; width: var(--d); height: var(--d); flex: none; }
-.drum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.don { position: absolute; top: 50%; left: calc(50% - var(--d) * .175); font-size: clamp(22px, calc(var(--d) * .145), 28px); transform: translate(-50%, -66%); }
-.don-r { left: calc(50% + var(--d) * .175); }
-.don-label { position: absolute; top: calc(50% + var(--d) * .06); left: calc(50% - var(--d) * .175); transform: translateX(-50%); color: var(--fg-dim); }
-.don-label-r { left: calc(50% + var(--d) * .175); }
-
-/* Stats ------------------------------------------------------------------ */
-.stats {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 224px;
-  margin-left: 20px;
-  padding-left: 20px;
-  border-left: 1px solid rgb(235 232 225 / .22);
-}
-.group[data-stats="false"] .stats { display: none; }
-
-.kps-row { display: flex; align-items: flex-end; justify-content: space-between; }
-.kps, .kps-sub { display: flex; flex-direction: column; gap: 2px; }
-.kps-sub { align-items: flex-end; }
-.big { font-size: 44px; line-height: 38px; min-width: 2ch; }
-.peak { font-size: 24px; line-height: 24px; color: var(--tint); }
-
-.balance { display: flex; flex-direction: column; gap: 6px; }
-.balance-row { display: flex; align-items: center; gap: 8px; }
+.b-hands { display: flex; flex-direction: column; gap: 4px; width: 184px; }
+.hands-row { display: flex; align-items: center; gap: 8px; height: 34px; }
 .side { display: inline-flex; gap: 4px; min-width: 44px; }
-.side-r { justify-content: flex-end; }
-.hand { color: var(--fg-dim); }
-.balance-track { position: relative; flex: 1; height: 4px; background: rgb(235 232 225 / .26); border-radius: 1px; overflow: hidden; box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
-.balance-fill { position: absolute; inset: 0; background: var(--tint); transform-origin: 0 50%; transform: scaleX(0); }
-.group[data-colour="hands"] .balance-track { background: var(--accent); }
-.group[data-colour="hands"] .balance-fill { background: var(--signal); }
-.group[data-empty="true"] .balance-track { background: rgb(235 232 225 / .26); }
-.balance-mid { position: absolute; left: calc(50% - 1px); top: 0; width: 2px; height: 4px; background: var(--bg); }
+.side:last-child { justify-content: flex-end; }
+.track { position: relative; flex: 1; height: 4px; background: rgb(235 232 225 / .28); border-radius: 1px; overflow: hidden; box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.fill { position: absolute; inset: 0; background: var(--tint); transform-origin: 0 50%; transform: scaleX(0); }
+#ov[data-colour="hands"] .track { background: var(--accent); }
+#ov[data-colour="hands"] .fill { background: var(--signal); }
+#ov[data-empty="true"] .track { background: rgb(235 232 225 / .28); }
+.mid { position: absolute; left: calc(50% - 1px); top: 0; width: 2px; height: 4px; background: var(--bg); }
 
-.seq { display: flex; align-items: stretch; gap: 8px; height: 26px; }
-.seq-hands { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; line-height: 12px; }
-.seq canvas { flex: 1; min-width: 0; height: 26px; display: block; }
+.b-seq { display: flex; align-items: stretch; gap: 8px; height: 30px; margin-top: 20px; }
+.seq-hands { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; line-height: 13px; }
+.b-seq canvas { flex: 1; min-width: 0; height: 100%; display: block; }
 
-.pair { display: flex; gap: 16px; }
-.pair > div { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.mid { font-size: 26px; }
+/* Horizontal: one row, the drum at the aligned end, the hit strip absorbs spare width. ---- */
+#ov[data-orient="horizontal"] .row { display: flex; align-items: center; gap: 24px; padding: 0 12px; height: 100%; }
+#ov[data-orient="horizontal"][data-align="right"] .row { flex-direction: row-reverse; }
+#ov[data-orient="horizontal"][data-align="centre"] .row { justify-content: center; }
+#ov[data-orient="horizontal"] .b-kps { width: 64px; }
+#ov[data-orient="horizontal"] .b-peak { width: 52px; }
+#ov[data-orient="horizontal"] .b-seq { flex: 1 1 0; min-width: 120px; max-width: 360px; }
+#ov[data-orient="horizontal"] .b-alt { width: 100px; }
+#ov[data-orient="horizontal"] .b-rep { width: 84px; }
 
-.cluster .empty { color: var(--fg-dim); }
+/* Compact (short boxes, e.g. a 264 px renderer cell): labels go inline, everything flattens. */
+#ov[data-density="compact"] { --d: 48px; }
+#ov[data-density="compact"] .row { gap: 18px; padding: 0 6px; }
+#ov[data-density="compact"] .b-counts { grid-template-columns: repeat(4, 44px); column-gap: 6px; }
+#ov[data-density="compact"] .zc .label,
+#ov[data-density="compact"] .b-hands > .label,
+#ov[data-density="compact"] :is(.b-alt, .b-rep) > .label:not(.short) { display: none; }
+#ov[data-density="compact"] .short { display: inline; }
+#ov[data-density="compact"] .stat { flex-direction: row; align-items: baseline; gap: 6px; }
+#ov[data-density="compact"] .num-l { font-size: 22px; }
+#ov[data-density="compact"] .num-xl { font-size: 26px; }
+#ov[data-density="compact"] .b-kps { width: 70px; }
+#ov[data-density="compact"] .b-peak { width: 80px; }
+#ov[data-density="compact"] .b-hands { width: 150px; }
+#ov[data-density="compact"] .b-seq { height: 24px; min-width: 100px; margin-top: 0; }
+#ov[data-density="compact"] .b-alt { width: 80px; }
+#ov[data-density="compact"] .b-rep { width: 70px; }
 
-/* Connection / no-data / missing-extension: one small chip in the same spot. ---- */
+/* Vertical: drum on top, counts under it, stats in two columns. ------------------ */
+#ov[data-orient="vertical"] { --d: 176px; }
+#ov[data-orient="vertical"] .row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas: "drum drum" "counts counts" "kps peak" "hands hands" "seq seq" "alt rep";
+  gap: 16px;
+  align-content: center;
+  padding: 16px;
+  width: 296px;
+  align-self: center;
+}
+#ov[data-orient="vertical"][data-align="centre"] .row { justify-self: center; }
+#ov[data-orient="vertical"][data-align="right"] .row { justify-self: end; }
+#ov[data-orient="vertical"] .b-drum { grid-area: drum; justify-self: center; }
+#ov[data-orient="vertical"] .b-counts { grid-area: counts; grid-template-columns: repeat(4, 1fr); margin-top: -4px; }
+#ov[data-orient="vertical"] .b-kps { grid-area: kps; }
+#ov[data-orient="vertical"] .b-peak { grid-area: peak; }
+#ov[data-orient="vertical"] .b-hands { grid-area: hands; width: auto; }
+#ov[data-orient="vertical"] .b-seq { grid-area: seq; height: 26px; margin-top: 0; }
+#ov[data-orient="vertical"] .b-alt { grid-area: alt; }
+#ov[data-orient="vertical"] .b-rep { grid-area: rep; }
+#ov[data-orient="vertical"][data-align="left"] .b-drum { justify-self: start; }
+#ov[data-orient="vertical"][data-align="right"] .b-drum { justify-self: end; }
+#ov[data-orient="vertical"][data-align="right"] .stat { align-items: flex-end; }
+
+#ov[data-stats="false"] :is(.b-kps, .b-peak, .b-hands, .b-seq, .b-alt, .b-rep) { display: none; }
+#ov[data-drop~="rep"] .b-rep, #ov[data-drop~="peak"] .b-peak, #ov[data-drop~="seq"] .b-seq,
+#ov[data-drop~="alt"] .b-alt, #ov[data-drop~="hands"] .b-hands { display: none; }
+
+/* Connection / no-data / missing extension: one small chip. ---------------------- */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  align-self: start;
-  margin: 12px 16px;
+  align-self: center;
+  justify-self: start;
+  margin: 0 12px;
   padding: 6px 10px;
   background: rgb(17 18 20 / .78);
   border-radius: var(--radius);
   text-transform: none;
   letter-spacing: .02em;
-  color: var(--fg-dim);
+  text-shadow: none;
 }
-.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: transparent; box-shadow: inset 0 0 0 1px var(--fg-dim); }
+#ov[data-align="right"] .chip { justify-self: end; }
+#ov[data-align="centre"] .chip { justify-self: center; }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--fg-dim); }
 .chip[data-tone="offline"] .dot { background: var(--danger); box-shadow: none; }
 .chip[data-tone="connecting"] .dot { background: var(--caution); box-shadow: none; }
 .chip-note { display: none; font-family: var(--font-body); font-size: 13px; }
 .chip-note code { font: 500 12px var(--font-mono); color: var(--caution); }
-#stage[data-show="note"] .chip-note { display: inline; }
-#stage[data-show="note"] .dot, #stage[data-show="note"] #chip-text { display: none; }
-
-/* Results: one line in the free right part of osu!'s top header strip. ---------- */
-.result { position: absolute; top: 24px; right: 20px; text-shadow: 0 1px 2px rgb(0 0 0 / .65); }
-.result .head { justify-content: flex-end; margin-bottom: 8px; }
-.r-stats { display: flex; gap: 28px; }
-.r-stats > div { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-.r-hand { font: 500 12px/1 var(--font-mono); color: var(--fg-dim); letter-spacing: .08em; margin: 0 4px; }
-.r-sep { color: var(--fg-dim); margin: 0 3px; font-weight: 400; }
-.r-zones { word-spacing: .2em; }
+#ov[data-show="note"] .chip-note { display: inline; }
+#ov[data-show="note"] .dot, #ov[data-show="note"] #chip-text { display: none; }

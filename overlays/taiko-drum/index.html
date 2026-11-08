@@ -3,66 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Taiko drum · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Taiko drum</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage" data-show="none">
-  <div class="anchor" id="anchor">
-    <div class="group" id="group" data-size="medium" data-colour="don-kat" data-backing="none" data-stats="true" data-brand="true">
-      <section class="cluster" aria-label="osu!taiko drum input">
-        <header class="head"><i class="tick" aria-hidden="true"></i><span class="brand">18—LAB</span><span class="title">Drum</span></header>
-        <div class="body">
-          <div class="drum-col">
-            <div class="kat kat-l"><span class="label">Kat</span><b class="count" id="c0">—</b></div>
-            <div class="drum">
-              <canvas id="drum-canvas" aria-hidden="true"></canvas>
-              <b class="don don-l" id="c1">—</b>
-              <b class="don don-r" id="c2">—</b>
-              <span class="don-label don-label-l">Don</span>
-              <span class="don-label don-label-r">Don</span>
-            </div>
-            <div class="kat kat-r"><span class="label">Kat</span><b class="count" id="c3">—</b></div>
-          </div>
-          <div class="stats">
-            <div class="kps-row">
-              <div class="kps"><span class="label">KPS</span><b class="big" id="kps">—</b></div>
-              <div class="kps-sub"><span class="label">Peak</span><b class="peak" id="peak">—</b></div>
-            </div>
-            <div class="balance">
-              <span class="label">Hands</span>
-              <div class="balance-row">
-                <span class="side"><span class="hand">L</span><span class="num" id="bal-l">—</span></span>
-                <div class="balance-track"><i class="balance-fill" id="bal-fill"></i><i class="balance-mid"></i></div>
-                <span class="side side-r"><span class="num" id="bal-r">—</span><span class="hand">R</span></span>
-              </div>
-            </div>
-            <div class="seq">
-              <span class="seq-hands" aria-hidden="true"><span>L</span><span>R</span></span>
-              <canvas id="seq-canvas" aria-label="Recent hits by hand, newest right"></canvas>
-            </div>
-            <div class="pair">
-              <div><span class="label">Alternation</span><b class="mid" id="alt">—</b></div>
-              <div><span class="label">Same hand</span><b class="mid" id="rep">—</b></div>
-            </div>
-          </div>
-        </div>
-      </section>
-      <p class="chip" id="chip" data-tone="muted"><i class="dot" aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span><span class="chip-note">Set <code>ENABLE_KEY_OVERLAY = true</code> in vosu for drum input</span></p>
+<main id="ov" data-show="none" data-orient="horizontal" data-density="full" data-align="left" data-colour="don-kat" data-backing="none" data-stats="true" aria-label="osu!taiko drum input">
+  <div class="row" id="row">
+    <div class="block b-drum"><canvas id="drum-canvas" aria-hidden="true"></canvas></div>
+    <div class="block b-counts">
+      <div class="zc"><span class="label">Kat</span><b class="num-l" id="c0">—</b><i class="zt zt-0"></i></div>
+      <div class="zc"><span class="label">Don</span><b class="num-l" id="c1">—</b><i class="zt zt-1"></i></div>
+      <div class="zc"><span class="label">Don</span><b class="num-l" id="c2">—</b><i class="zt zt-2"></i></div>
+      <div class="zc"><span class="label">Kat</span><b class="num-l" id="c3">—</b><i class="zt zt-3"></i></div>
     </div>
+    <div class="block stat b-kps"><span class="label">KPS</span><b class="num-xl" id="kps">—</b></div>
+    <div class="block stat b-peak"><span class="label">Peak</span><b class="num-l tint" id="peak">—</b></div>
+    <div class="block b-hands">
+      <span class="label">Hands</span>
+      <div class="hands-row">
+        <span class="side"><span class="hand">L</span><span class="pct" id="bal-l">—</span></span>
+        <div class="track"><i class="fill" id="bal-fill"></i><i class="mid"></i></div>
+        <span class="side"><span class="pct" id="bal-r">—</span><span class="hand">R</span></span>
+      </div>
+    </div>
+    <div class="block b-seq">
+      <span class="seq-hands" aria-hidden="true"><span>L</span><span>R</span></span>
+      <canvas id="seq-canvas" aria-label="Recent hits by hand, newest right"></canvas>
+    </div>
+    <div class="block stat b-alt"><span class="label">Alternation</span><span class="label short">Alt</span><b class="num-l" id="alt">—</b></div>
+    <div class="block stat b-rep"><span class="label">Same hand</span><span class="label short">Same</span><b class="num-l" id="rep">—</b></div>
   </div>
-  <section class="result" id="result" aria-label="Drum summary of the last play">
-    <header class="head"><i class="tick" aria-hidden="true"></i><span class="brand">18—LAB</span><span class="title">Drum</span></header>
-    <div class="r-stats">
-      <div><span class="label">Peak KPS</span><b class="mid peak" id="r-peak">—</b></div>
-      <div><span class="label">Hands</span><b class="mid"><span class="r-hand">L</span><span id="r-left">—</span><span class="r-sep">/</span><span id="r-right">—</span><span class="r-hand">R</span></b></div>
-      <div><span class="label">Alternation</span><b class="mid" id="r-alt">—</b></div>
-      <div><span class="label">Same hand</span><b class="mid" id="r-rep">—</b></div>
-      <div><span class="label">Kat · Don · Don · Kat</span><b class="mid r-zones" id="r-zones">—</b></div>
-    </div>
-  </section>
-</div>
+  <p class="chip" id="chip" data-tone="muted"><i class="dot" aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span><span class="chip-note">Set <code>ENABLE_KEY_OVERLAY = true</code> in vosu for drum input</span></p>
+</main>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

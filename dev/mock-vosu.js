@@ -123,10 +123,18 @@ function build() {
       object.columns = [];
       for (let c = 0; c < chord; c++) object.columns.push(Math.floor(random() * columns));
       object.columns = [...new Set(object.columns)];
+      // Each finger has its own bias and spread (outer columns late and loose), so per-column
+      // overlays show real lane differences rather than one shared distribution.
+      object.columnErrors = object.columns.map(c => {
+        const offset = c / Math.max(1, columns - 1) - 0.5;
+        const columnBias = 9 * offset * offset * 4 - 3 + (c % 2 ? 2.5 : -1.5);
+        return Math.round((error + columnBias + gauss(random) * (4 + 6 * Math.abs(offset))) * 10) / 10;
+      });
       object.ln = object.section === 5 && random() < 0.6 ? beat * (1 + Math.floor(random() * 2)) : 0;
       object.release = object.ln ? Math.round((bias + 6 + gauss(random) * sigma * 1.6) * 10) / 10 : null;
-      for (const column of object.columns) {
-        if (!miss) presses[column].push([object.t + error, object.t + (object.ln ? object.ln + object.release : error + 35 + random() * 40)]);
+      for (const [i, column] of object.columns.entries()) {
+        const press = object.columnErrors[i];
+        if (!miss) presses[column].push([object.t + press, object.t + (object.ln ? object.ln + object.release : press + 35 + random() * 40)]);
       }
     } else {
       // Catch: fruits on the beat, droplet trails between big moves.
@@ -208,9 +216,10 @@ function documentAt() {
     maxCombo = Math.max(maxCombo, combo);
     score += ({ geki: 320, katu: 200 }[result] ?? result) * (1 + combo / 25);
     if (!object.miss && mode !== 'fruits') {
-      hitErrors.push(object.error);
-      pressHitErrors.push(object.error);
-      if (mode === 'mania') for (const column of object.columns) keyPress[column].push(object.error);
+      const errors = mode === 'mania' ? object.columnErrors : [object.error];
+      hitErrors.push(...errors);
+      pressHitErrors.push(...errors);
+      if (mode === 'mania') object.columns.forEach((column, i) => keyPress[column].push(errors[i]));
     }
     if (mode === 'osu' && !object.miss) {
       const triple = scenario.offsets[osuIndex++];
@@ -519,7 +528,9 @@ function galleryPage() {
     return `<figure><div class="frame" style="height:${Math.ceil(h * scale)}px"><iframe src="/${id}/" style="width:${w}px;height:${h}px;transform:scale(${scale})" loading="lazy"></iframe></div><figcaption><a href="/__dev/stage?id=${id}" target="_blank">${name}</a> <code>${id} · ${w}×${h}</code><p>${description}</p></figcaption></figure>`;
   }).join('');
   const modes = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['menu', 'play', 'results'].map(state => `<button data-q="mode=${mode}&state=${state}&freeze=">${mode} ${state}</button>`)).join('');
-  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}<button data-q="state=offline">osu! closed</button><button data-q="state=down">vosu down</button><button data-q="ext=0">ext off</button><button data-q="ext=1">ext on</button><button data-q="keys=7">7K</button><button data-q="keys=4">4K</button><button data-q="client=lazer">lazer</button><button data-q="client=stable">stable</button></header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
+  const toggles = [['state=offline', 'osu! closed'], ['state=down', 'vosu down'], ['ext=0', 'ext off'], ['ext=1', 'ext on'], ['keys=7', '7K'], ['keys=4', '4K'], ['client=lazer', 'lazer'], ['client=stable', 'stable'], ['mods=HDDT', 'HDDT'], ['mods=HD', 'HD'], ['compat=tosu', 'tosu'], ['compat=vosu', 'vosu'], ['start=110000', 'late attempt']]
+    .map(([q, label]) => `<button data-q="${q}">${label}</button>`).join('');
+  return `<!doctype html><meta charset=utf-8><title>overlay gallery</title><link rel="stylesheet" href="/assets/tokens.css"><style>html{background:#0b0c0d;color:#ebe8e1;font:14px var(--font-body)}body{margin:0;padding:20px}header{position:sticky;top:0;z-index:2;background:#0b0c0d;padding:8px 0 12px;display:flex;flex-wrap:wrap;gap:6px}button{font:12px var(--font-mono);background:#17191c;color:#ebe8e1;border:1px solid #3b3f45;padding:5px 8px;cursor:pointer}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px}figure{margin:0;background:#111214;border:1px solid #25282c;padding:10px}.frame{position:relative;overflow:hidden;background:url(/files/beatmap/background) center/cover}.frame::before{content:"";position:absolute;inset:0;background:rgb(0 0 0/.55)}iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}figcaption{margin-top:8px}figcaption a{color:#ff963f;font-weight:600}code{color:#7e8288;font:11px var(--font-mono);margin-left:6px}p{margin:4px 0 0;color:#b8b5ad;font-size:12px}</style><header>${modes}${toggles}</header><main>${cards}</main><script>for(const b of document.querySelectorAll('button'))b.onclick=()=>fetch('/__dev/scenario?'+b.dataset.q)</script>`;
 }
 
 function overlaySettings(id) {

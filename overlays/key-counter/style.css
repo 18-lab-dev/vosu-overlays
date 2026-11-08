@@ -7,43 +7,30 @@ html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { font: 400 14px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; }
 
-/* Transparent 1920×1080 overlay; the cluster floats in a free region of osu!'s layout. */
-#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; }
-#hud { --hl: var(--accent); position: absolute; inset: 0; user-select: none; }
+/* The page is the overlay's box: its host sizes and places it; the canvas fills it. */
+#hud { --hl: var(--accent); position: absolute; inset: 0; user-select: none; contain: strict; }
 #hud[data-accent="map"] { --hl: var(--map-accent, var(--accent)); }
+#keys { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 200ms var(--ease-draft); }
+#hud[data-phase="play"] #keys,
+#hud[data-phase="results"] #keys { opacity: 1; }
 
-#cluster {
-  position: absolute;
-  opacity: 0;
-  transition: opacity 200ms var(--ease-draft);
-  contain: layout;
-}
-#hud[data-phase="play"] #cluster,
-#hud[data-phase="results"] #cluster { opacity: 1; }
-#keys { position: relative; display: block; }
+/* Optional backing: a soft scrim that fades to the box edges, or an 18-LAB panel. Only while shown. */
+#hud::before { content: ""; position: absolute; inset: 0; display: none; opacity: 0; transition: opacity 200ms var(--ease-draft); pointer-events: none; }
+#hud[data-backing="scrim"]::before { display: block; background: radial-gradient(closest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .3) 60%, transparent); }
+#hud[data-backing="panel"]::before { display: block; background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius); }
+#hud[data-phase="play"]::before,
+#hud[data-phase="results"]::before { opacity: 1; }
 
-/* Optional backing behind the tiles: a soft scrim that fades out, or an 18-LAB panel. */
-#backing { position: absolute; display: none; pointer-events: none; }
-#hud[data-backing="scrim"] #backing {
-  display: block;
-  inset: -56px -72px;
-  background: radial-gradient(closest-side, rgb(5 6 7 / .62), rgb(5 6 7 / .34) 55%, transparent);
-}
-#hud[data-backing="panel"] #backing {
-  display: block;
-  inset: -12px;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--hl);
-  border-radius: var(--radius);
-}
-
-/* Connection and no-data states: one small chip at the cluster's anchor. */
+/* Connection and no-data states: one small chip, centred in the box. */
 #chip {
   position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
   display: none;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
   margin: 0;
   padding: 6px 10px;
   background: rgb(17 18 20 / .84);
@@ -53,14 +40,12 @@ body { font: 400 14px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoot
   letter-spacing: .02em;
   color: var(--fg-dim);
   white-space: nowrap;
+  overflow: hidden;
 }
-#chip[data-anchor="bottom"] { translate: 0 -100%; }
-#chip[data-align="end"] { transform: translateX(-100%); }
-#chip[data-align="centre"] { transform: translateX(-50%); }
 #hud[data-phase="connecting"] #chip,
 #hud[data-phase="offline"] #chip,
 #hud[data-phase="absent"] #chip,
 #hud[data-phase="nokeys"] #chip { display: flex; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
 #hud[data-phase="offline"] .dot { background: var(--danger); }
 #hud[data-phase="nokeys"] .dot { background: var(--caution); }

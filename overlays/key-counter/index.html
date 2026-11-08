@@ -3,19 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Key counter · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>Key counter</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <div id="hud" data-phase="connecting" data-backing="none" data-accent="map">
-    <div id="cluster" aria-label="Key counter">
-      <div id="backing"></div>
-      <canvas id="keys" aria-label="Key presses per key, keys per second, total and peak"></canvas>
-    </div>
-    <p id="chip" role="status"><i class="dot"></i><span id="chip-text">Connecting to vosu</span></p>
-  </div>
+<div id="hud" data-phase="connecting" data-backing="none" data-accent="map">
+  <canvas id="keys" aria-label="Key presses per key, keys per second, total and peak"></canvas>
+  <p id="chip" role="status"><i class="dot"></i><span id="chip-text">Connecting to vosu</span></p>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

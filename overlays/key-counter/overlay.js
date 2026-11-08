@@ -1,11 +1,13 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Key counter overlay: floating key caps (count inside, share-of-presses bar along the bottom)
-// and one KPS tile (live keys per second, 10 s history, total and peak), placed in the empty
-// regions osu! leaves around the playfield (osuLayout). Shown during gameplay, and on the
-// results screen with the attempt's peak/average KPS and history (osu! shows neither); hidden in
-// song select and menus. Everything that changes per tap is drawn on one canvas with per-tile
-// dirty redraws; data handlers only record state and one rAF pass renders, then sleeps.
-import { subscribe, settings, fit, activeMode, isPlaying, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
+// Key counter: key caps that light on press (count inside, share-of-presses bar along the bottom)
+// and a KPS readout (live keys per second, 10 s history, total and peak). The page is sized and
+// placed by its host (OBS, vosulay, the replay renderer); it lays itself out for the box it gets:
+// a row of caps in wide boxes (mania caps take the skin's column proportions, so the row lines up
+// with the stage when the page spans it), a column in tall boxes. Shown during gameplay, and on
+// the results screen with the attempt's peak/average KPS and history (osu! shows neither).
+// Everything that changes per tap is drawn on one canvas with per-tile dirty redraws; data
+// handlers only record state and one rAF pass renders, then sleeps until something will change.
+import { subscribe, settings, activeMode, isPlaying, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const RESULTS = 7;
 const BUCKET_MS = 250;          // history resolution
@@ -17,13 +19,6 @@ const MAX_KEYS = 32;
 const FLASH_MS = 90;            // a tap that began and ended between two frames still lights
 const PRESS_MS = 50, RELEASE_MS = 180;
 
-// Cluster geometry in layout px (multiplied by the scale setting).
-const GAP = 6;                  // between caps
-const GROUP_GAP = 8;            // between the caps and the KPS tile
-const STAT_W = 268, STAT_H = 72;
-const MARGIN = 48;              // from screen edges
-const MANIA_CLEAR = 112;        // right of a stable mania stage: room for its HP bar
-
 const P = {
   state: '/state/number', playMode: '/play/mode/number', menuMode: '/settings/mode/number',
   client: '/client', all: '/keys/all', k1: '/keys/k1', k2: '/keys/k2', m1: '/keys/m1', m2: '/keys/m2',
@@ -33,7 +28,7 @@ const P = {
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
-const hud = $('hud'), cluster = $('cluster'), backing = $('backing'), chip = $('chip'), chipText = $('chip-text');
+const hud = $('hud'), chipText = $('chip-text');
 const canvas = $('keys');
 const ctx = canvas.getContext('2d', { alpha: true });
 const css = getComputedStyle(root);
@@ -43,10 +38,6 @@ const C = {
   amber: token('--accent'), onAmber: token('--on-accent'), kat: token('--signal'),
   tile: 'rgb(17 18 20 / 0.84)', track: 'rgb(235 232 225 / 0.1)', base: 'rgb(235 232 225 / 0.16)',
   lit: token('--accent'), onLit: token('--on-accent'),
-};
-const F = {
-  label: '500 12px "IBM Plex Mono"', count: '600 26px "Barlow Condensed"', big: '600 32px "Barlow Condensed"',
-  footValue: '500 13px "IBM Plex Mono"',
 };
 const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const ease = t => 1 - (1 - t) ** 3;
@@ -237,7 +228,7 @@ function onStatus(state) {
 function setPhase(phase) {
   if (view.status !== 'live') phase = view.status;
   if (phase === view.phase) return;
-  // Results use their own zone (the header strip), so leaving or entering them re-places the cluster.
+  // Column layouts drop the key rows on the results screen.
   if (phase === 'results' || view.phase === 'results') dirty.layout = true;
   view.phase = phase;
   dirty.phase = dirty.stats = true;
@@ -260,72 +251,9 @@ function setTint(palette) {
   wake();
 }
 
-// ---------------------------------------------------------------- placement
-const opts = {
-  zone: 'auto', x: 0, y: 0, scale: 1, orientation: 'horizontal', cap: 72, spark: true, total: true,
-  backing: 'none', accent: 'map', brand: true, columnStart: 0, columnWidth: 0, matchColumns: false,
-};
-const geo = { k: 1, w: 0, h: 0, stat: { x: 0, y: 0 } };
-const caps = [];   // drawn caps: {src, label, sub, kind, x, y, w, h, p, f, d*}
-let pxr = 1;       // device px per layout px (devicePixelRatio × scale)
-let dpr = devicePixelRatio || 1;
-
-/**
- * Resolves the zone into a target box and how the cluster sits in it:
- * {x, y, w, h, alignX: 0 start | 0.5 centre | 1 end, anchorY: 'top' | 'bottom' | 'centre', at: y px, stackAbove}.
- */
-function resolveZone(mode, keys) {
-  // Results: osu! fills the screen with its ranking panel; the right part of the top header strip is free.
-  if (view.phase === 'results') return { x: 1000, y: 8, w: 900, h: 122, alignX: 1, anchorY: 'centre', at: 69 };
-  const m = mode || 'osu';
-  const stage = maniaStage(keys || 4);
-  const layout = osuLayout(m, { keys: keys || 4, ...stage, client: view.client });
-  const { busy, hud: h, width: W, height: H, unit } = layout;
-  const zone = opts.zone === 'auto' ? (m === 'taiko' ? 'bottom' : 'right') : opts.zone;
-  const low = Math.round(H * 0.86);   // side bands: cluster bottom, clear of lazer's bottom-right key counter
-  if (m === 'taiko') {
-    if (zone === 'top') {
-      const x0 = h.health.x + h.health.w + MARGIN, x1 = h.score.x - MARGIN;
-      return { x: x0, y: 0, w: x1 - x0, h: busy.y, alignX: 0.5, anchorY: 'centre', at: busy.y / 2 };
-    }
-    const top = busy.y + busy.h + 40;
-    return { x: MARGIN, y: top, w: W - 2 * MARGIN, h: H - top - MARGIN, alignX: zone === 'right' ? 1 : zone === 'left' || zone === 'bottom' ? 0 : 0.5, anchorY: 'top', at: top };
-  }
-  if (m === 'mania') {
-    // Caps row ends just above the hit line (skin HitPosition), level with the receptors.
-    const receptors = Math.min(H - MARGIN, Math.round(stage.hitPosition * unit) - 24) - opts.cap / 2;
-    if (zone === 'left') {
-      const x1 = busy.x - MARGIN;
-      return { x: MARGIN, y: 0, w: x1 - MARGIN, h: H, alignX: 1, anchorY: 'capsCentre', at: receptors };
-    }
-    const x0 = busy.x + busy.w + (view.client === 'lazer' ? MARGIN : Math.round(MANIA_CLEAR * unit / 2.25));
-    return { x: x0, y: 0, w: W - MARGIN - x0, h: H, alignX: 0, anchorY: 'capsCentre', at: receptors };
-  }
-  // osu! / catch: the side bands left and right of the 4:3 playfield, or the strip under it.
-  if (zone === 'bottom') {
-    const top = busy.y + busy.h + 4;
-    return { x: busy.x, y: top, w: busy.w, h: H - top, alignX: 0.5, anchorY: 'centre', at: top + (H - top) / 2 };
-  }
-  if (zone === 'left') {
-    const x1 = busy.x - MARGIN;
-    return { x: MARGIN, y: 0, w: x1 - MARGIN, h: H, alignX: 0, anchorY: 'bottom', at: low };
-  }
-  const x0 = busy.x + busy.w + MARGIN;
-  return { x: x0, y: 0, w: W - MARGIN - x0, h: H, alignX: 1, anchorY: 'bottom', at: low };
-}
-
-/** Mania stage geometry: the skin's [Mania] section, with the column settings as overrides (0 = skin). */
-function maniaStage(keys) {
-  const skin = skinGeo.keys === keys ? skinGeo.value : null;
-  return {
-    columnStart: opts.columnStart || skin?.columnStart || 136,
-    columnWidth: opts.columnWidth || skin?.columnWidth || 30,
-    columnSpacing: opts.columnWidth ? 0 : skin?.columnSpacing || 0,
-    hitPosition: skin?.hitPosition || 402,
-  };
-}
-
-// Current skin's mania section, re-read on key-count or skin change (off the hot path).
+// ---------------------------------------------------------------- mania column proportions
+// The current skin's [Mania] section for this key count (column widths and spacing), re-read on
+// key-count or skin change. Only proportions are used: the page spans what its host gives it.
 const skinGeo = { wantKeys: 0, wantName: null, keys: 0, value: null };
 function loadSkin(keys, name) {
   const skin = typeof name === 'string' ? name : '';
@@ -339,74 +267,155 @@ function loadSkin(keys, name) {
   }).catch(() => {});
 }
 
+/** Column edges as fractions of the stage width: [{a, b}] per column, from the skin or equal. */
+function columnFractions(n) {
+  const skin = opts.maniaColumns === 'skin' && skinGeo.keys === n ? skinGeo.value : null;
+  const widths = [], gaps = [];
+  for (let i = 0; i < n; i++) widths.push(skin?.columnWidth?.[i] || 30);
+  for (let i = 0; i < n - 1; i++) gaps.push(skin?.columnSpacing?.[i] || 0);
+  const total = widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
+  const out = [];
+  let x = 0;
+  for (let i = 0; i < n; i++) { out.push({ a: x / total, b: (x + widths[i]) / total }); x += widths[i] + (gaps[i] || 0); }
+  return out;
+}
+
+// ---------------------------------------------------------------- layout for the page's box
+const opts = {
+  orientation: 'auto', align: 'center', kps: 'auto', spark: true, total: true,
+  maniaColumns: 'skin', backing: 'none', accent: 'map',
+};
+const box = { w: 0, h: 0 };        // page size in CSS px (ResizeObserver)
+let dpr = devicePixelRatio || 1;   // device px per CSS px
+const caps = [];                   // drawn caps: {src, label, sub, kind, x, y, w, h, style, p, f, d*}
+const stat = { show: false, x: 0, y: 0, w: 0, h: 0, style: 'wide' };
+const F = {};                      // font strings for the current layout
+const adv = { count: 0, big: 0 };  // fixed digit advance for the current fonts
+let adv100 = { display: 55, mono: 60 }; // digit advance at 100 px, measured once fonts load
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Lays the caps and the KPS tile out in the page's box. Wide boxes: a row of caps with the KPS
+ * tile beside it (osu!/taiko/catch) or as a strip above/below it (mania, whose row then spans the
+ * box with the skin's column proportions). Tall boxes: a column of key rows with the KPS tile below.
+ */
 function buildLayout() {
-  const n = view.caps.length;
-  const mode = view.mode;
-  const zone = resolveZone(mode, view.columns);
-  const unit = 1080 / 480;
-  let capW = opts.cap, capH = opts.cap, gap = GAP;
-  if (mode === 'mania' && opts.matchColumns) {
-    // One cap per stage column at the stage's own average pitch.
-    const cols = osuLayout('mania', { keys: n || 1, ...maniaStage(n || 1) }).columns || [];
-    const pitch = cols.length ? (cols.at(-1).x + cols.at(-1).w - cols[0].x) / cols.length : 30 * unit;
-    gap = Math.max(2, Math.round(pitch * 0.08));
-    capW = Math.round(pitch - gap);
-  }
-  const vertical = opts.orientation === 'vertical';
-  const avail = zone.w / opts.scale;
-  // Side by side when the zone is wide enough, otherwise the KPS tile stacks above the caps.
-  let capsW = n ? (vertical ? capW : n * capW + (n - 1) * gap) : 0;
-  const side = !vertical && capsW + GROUP_GAP + STAT_W <= avail;
-  // A stacked row still too wide (many mania keys beside a wide stage) narrows its caps before
-  // the whole cluster is scaled, so labels stay legible.
-  if (!vertical && !side && capsW > avail && n > 1) {
-    capW = Math.max(52, Math.floor((avail - (n - 1) * gap) / n));
-    capsW = n * capW + (n - 1) * gap;
-  }
-  const capsH = n ? (vertical ? n * capH + (n - 1) * gap : capH) : 0;
-  let W, H;
-  if (vertical) { W = Math.max(capsW, STAT_W); H = capsH + GROUP_GAP + STAT_H; }
-  else if (side) { W = capsW + GROUP_GAP + STAT_W; H = Math.max(capsH, STAT_H); }
-  else { W = Math.max(capsW, STAT_W); H = capsH + GROUP_GAP + STAT_H; }
-  // Never upscale past the setting; shrink to fit the zone (many-key mania, narrow bands).
-  const k = Math.max(0.3, Math.min(opts.scale, zone.w / W, zone.h / H));
-
-  // Positions inside the cluster (layout px, unscaled).
-  const align = zone.alignX;
-  const capsX = vertical ? (align === 1 ? W - capsW : align === 0.5 ? (W - capsW) / 2 : 0) : side ? 0 : (W - capsW) * align;
-  const capsY = vertical ? 0 : side ? H - capsH : STAT_H + GROUP_GAP;
-  geo.stat.x = vertical ? (W - STAT_W) * align : side ? capsW + GROUP_GAP : (W - STAT_W) * align;
-  geo.stat.y = vertical ? capsH + GROUP_GAP : side ? H - STAT_H : 0;
-  caps.length = 0;
-  view.caps.forEach((cap, i) => caps.push({
-    src: cap.src, label: cap.label, sub: cap.sub || '', kind: cap.kind || '',
-    x: capsX + (vertical ? 0 : i * (capW + gap)), y: capsY + (vertical ? i * (capH + gap) : 0), w: capW, h: capH,
-    p: 0, f: 0, dP: -1, dF: -1, dN: -2, dM: -1, dTop: false,
-  }));
-
-  // Place the scaled cluster in the zone.
-  const sw = W * k, sh = H * k;
-  let x = zone.x + (zone.w - sw) * zone.alignX;
-  let y;
-  if (zone.anchorY === 'top') y = zone.at;
-  else if (zone.anchorY === 'bottom') y = zone.at - sh;
-  else if (zone.anchorY === 'capsCentre') y = zone.at - (capsY + capsH / 2) * k;
-  else y = zone.at - sh / 2;
-  y = Math.max(0, Math.min(1080 - sh, y));
-  x += opts.x; y += opts.y;
-  geo.k = k; geo.w = W; geo.h = H;
-  cluster.style.left = `${Math.round(x)}px`;
-  cluster.style.top = `${Math.round(y)}px`;
-  canvas.style.width = `${Math.round(sw)}px`;
-  canvas.style.height = `${Math.round(sh)}px`;
-  // Chip / note sit at the cluster's anchor corner, on the same side.
-  chip.style.left = `${Math.round(zone.alignX === 1 ? x + sw : zone.alignX === 0.5 ? x + sw / 2 : x)}px`;
-  chip.style.top = `${Math.round(zone.anchorY === 'top' ? y : y + sh)}px`;
-  chip.dataset.align = zone.alignX === 1 ? 'end' : zone.alignX === 0.5 ? 'centre' : 'start';
-  chip.dataset.anchor = zone.anchorY === 'top' ? 'top' : 'bottom';
-  pxr = dpr * k;
+  const W = box.w, H = box.h;
   dirty.layout = false;
+  caps.length = 0;
+  stat.show = false;
+  if (!W || !H) return;
+  const n = view.caps.length;
+  const mania = view.mode === 'mania';
+  const vertical = opts.orientation === 'vertical' || (opts.orientation === 'auto' && H > W * 1.15);
+  let where = opts.kps === 'auto' ? (vertical ? 'below' : mania ? 'above' : 'beside') : opts.kps;
+  if (vertical && where === 'beside') where = 'below';
+  const align = opts.align === 'left' ? 0 : opts.align === 'right' ? 1 : 0.5;
+  const place = (list, x, y, w, h, style) => list.push({ x, y, w, h, style });
+  const rects = [];
+
+  if (vertical) {
+    // Unit = tile width; caps are half as tall, the KPS tile a little taller than wide. On the
+    // results screen a column keeps only the KPS tile at its foot: osu!stable's results UI (Watch
+    // replay) sits where the key rows of a corner column would be.
+    const rows = view.phase === 'results' && where !== 'off' ? 0 : n;
+    const statH = where === 'off' ? 0 : 1.1;
+    const per = rows * 0.5 + Math.max(0, rows - 1) * 0.06 + (statH ? 0.1 + statH : 0);
+    const u = Math.min(W, H / Math.max(per, 0.5));
+    const x0 = (W - u) * align;
+    const g = Math.round(u * 0.06), capH = Math.round(u * 0.5);
+    // Pages in a column sit in screen corners: the stack hugs the bottom of the box.
+    let y = Math.max(0, Math.floor(H - u * per));
+    if (where === 'above') { stat.show = true; Object.assign(stat, { x: x0, y, w: u, h: Math.round(u * statH), style: 'tall' }); y += stat.h + Math.round(u * 0.1); }
+    for (let i = 0; i < rows; i++) { place(rects, x0, y, u, capH, 'row'); y += capH + g; }
+    if (where === 'below') { stat.show = true; Object.assign(stat, { x: x0, y: y - g + Math.round(u * 0.1), w: u, h: Math.round(u * statH), style: 'tall' }); }
+    const label = clamp(u * 0.1, 9, 16), count = clamp(capH * 0.44, 12, 40);
+    setFonts(label, count, clamp(u * 0.34, 16, 52), label, clamp(u * 0.11, 10, 16));
+  } else if (where === 'beside') {
+    // Unit = cap height = box height; the KPS tile is 3.7 units wide.
+    const gp = 0.08;
+    let u = H;
+    const fixed = 3.7 + gp;                         // KPS tile and the gap before it
+    const minCaps = mania ? n * 0.55 : n * 0.7 + (n - 1) * gp;
+    if (W < u * (fixed + minCaps)) u = W / (fixed + minCaps);
+    const g = Math.round(u * gp), statW = Math.round(u * 3.7);
+    const capsW = W - statW - g;
+    const y0 = Math.round((H - u) / 2);
+    let used;
+    if (mania) {
+      for (const c of columnFractions(n)) place(rects, Math.round(capsW * c.a), y0, Math.round(capsW * (c.b - c.a)), u, 'col');
+      used = capsW;
+    } else {
+      const cw = Math.min(u, Math.floor((capsW - (n - 1) * g) / Math.max(1, n)));
+      for (let i = 0; i < n; i++) place(rects, i * (cw + g), y0, cw, u, 'col');
+      used = n * cw + (n - 1) * g;
+    }
+    // Align the whole cluster in the box; the KPS tile stays on the side away from the edge it hugs.
+    const clusterW = used + g + statW;
+    const off = Math.round((W - clusterW) * align);
+    const statLeft = align === 1 && !mania;
+    for (const r of rects) r.x += off + (statLeft ? statW + g : 0);
+    stat.show = true;
+    Object.assign(stat, { x: off + (statLeft ? 0 : used + g), y: y0, w: statW, h: u, style: 'wide' });
+    const s = u / 72;
+    setFonts(clamp(12 * s, 9, 18), clamp(26 * s, 12, 44), clamp(32 * s, 14, 52), clamp(12 * s, 9, 16), clamp(13 * s, 9, 18));
+  } else {
+    // KPS strip above/below a row of caps. Mania caps span the box with the skin's proportions.
+    const stripH = where === 'off' ? 0 : Math.round(clamp(H * 0.34, 16, 52));
+    const g = stripH ? Math.max(3, Math.round(H * 0.05)) : 0;
+    const capH = H - stripH - g;
+    const capsY = where === 'above' ? stripH + g : 0;
+    let left = 0, used = W;
+    if (mania) {
+      const cols = columnFractions(n);
+      const gap = Math.max(2, Math.round(W * 0.006));
+      for (const c of cols) {
+        const x0 = Math.round(W * c.a), x1 = Math.round(W * c.b);
+        place(rects, x0 + gap / 2, capsY, Math.max(4, x1 - x0 - gap), capH, 'col');
+      }
+    } else {
+      const cg = Math.round(capH * 0.08);
+      const cw = Math.min(capH, Math.floor((W - (n - 1) * cg) / Math.max(1, n)));
+      used = n * cw + (n - 1) * cg;
+      left = Math.round((W - used) * align);
+      for (let i = 0; i < n; i++) place(rects, left + i * (cw + cg), capsY, cw, capH, 'col');
+    }
+    if (stripH) {
+      stat.show = true;
+      // The strip spans the caps, but never narrower than a readable minimum.
+      const sw = Math.min(W, Math.max(used, stripH * 7));
+      Object.assign(stat, { x: Math.round(clamp(left + (used - sw) * align, 0, W - sw)), y: where === 'above' ? 0 : capH + g, w: sw, h: stripH, style: 'line' });
+    }
+    const minW = rects.reduce((m, r) => Math.min(m, r.w), Infinity);
+    setFonts(clamp(Math.min(capH * 0.17, minW * 0.22), 9, 16), clamp(Math.min(capH * 0.38, minW * 0.5), 11, 44),
+      clamp(stripH * 0.8, 12, 40), clamp(stripH * 0.3, 9, 14), clamp(stripH * 0.34, 9, 16));
+  }
+
+  view.caps.forEach((cap, i) => {
+    const r = rects[i];
+    if (!r) return;
+    caps.push({
+      src: cap.src, label: cap.label, sub: cap.sub || '', kind: cap.kind || '',
+      x: r.x, y: r.y, w: r.w, h: r.h, style: r.style, p: 0, f: 0, dP: -1, dF: -1, dN: -2, dM: -1, dTop: false,
+    });
+  });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   forceRedraw();
+}
+
+function setFonts(label, count, big, footLabel, footValue) {
+  const r = v => Math.round(v * 10) / 10;
+  F.label = `500 ${r(label)}px "IBM Plex Mono"`;
+  F.labelPx = label;
+  F.count = `600 ${r(count)}px "Barlow Condensed"`;
+  F.countPx = count;
+  F.big = `600 ${r(big)}px "Barlow Condensed"`;
+  F.bigPx = big;
+  F.footLabel = `500 ${r(footLabel)}px "IBM Plex Mono"`;
+  F.footValue = `500 ${r(footValue)}px "IBM Plex Mono"`;
+  adv.count = adv100.display * count / 100;
+  adv.big = adv100.display * big / 100;
 }
 
 function forceRedraw() {
@@ -415,18 +424,15 @@ function forceRedraw() {
   dirty.stats = true;
 }
 
-// Fixed advance per digit so changing numbers never shift (canvas has no tabular-nums).
-const adv = { count: 13, big: 16 };
 function measureDigits() {
-  for (const [key, font] of [['count', F.count], ['big', F.big]]) {
-    ctx.font = font;
-    let w = 0;
-    for (const d of DIGITS) w = Math.max(w, ctx.measureText(d).width);
-    adv[key] = w;
-  }
+  ctx.font = '600 100px "Barlow Condensed"';
+  let w = 0;
+  for (const d of DIGITS) w = Math.max(w, ctx.measureText(d).width);
+  adv100 = { display: w || 55, mono: 60 };
+  dirty.layout = true;
 }
 
-/** Draws a non-negative integer at fixed digit advance; align 0 left, 0.5 centre, 1 right. */
+/** Draws a non-negative integer at fixed digit advance (canvas has no tabular-nums); align 0 left, 0.5 centre, 1 right. */
 function drawInt(value, x, y, align, step) {
   let n = Math.max(0, Math.round(value)), digits = 1, div = 1;
   while (n >= div * 10) { div *= 10; digits++; }
@@ -437,17 +443,18 @@ function drawInt(value, x, y, align, step) {
     left += step; div /= 10;
   }
 }
+const digitCount = v => (v < 10 ? 1 : Math.floor(Math.log10(v)) + 1);
 
-// Backing store follows the CSS size × devicePixelRatio, measured by the observer (never in rAF).
+// The canvas fills the page; its backing store follows the box × devicePixelRatio.
 new ResizeObserver(([entry]) => {
-  const box = entry.devicePixelContentBoxSize?.[0];
-  const w = box ? box.inlineSize : Math.round(entry.contentRect.width * devicePixelRatio);
-  const h = box ? box.blockSize : Math.round(entry.contentRect.height * devicePixelRatio);
+  const bx = entry.devicePixelContentBoxSize?.[0];
+  const w = bx ? bx.inlineSize : Math.round(entry.contentRect.width * devicePixelRatio);
+  const h = bx ? bx.blockSize : Math.round(entry.contentRect.height * devicePixelRatio);
   if (!w || !h) return;
   if (w !== canvas.width || h !== canvas.height) { canvas.width = w; canvas.height = h; }
-  dpr = w / entry.contentRect.width / geo.k;
-  pxr = w / geo.w;
-  forceRedraw();
+  box.w = entry.contentRect.width; box.h = entry.contentRect.height;
+  dpr = w / box.w;
+  dirty.layout = true;
   wake();
 }).observe(canvas);
 
@@ -501,7 +508,7 @@ function renderPhase() {
   const phase = view.phase;
   hud.dataset.phase = phase;
   chipText.textContent = phase === 'offline' ? 'vosu offline' : phase === 'connecting' ? 'Connecting to vosu'
-    : phase === 'absent' ? 'Waiting for osu!' : phase === 'nokeys' ? 'Key counter needs vosu · ENABLE_KEY_OVERLAY' : '';
+    : phase === 'absent' ? 'Waiting for osu!' : phase === 'nokeys' ? 'Needs vosu · ENABLE_KEY_OVERLAY' : '';
   dirty.phase = false;
 }
 
@@ -519,7 +526,7 @@ function renderKeys(now, dt) {
     else { cap.f = Math.max(0, cap.f - dt / RELEASE_MS); cap.p = Math.max(0, cap.p - dt / RELEASE_MS); }
     if ((on && cap.p < 1) || (!on && (cap.p > 0 || cap.f > 0))) animating = true;
     const c = show ? counts[cap.src] : -1;
-    const m = c > 0 && max > 0 ? Math.round(c / max * (cap.w - 2) * pxr) : 0;
+    const m = c > 0 && max > 0 ? Math.round(c / max * (cap.w - 2) * dpr) : 0;
     const top = c > 0 && c === max && caps.length > 1;
     if (cap.p === cap.dP && cap.f === cap.dF && c === cap.dN && m === cap.dM && top === cap.dTop) continue;
     cap.dP = cap.p; cap.dF = cap.f; cap.dN = c; cap.dM = m; cap.dTop = top;
@@ -528,9 +535,9 @@ function renderKeys(now, dt) {
   return animating;
 }
 
-/** Rounded tile in device px; returns nothing. Fill and 1-device-px-or-more border. */
+/** Rounded tile in device px with a hairline border (≥ 1 device px). */
 function tile(x0, y0, x1, y1, fill, border) {
-  const hair = Math.max(1, Math.round(dpr)), r = 2 * pxr;
+  const hair = Math.max(1, Math.round(dpr)), r = 2 * dpr;
   ctx.fillStyle = fill;
   ctx.beginPath(); ctx.roundRect(x0, y0, x1 - x0, y1 - y0, r); ctx.fill();
   ctx.fillStyle = border;
@@ -543,8 +550,8 @@ function tile(x0, y0, x1, y1, fill, border) {
 function drawCap(cap, c, meterPx, top) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  const X0 = Math.floor(cap.x * pxr), X1 = Math.ceil((cap.x + cap.w) * pxr);
-  const Y0 = Math.floor(cap.y * pxr), Y1 = Math.ceil((cap.y + cap.h) * pxr);
+  const X0 = Math.floor(cap.x * dpr), X1 = Math.ceil((cap.x + cap.w) * dpr);
+  const Y0 = Math.floor(cap.y * dpr), Y1 = Math.ceil((cap.y + cap.h) * dpr);
   ctx.clearRect(X0, Y0, X1 - X0, Y1 - Y0);
 
   // The cap travels 1 px down and shrinks to 94 % while pressed; the fill is instant on, eased off.
@@ -552,8 +559,8 @@ function drawCap(cap, c, meterPx, top) {
   const scale = 1 - 0.06 * press;
   const cx = cap.x + cap.w / 2, cy = cap.y + cap.h / 2 + press;
   const hw = cap.w * scale / 2, hh = cap.h * scale / 2;
-  const x0 = Math.round((cx - hw) * pxr), x1 = Math.round((cx + hw) * pxr);
-  const y0 = Math.round((cy - hh) * pxr), y1 = Math.round((cy + hh) * pxr);
+  const x0 = Math.round((cx - hw) * dpr), x1 = Math.round((cx + hw) * dpr);
+  const y0 = Math.round((cy - hh) * dpr), y1 = Math.round((cy + hh) * dpr);
   const lit = cap.f > 0 ? ease(cap.f) : 0;
   const litFill = cap.kind === 'kat' ? C.kat : cap.kind === 'don' ? C.amber : C.lit;
   const litInk = cap.kind ? C.onAmber : C.onLit;
@@ -561,43 +568,65 @@ function drawCap(cap, c, meterPx, top) {
   if (lit > 0) {
     ctx.globalAlpha = lit;
     ctx.fillStyle = litFill;
-    ctx.beginPath(); ctx.roundRect(x0, y0, x1 - x0, y1 - y0, 2 * pxr); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(x0, y0, x1 - x0, y1 - y0, 2 * dpr); ctx.fill();
     ctx.globalAlpha = 1;
   }
   // Taiko keys keep a hairline of their drum colour so kat/don read without pressing.
   if (cap.kind && lit < 1) {
     ctx.fillStyle = cap.kind === 'kat' ? C.kat : C.amber;
-    ctx.fillRect(x0 + Math.round(pxr), y0 + Math.round(pxr), x1 - x0 - 2 * Math.round(pxr), Math.max(1, Math.round(2 * pxr)));
+    ctx.fillRect(x0 + Math.round(dpr), y0 + Math.round(dpr), x1 - x0 - 2 * Math.round(dpr), Math.max(1, Math.round(2 * dpr)));
   }
   const ink = lit >= 0.5 ? litInk : null;
 
-  // Label row (key, and its role on the right when it fits), then the count.
-  ctx.setTransform(pxr * scale, 0, 0, pxr * scale, cx * pxr, cy * pxr);
-  const lx = -cap.w / 2 + 8, rx = cap.w / 2 - 8, ly = -cap.h / 2 + 19;
+  // Text, scaled with the cap about its centre.
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, cx * dpr, cy * dpr);
+  ctx.textBaseline = 'alphabetic';
   ctx.font = F.label;
   ctx.letterSpacing = '0.5px';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = ink || C.dim;
+  const pad = Math.max(4, Math.min(cap.w, cap.h) * 0.11);
   const labelW = ctx.measureText(cap.label).width;
-  const subFits = cap.sub && labelW + 8 + ctx.measureText(cap.sub).width <= cap.w - 16;
-  ctx.textAlign = subFits ? 'left' : 'center';
-  ctx.fillText(cap.label, subFits ? lx : 0, ly);
-  if (subFits) {
-    ctx.textAlign = 'right';
-    ctx.fillStyle = ink || C.muted;
-    ctx.fillText(cap.sub, rx, ly);
-  }
-  ctx.letterSpacing = '0px';
-  ctx.font = F.count;
-  ctx.fillStyle = ink || (c < 0 ? C.muted : C.fg);
-  const base = cap.h / 2 - 11;
-  if (c < 0) { ctx.textAlign = 'center'; ctx.fillText('—', 0, base); }
-  else {
-    // Long counts in narrow caps are condensed horizontally rather than clipped.
-    const digits = c < 10 ? 1 : Math.floor(Math.log10(c)) + 1;
-    const squeeze = Math.min(1, (cap.w - 10) / (digits * adv.count));
-    if (squeeze < 1) ctx.transform(squeeze, 0, 0, 1, 0, 0);
-    drawInt(c, 0, base, 0.5, adv.count);
+  const subW = cap.sub ? ctx.measureText(cap.sub).width : 0;
+  ctx.fillStyle = ink || C.dim;
+  if (cap.style === 'row') {
+    // Key row (vertical layout): label (and role) on the outer side, count on the inner side.
+    const mirror = opts.align === 'right';
+    const ly = F.labelPx * 0.36;
+    ctx.textAlign = mirror ? 'right' : 'left';
+    const lx = mirror ? cap.w / 2 - pad : -cap.w / 2 + pad;
+    ctx.fillText(cap.label, lx, ly);
+    if (cap.sub && labelW + subW + 8 + pad * 2 + adv.count * 2 < cap.w) {
+      ctx.fillStyle = ink || C.muted;
+      ctx.fillText(cap.sub, mirror ? lx - labelW - 8 : lx + labelW + 8, ly);
+    }
+    ctx.letterSpacing = '0px';
+    ctx.font = F.count;
+    ctx.fillStyle = ink || (c < 0 ? C.muted : C.fg);
+    const base = F.countPx * 0.35;
+    const cxText = mirror ? -cap.w / 2 + pad : cap.w / 2 - pad;
+    if (c < 0) { ctx.textAlign = mirror ? 'left' : 'right'; ctx.fillText('—', cxText, base); }
+    else drawInt(c, cxText, base, mirror ? 0 : 1, adv.count);
+  } else {
+    // Column cap: label row at the top (role on the right when it fits), count below.
+    const ly = -cap.h / 2 + pad + F.labelPx * 0.75;
+    const subFits = cap.sub && labelW + 8 + subW <= cap.w - pad * 2;
+    ctx.textAlign = subFits ? 'left' : 'center';
+    ctx.fillText(cap.label, subFits ? -cap.w / 2 + pad : 0, ly);
+    if (subFits) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = ink || C.muted;
+      ctx.fillText(cap.sub, cap.w / 2 - pad, ly);
+    }
+    ctx.letterSpacing = '0px';
+    ctx.font = F.count;
+    ctx.fillStyle = ink || (c < 0 ? C.muted : C.fg);
+    const base = cap.h / 2 - pad - Math.max(2, cap.h * 0.05);
+    if (c < 0) { ctx.textAlign = 'center'; ctx.fillText('—', 0, base); }
+    else {
+      // Long counts in narrow caps are condensed horizontally rather than clipped.
+      const squeeze = Math.min(1, (cap.w - pad * 2) / (digitCount(c) * adv.count));
+      if (squeeze < 1) ctx.transform(squeeze, 0, 0, 1, 0, 0);
+      drawInt(c, 0, base, 0.5, adv.count);
+    }
   }
 
   // Share-of-presses bar along the bottom edge (skipped for a lone key: stable catch dash).
@@ -605,7 +634,7 @@ function drawCap(cap, c, meterPx, top) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const hair = Math.max(1, Math.round(dpr));
     const bx = x0 + hair, bw = x1 - x0 - 2 * hair;
-    const bh = Math.max(2, Math.round(3 * pxr * scale));
+    const bh = Math.max(2, Math.round(Math.min(3, cap.h * 0.045) * dpr * scale));
     const by = y1 - hair - bh;
     ctx.fillStyle = ink ? 'rgb(0 0 0 / 0.18)' : C.track;
     ctx.fillRect(bx, by, bw, bh);
@@ -622,11 +651,12 @@ function drawCap(cap, c, meterPx, top) {
 const shown = { kps: NaN, total: NaN, aux: NaN, spark: -1, phase: '', full: true };
 
 function renderStats() {
+  if (!stat.show) return;
   const phase = view.phase;
   const show = att.valid && (phase === 'play' || phase === 'results');
   const held = phase === 'results' && att.taps > 0;
   let total = 0;
-  if (show) for (const cap of caps) total += counts[cap.src];
+  if (show) for (const cap of view.caps) total += counts[cap.src];
   const big = phase === 'play' ? kps : held ? att.peak : -1;
   const seconds = (att.lastTap - att.firstTap) / 1000;
   const aux = held ? (seconds >= 1 ? Math.round((att.taps - 1) / seconds * 10) : -1) : phase === 'play' && att.taps ? att.peak : -1;
@@ -634,88 +664,129 @@ function renderStats() {
   if (!shown.full && big === shown.kps && total === shown.total && aux === shown.aux && spark === shown.spark && phase === shown.phase) return;
   shown.full = false; shown.kps = big; shown.total = total; shown.aux = aux; shown.spark = spark; shown.phase = phase;
 
-  const sx = geo.stat.x, sy = geo.stat.y;
+  const { x: sx, y: sy, w: sw, h: sh } = stat;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  const X0 = Math.floor(sx * pxr), Y0 = Math.floor(sy * pxr);
-  const X1 = Math.ceil((sx + STAT_W) * pxr), Y1 = Math.ceil((sy + STAT_H) * pxr);
+  const X0 = Math.floor(sx * dpr), Y0 = Math.floor(sy * dpr);
+  const X1 = Math.ceil((sx + sw) * dpr), Y1 = Math.ceil((sy + sh) * dpr);
   ctx.clearRect(X0, Y0, X1 - X0, Y1 - Y0);
   tile(X0, Y0, X1, Y1, C.tile, C.ruleStrong);
-
-  ctx.setTransform(pxr, 0, 0, pxr, sx * pxr, sy * pxr);
+  ctx.setTransform(dpr, 0, 0, dpr, sx * dpr, sy * dpr);
   ctx.textBaseline = 'alphabetic';
-  // Left column: label and the big number.
-  ctx.font = F.label;
-  ctx.letterSpacing = '0.96px';
-  ctx.fillStyle = C.muted;
-  ctx.textAlign = 'left';
-  ctx.fillText(held ? 'PEAK' : 'KPS', 10, 20);
-  const right0 = 84;
-  if (opts.spark) ctx.fillText(held ? 'ATTEMPT' : '10 S', right0, 20);
-  if (opts.brand) { ctx.textAlign = 'right'; ctx.fillStyle = C.dim; ctx.fillText('18—LAB', STAT_W - 10, 20); }
-  ctx.letterSpacing = '0px';
-  ctx.font = F.big;
-  ctx.fillStyle = phase === 'play' ? (big > 0 ? C.lit : C.dim) : big < 0 ? C.muted : C.fg;
-  if (big < 0) { ctx.textAlign = 'left'; ctx.font = F.count; ctx.fillText('—', 10, 58); }
-  else drawInt(big, 9, 60, 0, adv.big);
+  const label = held ? 'PEAK' : 'KPS';
+  const span = held ? 'ATTEMPT' : '10 S';
+  const bigInk = phase === 'play' ? (big > 0 ? C.lit : C.dim) : big < 0 ? C.muted : C.fg;
+  const auxLabel = held ? 'AVG' : 'PEAK';
+  const totalValue = show ? total : -1;
 
-  // Right column: history bars above the total / peak (or average) line.
-  if (opts.spark) drawSpark(right0, 27, STAT_W - 10, 48, held);
-  ctx.setTransform(pxr, 0, 0, pxr, sx * pxr, sy * pxr);
-  let x = right0;
-  const fy = opts.spark ? 63 : 50;
-  if (opts.total) x = drawPair(x, fy, 'TOTAL', show ? total : -1, false) + 12;
-  drawPair(x, fy, held ? 'AVG' : 'PEAK', aux, held);
+  if (stat.style === 'wide') {
+    // Left: label over the big number. Right: window label, history bars, total / peak line.
+    const s = sh / 72, pad = 10 * s;
+    drawLabel(label, pad, 20 * s, 'left', C.muted);
+    const right0 = 84 * s;
+    if (opts.spark) drawLabel(span, right0, 20 * s, 'left', C.muted);
+    drawBig(big, pad - 1, 60 * s, bigInk);
+    if (opts.spark) drawSpark(right0, 27 * s, sw - pad, 48 * s, held);
+    let x = right0;
+    const fy = opts.spark ? 63 * s : 50 * s;
+    if (opts.total) x = drawPair(x, fy, 'TOTAL', totalValue, false) + 12 * s;
+    drawPair(x, fy, auxLabel, aux, held);
+  } else if (stat.style === 'tall') {
+    // Vertical column: label row, big number, history bars, then total and peak on their own lines.
+    const u = sw, pad = Math.max(6, u * 0.08);
+    drawLabel(label, pad, pad + F.labelPx * 0.8, 'left', C.muted);
+    if (opts.spark) drawLabel(span, sw - pad, pad + F.labelPx * 0.8, 'right', C.muted);
+    drawBig(big, pad - 1, sh * 0.48, bigInk);
+    if (opts.spark) drawSpark(pad, sh * 0.54, sw - pad, sh * 0.7, held);
+    if (opts.total) drawPair(pad, sh * 0.83, 'TOTAL', totalValue, false);
+    drawPair(pad, sh * (opts.total ? 0.95 : 0.88), auxLabel, aux, held);
+  } else {
+    // Strip: KPS label, number, history bars filling the middle, total / peak at the end.
+    const pad = Math.max(6, sh * 0.25);
+    const base = sh / 2 + F.bigPx * 0.33;
+    let x = pad;
+    x = drawLabel(label, x, sh / 2 + F.labelPx * 0.36, 'left', C.muted) + pad * 0.6;
+    drawBig(big, x - 1, base, bigInk);
+    x += Math.max(2, digitCount(Math.max(0, big))) * adv.big + pad;
+    // Measure the foot from its right end; the bars take what is left.
+    ctx.font = F.footValue;
+    const valueW = ctx.measureText('0000').width;
+    ctx.font = F.footLabel;
+    const pairW = l => ctx.measureText(l).width + 4 + valueW;
+    const footW = (opts.total ? pairW('TOTAL') + 12 : 0) + pairW(auxLabel);
+    let fx = sw - pad - footW;
+    if (opts.spark && fx - x > 40) drawSpark(x, sh * 0.2, fx - pad, sh * 0.8, held);
+    const fy = sh / 2 + F.labelPx * 0.36;
+    if (fx > x) {
+      if (opts.total) fx = drawPair(fx, fy, 'TOTAL', totalValue, false) + 12;
+      drawPair(fx, fy, auxLabel, aux, held);
+    }
+  }
+}
+
+/** Mono caps label at (x, y) in tile space; returns its right edge. */
+function drawLabel(text, x, y, align, color) {
+  ctx.font = F.footLabel;
+  ctx.letterSpacing = '0.9px';
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.fillText(text, x, y);
+  const w = ctx.measureText(text).width;
+  ctx.letterSpacing = '0px';
+  return align === 'left' ? x + w : x;
+}
+
+function drawBig(value, x, y, ink) {
+  ctx.font = F.big;
+  ctx.fillStyle = ink;
+  if (value < 0) { ctx.textAlign = 'left'; ctx.fillText('—', x + 1, y); }
+  else drawInt(value, x, y, 0, adv.big);
 }
 
 function drawPair(x, y, label, value, tenths) {
-  ctx.textAlign = 'left';
-  ctx.font = F.label;
-  ctx.letterSpacing = '0.96px';
-  ctx.fillStyle = C.muted;
-  ctx.fillText(label, x, y);
-  x += ctx.measureText(label).width + 4;
-  ctx.letterSpacing = '0px';
+  x = drawLabel(label, x, y, 'left', C.muted) + 4;
   ctx.font = F.footValue;
   ctx.fillStyle = C.dim;
+  ctx.textAlign = 'left';
   const text = value < 0 ? '—' : tenths ? `${Math.floor(value / 10)}.${value % 10}` : DIGITS[value] || String(value);
   ctx.fillText(text, x, y);
   return x + ctx.measureText(text).width;
 }
 
-/** 40 bars between local x0..x1 (layout px inside the tile), top..bottom; live = last 10 s, held = whole attempt. */
+/** 40 bars in tile space x0..x1, top..bottom; live = the last 10 s, held = the whole attempt. */
 function drawSpark(x0, top, x1, bottom, held) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const ox = geo.stat.x, oy = geo.stat.y;
-  const L = Math.round((ox + x0) * pxr), R = Math.round((ox + x1) * pxr);
-  const T = Math.round((oy + top) * pxr), B = Math.round((oy + bottom) * pxr);
+  const L = Math.round((stat.x + x0) * dpr), R = Math.round((stat.x + x1) * dpr);
+  const T = Math.round((stat.y + top) * dpr), B = Math.round((stat.y + bottom) * dpr);
   const hair = Math.max(1, Math.round(dpr));
   ctx.fillStyle = C.base;
   ctx.fillRect(L, B - hair, R - L, hair);
-  if (view.phase !== 'play' && !held) return;
-  const last = Math.max(0, att.idx);
-  const group = held ? Math.max(1, Math.ceil((last + 1) / SPARK_BARS)) : 1;
-  const start = held ? 0 : last - SPARK_BARS + 1;
-  let peak = 0, peakBar = -1;
-  for (let k = 0; k < SPARK_BARS; k++) {
-    const v = bucket(start, group, k, last);
-    if (v > peak) { peak = v; peakBar = k; }
+  if (view.phase === 'play' || held) {
+    const last = Math.max(0, att.idx);
+    const group = held ? Math.max(1, Math.ceil((last + 1) / SPARK_BARS)) : 1;
+    const start = held ? 0 : last - SPARK_BARS + 1;
+    let peak = 0, peakBar = -1;
+    for (let k = 0; k < SPARK_BARS; k++) {
+      const v = bucket(start, group, k, last);
+      if (v > peak) { peak = v; peakBar = k; }
+    }
+    const scale = Math.max(10, Math.ceil(peak / 5) * 5);
+    const pitch = (R - L) / SPARK_BARS;
+    const usable = B - hair - T;
+    for (let k = 0; k < SPARK_BARS; k++) {
+      const v = bucket(start, group, k, last);
+      if (!v) continue;
+      const x = L + Math.round(k * pitch);
+      const bw = Math.max(1, L + Math.round(k * pitch + pitch * 2 / 3) - x);
+      const bh = Math.max(hair, Math.round(v / scale * usable));
+      const marked = held ? k === peakBar : start + k === last;
+      ctx.fillStyle = marked ? C.lit : C.dim;
+      ctx.globalAlpha = marked ? 1 : 0.55;
+      ctx.fillRect(x, B - hair - bh, bw, bh);
+    }
+    ctx.globalAlpha = 1;
   }
-  const scale = Math.max(10, Math.ceil(peak / 5) * 5);
-  const pitch = (R - L) / SPARK_BARS;
-  const usable = B - hair - T;
-  for (let k = 0; k < SPARK_BARS; k++) {
-    const v = bucket(start, group, k, last);
-    if (!v) continue;
-    const x = L + Math.round(k * pitch);
-    const bw = Math.max(1, L + Math.round(k * pitch + pitch * 2 / 3) - x);
-    const bh = Math.max(hair, Math.round(v / scale * usable));
-    const marked = held ? k === peakBar : start + k === last;
-    ctx.fillStyle = marked ? C.lit : C.dim;
-    ctx.globalAlpha = marked ? 1 : 0.55;
-    ctx.fillRect(x, B - hair - bh, bw, bh);
-  }
-  ctx.globalAlpha = 1;
+  ctx.setTransform(dpr, 0, 0, dpr, stat.x * dpr, stat.y * dpr);
 }
 
 function bucket(start, group, k, last) {
@@ -726,29 +797,21 @@ function bucket(start, group, k, last) {
 }
 
 // ---------------------------------------------------------------- go
-fit($('stage'), 1920, 1080);
 const sub = subscribe(Object.values(P), onFrame, { onStatus });
 
 const DEFAULTS = {
-  zone: 'auto', x: 0, y: 0, scale: 1, orientation: 'horizontal', capSize: 72, showSparkline: true, showTotal: true,
-  backing: 'none', accent: 'map', showBrand: true, columnStart: 0, columnWidth: 0, matchColumns: false,
+  orientation: 'auto', align: 'center', kps: 'auto', showSparkline: true, showTotal: true,
+  maniaColumns: 'skin', backing: 'none', accent: 'map',
 };
 settings(DEFAULTS, s => {
-  opts.zone = ['auto', 'left', 'right', 'top', 'bottom'].includes(s.zone) ? s.zone : 'auto';
-  opts.x = Math.max(-1920, Math.min(1920, s.x));
-  opts.y = Math.max(-1080, Math.min(1080, s.y));
-  opts.scale = Math.max(0.5, Math.min(2, s.scale));
-  opts.orientation = s.orientation === 'vertical' ? 'vertical' : 'horizontal';
-  opts.cap = Math.round(Math.min(96, Math.max(48, s.capSize)));
+  opts.orientation = ['auto', 'horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto';
+  opts.align = ['left', 'center', 'right'].includes(s.align) ? s.align : 'center';
+  opts.kps = ['auto', 'beside', 'above', 'below', 'off'].includes(s.kps) ? s.kps : 'auto';
   opts.spark = !!s.showSparkline;
   opts.total = !!s.showTotal;
+  opts.maniaColumns = s.maniaColumns === 'equal' ? 'equal' : 'skin';
   opts.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
   opts.accent = s.accent === '18-lab' ? '18-lab' : 'map';
-  opts.brand = !!s.showBrand;
-  // 0 (or empty) = take the stage from the current skin's skin.ini.
-  opts.columnStart = s.columnStart > 0 ? Math.min(600, s.columnStart) : 0;
-  opts.columnWidth = s.columnWidth > 0 ? Math.max(10, Math.min(200, s.columnWidth)) : 0;
-  opts.matchColumns = !!s.matchColumns;
   hud.dataset.backing = opts.backing;
   hud.dataset.accent = opts.accent;
   loadPalette(sub.values[P.checksum]); // the accent choice applies to the map already loaded
@@ -757,9 +820,8 @@ settings(DEFAULTS, s => {
 });
 
 measureDigits();
-Promise.all([F.label, F.count, F.big, F.footValue].map(font => document.fonts.load(font))).catch(() => {}).then(() => {
+Promise.all(['500 12px "IBM Plex Mono"', '600 26px "Barlow Condensed"'].map(font => document.fonts.load(font))).catch(() => {}).then(() => {
   measureDigits();
-  forceRedraw();
   wake();
 });
 

@@ -1,5 +1,6 @@
 name = Key counter
 author = 18-LAB
-version = 0.2.0
-description = Floating key caps for every ruleset that light on press, with per-key counts and share bars, total taps, and keys per second with a 10 s history. Sits beside the playfield or stage; on the results screen it adds the attempt's peak and average KPS, which osu! does not show.
-resolution = [1920,1080]
+version = 0.3.0
+description = Key caps for every ruleset that light on press, with per-key counts and share bars, total taps, and keys per second with a 10 s history. Lays out for any box: a row (mania caps follow the stage's column proportions) or a column. On the results screen it adds the attempt's peak and average KPS, which osu! does not show.
+resolution = [720,88]
+placement = {"osu":["right-24","bottom-24",140,316],"fruits":["right-24","bottom-24",140,316],"taiko":["right-24","bottom-24",720,88],"mania":["right-24","bottom-40",400,150]}

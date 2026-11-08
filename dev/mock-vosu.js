@@ -590,9 +590,11 @@ function stagePage(id, params) {
     height = Number(params.get('h')) || height;
     return `<iframe src="/${one}/" style="width:${width}px;height:${height}px" allowtransparency="true"></iframe>`;
   }).join('');
-  // Wireframe when there is no backdrop for this ruleset, or when asked for explicitly (layout=1).
-  const backdrop = backdropFile() && params.get('layout') !== '1' ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
-  const layout = backdrop || params.get('layout') === '0' ? backdrop : layoutSvg();
+  // layout: unset → skin backdrop when available, else wireframe; 1 → wireframe; 0 → plain map
+  // background only (previews of non-gameplay states).
+  const mode = params.get('layout');
+  const backdrop = backdropFile() && mode === null ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
+  const layout = backdrop || (mode === '0' ? '' : layoutSvg());
   return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}`;
 }
 

@@ -21,7 +21,7 @@ const STATE_LABEL = { 2: 'Now playing', 7: 'Just played' };
 const $ = id => document.getElementById(id);
 const stage = $('stage');
 const el = {
-  brand: $('brand'), sceneIndex: $('scene-index'), sceneCode: $('scene-code'), date: $('date'),
+  sceneIndex: $('scene-index'), sceneCode: $('scene-code'), date: $('date'),
   status: $('status'), statusText: $('status-text'),
   headline: $('headline'), subline: $('subline'),
   countdown: $('countdown'), countdownLabel: $('countdown-label'), digits: $('digits'),
@@ -63,7 +63,7 @@ function attr(node, name, value) {
 }
 
 // ---------------------------------------------------------------- settings
-const DEFAULTS = { scene: 'starting-soon', headline: '', subline: '', minutes: 5, showMap: true, showSession: true, backdrop: 'map', showBrand: true };
+const DEFAULTS = { scene: 'starting-soon', headline: '', subline: '', minutes: 5, showMap: true, showSession: true, backdrop: 'map' };
 let config = { ...DEFAULTS };
 let settingsCalls = 0;
 
@@ -96,7 +96,6 @@ function renderScene() {
   attr(stage, 'data-session', config.showSession ? 'on' : 'off');
   attr(stage, 'data-block', config.showMap || config.showSession ? 'on' : 'off');
   attr(stage, 'data-countdown', countdown.minutes > 0 ? 'on' : 'off');
-  el.brand.hidden = !config.showBrand;
   text(el.sceneIndex, scene.index);
   text(el.sceneCode, scene.code);
   const headline = resolve(config.headline, scene.headline) || scene.headline;

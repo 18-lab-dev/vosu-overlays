@@ -69,6 +69,18 @@ class OverlayPackageTests(unittest.TestCase):
         with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
             self.assertEqual(archive.read('licenses/material-color-utilities-Apache-2.0.txt'), b'Apache test license text')
 
+    def test_font_license_ships_only_with_bundled_fonts(self):
+        (self.root / 'licenses').mkdir()
+        (self.root / 'licenses/fonts-OFL.txt').write_text('OFL test license text')
+        self.build()
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertNotIn('licenses/fonts-OFL.txt', archive.namelist())
+        (self.overlay / 'fonts').mkdir()
+        (self.overlay / 'fonts/barlow.woff2').write_bytes(b'wOF2')
+        self.build()
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertEqual(archive.read('licenses/fonts-OFL.txt'), b'OFL test license text')
+
     def test_preview_is_a_separate_release_asset(self):
         (self.overlay / 'preview.png').write_bytes(b'fixture preview')
         catalog = self.build()

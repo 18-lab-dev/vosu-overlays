@@ -74,6 +74,9 @@ def files_for(root, directory):
     # m3.js is Apache-2.0 code; §4(a) requires its recipients get the license text, not a link.
     if 'm3.js' in files:
         files['licenses/material-color-utilities-Apache-2.0.txt'] = (root / 'licenses/material-color-utilities-Apache-2.0.txt').read_bytes()
+    # Bundled Barlow / IBM Plex Mono fonts are OFL-1.1, whose terms must accompany the font software.
+    if any(name.startswith('fonts/') and name.endswith('.woff2') for name in files):
+        files['licenses/fonts-OFL.txt'] = (root / 'licenses/fonts-OFL.txt').read_bytes()
     paths = set()
     for name in files:
         path = PurePosixPath(name)

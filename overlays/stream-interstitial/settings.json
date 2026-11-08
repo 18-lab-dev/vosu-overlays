@@ -5,6 +5,5 @@
  {"uniqueID":"minutes","type":"number","title":"Countdown / minutes","description":"Length of the countdown, started when the source loads (or when this or the scene changes). 0 hides the countdown. Up to 600.","value":5},
  {"uniqueID":"showMap","type":"checkbox","title":"Show map","description":"Card with the map currently selected or played in osu!, with its background.","value":true},
  {"uniqueID":"showSession","type":"checkbox","title":"Show session","description":"Plays and playtime of this osu! session, from vosu.","value":true},
- {"uniqueID":"backdrop","type":"options","title":"Backdrop","description":"map = the selected map's background, dimmed. graphite = plain 18-LAB sheet. transparent = nothing behind the text, for your own scene background.","options":["map","graphite","transparent"],"value":"map"},
- {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+ {"uniqueID":"backdrop","type":"options","title":"Backdrop","description":"map = the selected map's background, dimmed. graphite = plain graphite sheet. transparent = nothing behind the text, for your own scene background.","options":["map","graphite","transparent"],"value":"map"}
 ]

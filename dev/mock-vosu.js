@@ -773,7 +773,13 @@ Bun.serve({
       const file = STAGE_BACKDROPS ? join(STAGE_BACKDROPS, 'skin.ini') : '';
       return file && existsSync(file) ? new Response(Bun.file(file), { headers: { 'content-type': 'text/plain; charset=utf-8' } }) : new Response('not found', { status: 404 });
     }
-    if (path.startsWith('/assets/')) return assets(path);
+    if (path.startsWith('/assets/')) {
+      // Only the dev pages may use vosu's /assets/: overlays bundle their own tokens and fonts,
+      // because the replay renderer and tosu do not serve /assets/. A 404 here keeps the harness
+      // from hiding an overlay that still depends on it.
+      const from = request.headers.get('referer');
+      return !from || new URL(from).pathname.startsWith('/__dev') ? assets(path) : new Response('overlays must not load /assets/', { status: 404 });
+    }
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });
     if (path === '/__dev/stage') return new Response(stagePage(url.searchParams.get('id') || '', url.searchParams), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
     if (path === '/__dev/backdrop') {

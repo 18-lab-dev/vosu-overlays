@@ -3,7 +3,7 @@
 // Screenshots an overlay on the mock vosu stage across scenarios and measures its live cost.
 //
 //   node dev/shoot.mjs --port 24100 --id hit-error [--out /tmp/shots/hit-error]
-//        [--cases "mode=osu&state=play&freeze=60000;state=offline"] [--perf mode=mania&state=play] [--dpr 1] [--settle 900]
+//        [--cases "mode=osu&state=play&freeze=60000;state=offline"] [--perf mode=mania&state=play] [--warm 10000] [--dpr 1] [--settle 900]
 //
 // Requires a running `bun dev/mock-vosu.js --port <port>`. Playwright is resolved from
 // $PLAYWRIGHT (path to playwright's index.mjs) or the `playwright` package.
@@ -39,6 +39,8 @@ for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
 defaults.push('mode=mania&state=play&keys=7&freeze=60000', 'mode=osu&state=play&ext=0&freeze=60000', 'mode=mania&state=play&ext=0&freeze=60000', 'mode=fruits&state=results&catchHits=legacy&freeze=0', 'mode=osu&state=offline', 'mode=osu&state=down');
 const cases = (arg('cases') ? arg('cases').split(';') : defaults).filter(Boolean);
 const perf = arg('perf', 'mode=mania&state=play&keys=7&start=110000');
+// --warm <ms>: run the attempt this long before the perf window opens (default 0: from load).
+const warm = Number(arg('warm', 0));
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright').catch(() =>
   import(`${process.env.HOME}/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs`));
@@ -99,6 +101,10 @@ if (perf !== 'none') {
   await cdp.send('Performance.enable');
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
   const frame = page.frames().find(f => f.url().includes(`/${id}/`));
+  // Code that has not been optimised yet allocates for numbers and loops that optimised code
+  // does not, so a window opened right after load overstates a long session; --warm shows the
+  // steady state. Keep start + warm + 5 s clear of the mock's break (about 61–66 s).
+  if (warm) await page.waitForTimeout(warm);
   await frame.evaluate(() => { window.__frames = 0; const loop = () => { window.__frames++; requestAnimationFrame(loop); }; requestAnimationFrame(loop); });
   // Allocation sampling over the same window, counting objects already collected, so the rate
   // includes short-lived garbage. Built-ins (JSON.parse, Array.from) have no script URL; their

@@ -347,9 +347,17 @@ async function derivePalette(checksum) {
     for (let i = 0; i < data.length; i += 4) {
       if (data[i + 3] === 255) pixels.push((0xff000000 | (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]) >>> 0);
     }
+    // The TypeScript port's WSMeans assigns starting clusters with Math.random (the Java original
+    // seeds 0x42688), so one background gave a slightly different accent on every load. The call
+    // is synchronous, so a seeded generator for its duration cannot leak to other code.
+    const random = Math.random;
+    let seed = 0x42688;
+    Math.random = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296;
+    let quantized;
+    try { quantized = QuantizerCelebi.quantize(pixels, 128); } finally { Math.random = random; }
     // Fallback 0 marks "nothing chromatic enough": a grey background keeps the 18-LAB accent
     // instead of M3's default blue.
-    const [source] = Score.score(QuantizerCelebi.quantize(pixels, 128), { desired: 1, fallbackColorARGB: 0 });
+    const [source] = Score.score(quantized, { desired: 1, fallbackColorARGB: 0 });
     if (!source) return null;
     const hue = TonalPalette.fromInt(source).hue;
     // Tonal spot: primary chroma 36, secondary 16, tertiary hue + 60 at 24, neutrals 6 / 8.

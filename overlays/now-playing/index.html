@@ -4,35 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Now playing · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <p class="chip" id="chip" hidden><i></i><span data-f="chip"></span></p>
-  <section id="np" data-align="start" data-layout="full" data-backing="none" aria-label="Now playing">
-    <div class="ident" id="ident">
-      <h1 class="title" data-f="title"></h1>
-      <p class="artist" data-f="artist"></p>
-      <p class="diff"><span class="version" data-f="version"></span><span class="mapper" id="mapperWrap"> <span class="by">by</span> <span data-f="mapper"></span></span></p>
-    </div>
-    <div class="mods" id="mods"></div>
-    <div class="prog">
-      <div class="track" aria-hidden="true"><i id="bar"></i></div>
-      <div class="row"><span class="time"><b data-f="elapsed">0:00</b><span class="of"> / <span data-f="total">—</span></span></span><span class="brand" id="brand">18—LAB</span></div>
-    </div>
-    <div class="read">
-      <div class="r"><span class="label">Stars</span><span class="v"><b data-f="stars">—</b><i class="star">★</i></span><span class="sub" data-f="starsOf"></span></div>
-      <div class="r"><span class="label">BPM</span><span class="v"><b data-f="bpm">—</b></span><span class="sub" data-f="bpmRange"></span></div>
-    </div>
-    <div class="stats" id="stats">
-      <div class="cell" data-k="ar"><span class="label">AR</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="cs"><span class="label">CS</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="od"><span class="label">OD</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-      <div class="cell" data-k="hp"><span class="label">HP</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-    </div>
-  </section>
-</div>
+<p class="chip" id="chip" hidden><i></i><span data-f="chip"></span></p>
+<section id="np" data-orient="vertical" data-align="end" data-layout="full" data-backing="none" aria-label="Now playing">
+  <div class="ident" id="ident">
+    <h1 class="title" data-f="title"></h1>
+    <p class="artist" data-f="artist"></p>
+    <p class="diff"><span class="version" data-f="version"></span><span class="mapper" id="mapperWrap"> <span class="by">by</span> <span data-f="mapper"></span></span></p>
+  </div>
+  <div class="prog">
+    <div class="track" aria-hidden="true"><i id="bar"></i></div>
+    <div class="row"><span class="time"><b data-f="elapsed">0:00</b><span class="of"> / <span data-f="total">—</span></span></span><span class="mods" id="mods"></span></div>
+  </div>
+  <div class="read">
+    <div class="r"><span class="label">Stars</span><span class="v"><b data-f="stars">—</b><i class="star">★</i></span><span class="sub" data-f="starsOf"></span></div>
+    <div class="r"><span class="label">BPM</span><span class="v"><b data-f="bpm">—</b></span><span class="sub" data-f="bpmRange"></span></div>
+  </div>
+  <div class="stats" id="stats">
+    <div class="cell" data-k="ar"><span class="label">AR</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+    <div class="cell" data-k="cs"><span class="label">CS</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+    <div class="cell" data-k="od"><span class="label">OD</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+    <div class="cell" data-k="hp"><span class="label">HP</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+  </div>
+</section>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

@@ -1,17 +1,16 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Now playing: the map's identity, live star rating/BPM, mod-adjusted settings and progress,
-// floated into the free space beside osu!'s playfield during gameplay. Song select and results
-// already show all of this, so the overlay stays empty there.
-import { subscribe, settings, fit, activeMode, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
+// Now playing: the map's identity, live star rating/BPM, mod-adjusted settings and progress
+// during gameplay. Song select and results already show all of this, so the page stays empty
+// there. The page is content-sized: it lays out for whatever box its host (OBS, vosulay, the
+// replay renderer) gives it — a column for tall boxes, a strip for wide ones.
+import { subscribe, settings, activeMode, formatDuration, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const STRIP = 320; // strip width at scale 1, CSS px (side bands, beside the mania stage)
-const STRIP_TAIKO = 440; // below the taiko lane there is room for a title on one line
-const MARGIN = 40; // gap to the screen edge or the playfield/stage
+// Design sizes of the two arrangements; type and spacing scale with the box against these.
+const BASE = { vertical: [260, 244], horizontal: [820, 104] };
+const WIDE = 2.2; // auto orientation: boxes at least this many times wider than tall get the strip
 
 const P = {
-  state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client', skin: '/settings/skin/name',
+  state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number',
   title: '/beatmap/title', titleUnicode: '/beatmap/titleUnicode', artist: '/beatmap/artist', artistUnicode: '/beatmap/artistUnicode',
   version: '/beatmap/version', mapper: '/beatmap/mapper', checksum: '/beatmap/checksum', isConvert: '/beatmap/isConvert',
   first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject', mp3: '/beatmap/time/mp3Length', clockRate: '/beatmap/time/rate',
@@ -28,16 +27,15 @@ const EASE = 'cubic-bezier(0.65, 0, 0.2, 1)'; // --ease-draft
 // Difficulty settings that mean something while playing each ruleset: taiko has no approach rate
 // or circle size, catch has no timing windows, and a mania player is looking at the key count.
 const CELLS = { osu: ['ar', 'cs', 'od', 'hp'], taiko: ['od', 'hp'], fruits: ['ar', 'cs', 'hp'], mania: ['od', 'hp'] };
-// Default zone: osu!/catch the right side band (under score/accuracy, above the key counter),
-// mania left of the stage, taiko the empty area below the lane.
-const AUTO_ZONE = { osu: 'right', fruits: 'right', mania: 'left', taiko: 'left' };
+// align = auto mirrors the suggested placements: osu!/catch top-right and taiko bottom-right
+// hug the right edge, mania sits in the top-left corner.
+const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'end', mania: 'start' };
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
+const root = document.documentElement;
 const np = $('np');
 const chip = $('chip');
 const bar = $('bar');
-const brandEl = $('brand');
 const modsEl = $('mods');
 const mapperWrap = $('mapperWrap');
 
@@ -72,8 +70,7 @@ function cellText(cell, part, value) {
 
 // ------------------------------------------------------------------ state
 let opts = {
-  layout: 'full', unicode: false, showStats: true, zone: 'auto', x: 0, y: 0, scale: 1,
-  backing: 'none', accent: 'map', showBrand: true, columnStart: 0, columnWidth: 0,
+  layout: 'full', orientation: 'auto', align: 'auto', unicode: false, showStats: true, backing: 'none', accent: 'map',
 };
 let values = {};
 let live;
@@ -87,11 +84,8 @@ const HOT = new Set([P.starsLive, P.bpmLive]);
 const ctx = { show: false, parsed: false, rate: 1, start: 0, length: 0 };
 let shownChecksum;
 let shownMode;
-let placed = '';
-// The current skin's [Mania] geometry for the key count being played (null: not readable).
-let skinFor = '';
-let skinGeometry = null;
 let paletteFor = '';
+let barSteps = 1200;
 let barScale = -1;
 let shownSecond = -1;
 
@@ -129,13 +123,26 @@ subscribe(Object.values(P), (snapshot, changed) => {
 settings(opts, next => {
   const accentChanged = next.accent !== opts.accent;
   opts = next;
-  placed = '';
   if (accentChanged) loadPalette(paletteFor);
+  layoutBox();
   dirty = true;
   schedule();
 });
 
-fit(stage, WIDTH, HEIGHT);
+/** Orientation and type scale from the page's box (runs on resize and setting changes only). */
+function layoutBox() {
+  const w = innerWidth || BASE.vertical[0];
+  const h = innerHeight || BASE.vertical[1];
+  const orient = opts.orientation === 'horizontal' || opts.orientation === 'vertical' ? opts.orientation : w / h >= WIDE ? 'horizontal' : 'vertical';
+  const [bw, bh] = BASE[orient];
+  attr(np, 'data-orient', orient);
+  root.style.setProperty('--u', String(Math.round(clamp(Math.min(w / bw, h / bh), 0.5, 4) * 1000) / 1000));
+  barSteps = Math.max(200, Math.round(w * 2));
+  barScale = -1;
+  progressDirty = true;
+  schedule();
+}
+addEventListener('resize', layoutBox);
 
 // ------------------------------------------------------------------ render
 function render() {
@@ -158,12 +165,11 @@ function renderAll() {
   const checksum = online ? str(values[P.checksum]) : '';
   if (checksum && checksum !== paletteFor) loadPalette(checksum);
 
-  // Placement: re-laid out on ruleset, key count, client and placement settings only.
-  const keys = mode === 'mania' && ctx.parsed ? Math.round(num(values[P.csC]) ?? 4) : 4;
-  if (mode === 'mania') loadSkin(keys, str(values[P.skin]));
-  place(mode || 'osu', keys, values[P.client] === 'lazer' ? 'lazer' : 'stable');
+  const align = opts.align === 'left' ? 'start' : opts.align === 'right' ? 'end' : AUTO_ALIGN[mode] || 'end';
+  attr(np, 'data-align', align);
+  attr(chip, 'data-align', align);
 
-  // Tiny status line in the zone; nothing at all in menus, song select and results.
+  // Tiny status line in the box; nothing at all in menus, song select and results.
   let status = '';
   if (!online) status = conn === 'offline' ? 'vosu offline' : 'Connecting';
   else if (state === undefined) status = 'osu! not running';
@@ -176,7 +182,6 @@ function renderAll() {
   attr(np, 'data-layout', opts.layout === 'compact' ? 'compact' : 'full');
   attr(np, 'data-stats', opts.showStats ? 'on' : 'off');
   attr(np, 'data-backing', opts.backing === 'scrim' || opts.backing === 'panel' ? opts.backing : 'none');
-  brandEl.hidden = !opts.showBrand;
   if (!hasMap) return; // keep the last map's text in place while the strip fades out
 
   const pick = (plain, unicode) => (opts.unicode && str(values[unicode]).trim() ? str(values[unicode]) : str(values[plain]));
@@ -219,67 +224,11 @@ function rate() {
   return num(values[P.modsRate]) || num(values[P.clockRate]) || 1;
 }
 
-/** Fetches the skin's mania columns off the hot path; placement is redone when they arrive. */
-function loadSkin(keys, skin) {
-  const key = `${keys}|${skin}`;
-  if (key === skinFor) return;
-  skinFor = key;
-  skinGeometry = null;
-  maniaSkin(keys, skin).then(geometry => {
-    if (skinFor !== key) return;
-    skinGeometry = geometry;
-    placed = '';
-    dirty = true;
-    schedule();
-  });
-}
-
-function place(mode, keys, client) {
-  // Mania stage: the skin's ColumnStart/ColumnWidth/ColumnSpacing unless the settings override them.
-  const colStart = num(opts.columnStart) > 0 ? opts.columnStart : skinGeometry?.columnStart ?? 136;
-  const colWidth = num(opts.columnWidth) > 0 ? opts.columnWidth : skinGeometry?.columnWidth ?? 30;
-  const colSpacing = num(opts.columnWidth) > 0 ? 0 : skinGeometry?.columnSpacing ?? 0;
-  const key = `${mode}|${keys}|${client}|${mode === 'mania' ? `${colStart}|${colWidth}|${colSpacing}` : ''}`;
-  if (key === placed) return;
-  placed = key;
-  const layout = osuLayout(mode, { keys, client, columnStart: colStart, columnWidth: colWidth, columnSpacing: colSpacing });
-  const { busy, hud } = layout;
-  const scale = clamp(num(opts.scale) || 1, 0.5, 2);
-  const zone = opts.zone === 'left' || opts.zone === 'right' ? opts.zone : AUTO_ZONE[mode];
-  // `x` is the anchored edge: the strip's left edge when aligned start, its right edge when end.
-  let x, y, align, room;
-  if (mode === 'taiko') {
-    align = zone === 'right' ? 'end' : 'start';
-    x = align === 'end' ? WIDTH - MARGIN : MARGIN;
-    y = busy.y + busy.h + 44;
-    room = WIDTH;
-  } else if (mode === 'mania') {
-    if (zone === 'left') { align = 'end'; x = busy.x - MARGIN; y = hud.health.y + hud.health.h + 48; room = busy.x - 2 * MARGIN; }
-    // Right of the stage the strip can reach under score/accuracy, so start below them.
-    else { align = 'start'; x = busy.x + busy.w + 96; y = hud.accuracy.y + hud.accuracy.h + 32; room = WIDTH - x - MARGIN; }
-  } else if (zone === 'left') {
-    align = 'start'; x = MARGIN; y = hud.health.y + hud.health.h + 40; room = busy.x - 2 * MARGIN;
-  } else {
-    align = 'end'; x = WIDTH - MARGIN; y = hud.accuracy.y + hud.accuracy.h + 32; room = WIDTH - busy.x - busy.w - 2 * MARGIN;
-  }
-  const width = Math.round(clamp(room / scale, 180, mode === 'taiko' ? STRIP_TAIKO : STRIP));
-  x += num(opts.x) ?? 0;
-  y += num(opts.y) ?? 0;
-  attr(np, 'data-align', align);
-  np.style.width = `${width}px`;
-  np.style.left = `${Math.round(align === 'end' ? x - width : x)}px`;
-  np.style.top = `${Math.round(y)}px`;
-  np.style.transform = scale === 1 ? '' : `scale(${scale})`;
-  chip.style.top = `${Math.round(y)}px`;
-  chip.style.left = align === 'end' ? '' : `${Math.round(x)}px`;
-  chip.style.right = align === 'end' ? `${Math.round(WIDTH - x)}px` : '';
-}
-
 function loadPalette(checksum) {
   paletteFor = checksum;
-  if (!checksum || opts.accent !== 'map') { applyPalette(stage, null); return; }
+  if (!checksum || opts.accent !== 'map') { applyPalette(root, null); return; }
   mapPalette(checksum).then(palette => {
-    if (paletteFor === checksum && opts.accent === 'map') applyPalette(stage, palette);
+    if (paletteFor === checksum && opts.accent === 'map') applyPalette(root, palette);
   });
 }
 
@@ -352,8 +301,8 @@ function renderProgress() {
     shownSecond = -1;
     text('elapsed', '0:00');
   }
-  // Quantised to half a CSS pixel of the widest strip so a steady clock does not restyle every frame.
-  const q = Math.round(scale * STRIP_TAIKO * 2) / (STRIP_TAIKO * 2);
+  // Quantised to half a CSS pixel of the box so a steady clock does not restyle every frame.
+  const q = Math.round(scale * barSteps) / barSteps;
   if (q !== barScale) {
     barScale = q;
     bar.style.transform = `scaleX(${q})`;

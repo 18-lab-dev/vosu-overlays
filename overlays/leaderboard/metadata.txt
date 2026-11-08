@@ -1,5 +1,6 @@
 name = Leaderboard
 author = 18-LAB
-version = 0.2.0
-description = Your live standing on the in-game leaderboard, for every ruleset: a rival ladder beside the playfield (the player above, your position, the player below, score gaps) that slides as you overtake, or a full leaderboard where osu!'s own sits for when you hide it. Results show your final standing.
-resolution = [1920,1080]
+version = 0.3.0
+description = The in-game leaderboard for every ruleset, as a custom overlay: position, name, score, accuracy, combo and mods, entries sliding past each other as you overtake, your entry highlighted and always in view, and the gap to the next position. A vertical list in tall boxes, a horizontal strip in wide ones; optional rival view.
+resolution = [280,440]
+placement = {"osu":["left+24","top+300"],"fruits":["left+24","top+300"],"mania":["left+24","top+300"],"taiko":["left+24","bottom-12",1000,72]}

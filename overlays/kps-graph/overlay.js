@@ -1,45 +1,39 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// KPS graph: osu!mania keys per second, floating beside the stage. Live KPS is the sum of
-// /keys/all count deltas over a rolling one-second (real time) window, drawn as a vertical
-// chart-recorder strip: time runs upward like the mania editor, so the map's strain density falls
-// toward the now line from above and the trace you played trails below it. Results hold the whole
-// run; song select shows the map's density and note rate, which osu! does not.
-import { subscribe, settings, fit, activeMode, isPlaying, formatDuration, osuLayout, maniaSkin, mapPalette, applyPalette } from './vosu-overlay.js';
+// KPS graph: osu!mania keys per second. Live KPS is the sum of /keys/all count deltas over a
+// rolling one-second (real time) window, drawn as a chart-recorder strip over the map's strain
+// density. The page is content-sized and re-flows to the box its host gives it: vertical (time
+// runs upward like the mania editor, density falls toward the now line, the trace trails below)
+// or horizontal (time runs left → right). Results add the whole run; song select adds the map's
+// density and note rate, which osu! does not show.
+import { subscribe, settings, activeMode, isPlaying, formatDuration, mapPalette, applyPalette } from './vosu-overlay.js';
 
 const BIN = 50;          // map ms per histogram bin
 const ORIGIN = -10000;   // map time of bin 0, covers lead-in
 const NOW_AT = 0.82;     // share of the strip that is history; the rest previews upcoming density
 const HOLD = 250;        // ms the clock may run past the last vosu time sample (pauses stop it)
-const GUTTER = 22;       // px kept free at the overview's top for scale labels (style.css --gutter)
-const BLOCK_W = 210;     // style.css: axis 44 + gap 6 + chart 160
-const HEAD_H = 116;      // style.css: head 20 + readouts 6 + 80 + 10
-const STAGE_GAP = 28;    // px between the block and the stage when aligned to it
-const HP_CLEAR = 104;    // stable skins draw the HP bar against the stage's right edge
+const GUTTER = 22;       // px kept free at the overview's far end for scale labels (style.css --gutter)
 const SELECT = new Set([4, 5, 12, 13]);   // song select (edit, play, match setup, multi)
 const RESULTS = new Set([7, 14, 18]);     // results (solo, vs, team)
 
 const POINTERS = [
-  '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source', '/client',
+  '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source',
   '/keys/all', '/beatmap/time/live', '/beatmap/time/rate', '/play/mods/rate',
   '/beatmap/time/firstObject', '/beatmap/time/lastObject', '/beatmap/time/mp3Length',
-  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total', '/settings/skin/name',
+  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total',
   '/performance/graph/series', '/performance/graph/xaxis',
 ];
 
 const $ = id => document.getElementById(id);
-const stage = $('stage');
 const block = $('kps');
 const chip = $('chip');
 const canvas = $('chart');
 const note = $('note');
 const el = {
-  chip: $('chipText'), phase: $('phase'), brand: $('brand'),
+  chip: $('chipText'), phase: $('phase'),
   pLabel: $('pLabel'), pValue: $('pValue'), pUnit: $('pUnit'), aLabel: $('aLabel'), aValue: $('aValue'), bLabel: $('bLabel'), bValue: $('bValue'),
   axisL: $('axisL'), axisM: $('axisM'), axisN: $('axisN'), axisR: $('axisR'),
 };
 const ctx = canvas.getContext('2d', { alpha: true });
-
-fit(stage, 1920, 1080);
 
 /** textContent only when the formatted string changed. */
 function put(node, value) {
@@ -93,100 +87,52 @@ function recolor() {
 const DASH_AVG = [4, 3];
 const DASH_PEAK = [1, 3];
 const DASH_NONE = [];
-const MONO = '500 12px "IBM Plex Mono", ui-monospace, monospace';
+let monoFont = '500 12px "IBM Plex Mono", ui-monospace, monospace';
 
 // ---------------------------------------------------------------- settings (applied at the end of the module)
-const DEFAULTS = {
-  window: 20, height: 560, strain: true, side: 'left', align: 'stage', columnStart: 0, columnWidth: 0,
-  x: 0, y: 0, scale: 1, backing: 'none', accent: 'map', brand: true,
-};
+const DEFAULTS = { window: 20, strain: true, orientation: 'auto', align: 'left', backing: 'none', accent: 'map', menus: false };
 let opt = DEFAULTS;
 let spanS = 20;
-let length = 560;
 const clamp = (v, lo, hi, fallback) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
-let optKey = '';
 function applySettings(next) {
   const accentChanged = next.accent !== opt.accent;
   opt = next;
-  optKey = JSON.stringify(next);
   spanS = Math.round(clamp(next.window, 5, 60, 20));
-  length = Math.round(clamp(next.height, 240, 760, 560));
-  attr(block, 'data-side', next.side === 'right' ? 'right' : 'left');
+  attr(block, 'data-align', next.align === 'right' ? 'right' : 'left');
   attr(block, 'data-backing', ['scrim', 'panel'].includes(next.backing) ? next.backing : 'none');
-  el.brand.hidden = !next.brand;
   if (accentChanged) loadPalette();
-  place();
-  measure();
+  relayout();
+  setView(decideView());
   axisDirty = true;
   dirty = true;
   kick();
 }
 
-// ---------------------------------------------------------------- placement in osu!'s free regions
-// Song select: the centre column between local ranking and carousel. Results: the right of the
-// header strip (title/mapper text sits on its left). Gameplay: the band beside the mania stage,
-// from osuLayout(), with the user's side/alignment/nudge/scale settings.
-const SELECT_ZONE = { x: 540, y: 190, w: 620, h: 740 };
-const RESULTS_ZONE = { x: 1010, y: 14, w: 880, h: 110 };
-let placeKey = '';
-// The current skin's stage (maniaSkin via vosu's skin.ini); settings override it when non-zero.
-let skinGeo = null, skinFor = '', skinGen = 0;
-function loadSkin(keys) {
-  const skin = values['/settings/skin/name'] ?? '';
-  const key = `${keys}|${skin}`;
-  if (key === skinFor) return;
-  skinFor = key;
-  maniaSkin(keys, skin).then(geo => {
-    if (skinFor !== key) return;
-    skinGeo = geo;
-    skinGen++;
-    place();
-  });
+// ---------------------------------------------------------------- re-flow to the host's box
+// Hosts (OBS, vosulay, the replay renderer's per-player cells) size the page; the layout follows
+// the box: horizontal when it is wider than tall (or forced by `orientation`), type and marks
+// scaled from the box (1 = 232 px wide vertical, 150 px tall horizontal), never below legibility.
+function relayout() {
+  const W = innerWidth, H = innerHeight;
+  const next = opt.orientation === 'horizontal' ? 'h' : opt.orientation === 'vertical' ? 'v' : W >= H ? 'h' : 'v';
+  const u = next === 'v' ? clamp(W / 232, 0.5, 2, 1) : clamp(H / 150, 0.5, 2, 1);
+  const lab = Math.max(10, Math.round(12 * u));
+  const s = block.style;
+  s.setProperty('--u', u.toFixed(3));
+  s.setProperty('--lab', `${lab}px`);
+  s.setProperty('--big', `${Math.max(34, Math.round(60 * u))}px`);
+  s.setProperty('--stat', `${Math.max(20, Math.round(30 * u))}px`);
+  s.setProperty('--axis', `${Math.max(30, Math.round(42 * u))}px`);
+  s.setProperty('--gap', `${Math.max(6, Math.round(10 * u))}px`);
+  // Narrow vertical boxes (multiplayer cells) stack PEAK · AVG under NOW.
+  attr(block, 'data-compact', next === 'v' && W < 200 ? '' : null);
+  monoFont = `500 ${lab}px "IBM Plex Mono", ui-monospace, monospace`;
+  if (next !== orient) { orient = next; attr(block, 'data-orient', orient); }
+  measure();
+  axisDirty = dirty = true;
+  kick();
 }
-function place() {
-  const keys = columns() ?? 4;
-  const client = values['/client'] === 'lazer' ? 'lazer' : 'stable';
-  loadSkin(keys);
-  const key = `${view}|${keys}|${client}|${length}|${skinGen}|${optKey}`;
-  if (key === placeKey) return;
-  placeKey = key;
-  if (view === 'summary') {
-    block.style.transform = `translate(${RESULTS_ZONE.x}px, ${RESULTS_ZONE.y}px)`;
-    return;
-  }
-  if (view === 'select') {
-    const len = Math.min(length, SELECT_ZONE.h - HEAD_H);
-    block.style.setProperty('--chart-h', `${len}px`);
-    const x = SELECT_ZONE.x + (SELECT_ZONE.w - BLOCK_W) / 2;
-    const y = SELECT_ZONE.y + (SELECT_ZONE.h - HEAD_H - len) / 2;
-    block.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    return;
-  }
-  block.style.setProperty('--chart-h', `${length}px`);
-  const widthOverride = clamp(opt.columnWidth, 0, 400, 0);
-  const startOverride = clamp(opt.columnStart, 0, 1000, 0);
-  const layout = osuLayout('mania', {
-    keys, client,
-    columnWidth: widthOverride > 0 ? widthOverride : skinGeo?.columnWidth ?? 30,
-    columnSpacing: widthOverride > 0 ? 0 : skinGeo?.columnSpacing ?? 0,
-    columnStart: startOverride > 0 ? startOverride : skinGeo?.columnStart ?? 136,
-  });
-  const s = clamp(opt.scale, 0.5, 2, 1);
-  const w = BLOCK_W * s;
-  const h = (HEAD_H + length) * s;
-  const stageBox = layout.busy;
-  const right = stageBox.x + stageBox.w;
-  let x;
-  if (opt.side === 'right') {
-    x = opt.align === 'stage' ? right + HP_CLEAR : right + HP_CLEAR + (layout.width - right - HP_CLEAR - w) / 2;
-  } else {
-    x = opt.align === 'stage' ? stageBox.x - STAGE_GAP - w : (stageBox.x - w) / 2;
-  }
-  const top = layout.hud.health.y + layout.hud.health.h + 24;
-  const y = Math.max(top, (layout.height - h) / 2);
-  x = Math.round(x + clamp(opt.x, -1920, 1920, 0));
-  block.style.transform = `translate(${x}px, ${Math.round(y + clamp(opt.y, -1080, 1080, 0))}px) scale(${s})`;
-}
+addEventListener('resize', relayout);
 
 // ---------------------------------------------------------------- map tint
 let paletteFor = null;
@@ -209,8 +155,8 @@ function loadPalette() {
 
 // ---------------------------------------------------------------- canvas sizing
 // The chart is drawn in a virtual horizontal frame (cw = time length, ch = amplitude thickness).
-// Gameplay and song select rotate it onto a vertical canvas (later time goes up, amplitude grows
-// away from the stage); the results header band uses it as is (orient 'h').
+// A vertical box rotates it onto the canvas (later time goes up, amplitude grows away from the
+// stage side); a horizontal box uses it as is (orient 'h').
 let cw = 0, ch = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null, orient = 'v';
 let box = null;
 new ResizeObserver(([entry]) => {
@@ -223,7 +169,7 @@ new ResizeObserver(([entry]) => {
   dirty = true;
   kick();
 }).observe(canvas);
-document.fonts?.load(MONO).then(() => { dirty = true; kick(); }, () => {});
+document.fonts?.load(monoFont).then(() => { dirty = true; kick(); }, () => {});
 
 /** Virtual dimensions and gradients for the current orientation (no layout reads). */
 function measure() {
@@ -241,7 +187,7 @@ function measure() {
 /** Virtual (x = time, y = amplitude from the top) → canvas, for the current orientation and side. */
 function frameTransform() {
   if (orient === 'h') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  else if (opt.side === 'right') ctx.setTransform(0, -dpr, -dpr, 0, ch * dpr, cw * dpr);
+  else if (opt.align === 'right') ctx.setTransform(0, -dpr, -dpr, 0, ch * dpr, cw * dpr);
   else ctx.setTransform(0, -dpr, dpr, 0, 0, cw * dpr);
 }
 const crisp = v => (Math.round(v * dpr) + half) / dpr;
@@ -375,6 +321,9 @@ function decideView() {
   if (mode !== 'mania') return 'hidden';
   if (isPlaying(state)) return 'live';
   const sameMap = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+  // Song select and results only on request: the page keeps its gameplay box, which on those
+  // screens usually sits over osu!'s own panels (local ranking, results card, back button).
+  if (!opt.menus) return 'hidden';
   // Results: osu! shows judgements, not keys per second; without a recorded run there is nothing to add.
   if (RESULTS.has(state)) return sameMap ? 'summary' : 'hidden';
   // Song select: the map's density and note rate (osu! shows neither), plus the last run on it.
@@ -387,8 +336,6 @@ function setView(next) {
   const from = view;
   view = next;
   attr(block, 'data-view', next);
-  const nextOrient = next === 'summary' ? 'h' : 'v';
-  if (nextOrient !== orient) { orient = nextOrient; attr(block, 'data-orient', orient); measure(); }
   if (next === 'live' && from !== 'live') { liveT = null; shownT = null; resetAttempt(); }
   chip.hidden = next !== 'offline' && next !== 'empty';
   if (next === 'offline') {
@@ -398,7 +345,6 @@ function setView(next) {
     attr(chip, 'data-state', 'idle');
     put(el.chip, 'osu! not running');
   }
-  place();
   axisDirty = true;
   dirty = true;
   if (from === 'live' || from === 'summary' || from === 'select') {
@@ -456,7 +402,7 @@ function drawGridH(x0, x1) {
 function drawGridLabels() {
   const step = gridStep();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.font = MONO;
+  ctx.font = monoFont;
   ctx.textAlign = 'center';
   ctx.textBaseline = orient === 'h' ? 'middle' : 'top';
   ctx.lineWidth = 3;
@@ -467,7 +413,7 @@ function drawGridLabels() {
     const y = yOf(v);
     if (y < 10) break;
     let x = cw - GUTTER / 2, top = y;
-    if (orient !== 'h') { x = opt.side === 'right' ? ch - y : y; top = 3; }
+    if (orient !== 'h') { x = opt.align === 'right' ? ch - y : y; top = 3; }
     ctx.strokeText(NUMBERS[v], x, top);
     ctx.fillText(NUMBERS[v], x, top);
   }
@@ -833,7 +779,6 @@ function readouts(current, keysPresent, avg) {
 
 // ---------------------------------------------------------------- wiring
 recolor();
-let lastKeyCount = -1;
 settings(DEFAULTS, applySettings);
 subscribe(POINTERS, (next, changed) => {
   values = next;
@@ -855,8 +800,6 @@ subscribe(POINTERS, (next, changed) => {
   }
   if (view === 'live' && changed.has('/keys/all')) takeKeys(now);
   if (changed.has('/beatmap/checksum')) { loadPalette(); dirty = axisDirty = true; }
-  const keyCount = Array.isArray(values['/keys/all']) ? values['/keys/all'].length : -1;
-  if (keyCount !== lastKeyCount || changed.has('/beatmap/stats/cs/converted') || changed.has('/client') || changed.has('/settings/skin/name')) { lastKeyCount = keyCount; place(); dirty = true; }
   if (changed.has('/beatmap/time/mp3Length') || changed.has('/beatmap/stats/objects/total') || changed.has('/beatmap/time/lastObject') || changed.has('/play/source')) dirty = axisDirty = true;
   if (view === 'live' || dirty) kick();
 }, {

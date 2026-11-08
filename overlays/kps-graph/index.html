@@ -3,37 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KPS graph · 18-LAB</title>
-<link rel="stylesheet" href="/assets/tokens.css">
+<title>KPS graph</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <section id="kps" class="kps" aria-label="Keys per second" data-view="init" data-side="left" data-backing="none">
-    <p id="chip" class="chip" role="status" hidden><i></i><span id="chipText"></span></p>
-    <div class="body">
-      <header class="head">
-        <span id="brand" class="brand">18—LAB</span>
-        <span class="phase"><i></i><span id="phase"></span></span>
-      </header>
-      <div class="readouts">
-        <span id="pLabel" class="label">Now</span>
-        <span id="aLabel" class="label" data-key="peak">Peak</span>
-        <span id="bLabel" class="label" data-key="avg">Avg</span>
-        <span class="figure"><b id="pValue">—</b><span id="pUnit" class="unit">kps</span></span>
-        <b id="aValue" class="stat">—</b>
-        <b id="bValue" class="stat">—</b>
-      </div>
-      <div class="plot">
-        <div class="axis" aria-hidden="true">
-          <span id="axisL"></span><span id="axisM"></span><span id="axisN"></span><span id="axisR"></span>
-        </div>
-        <canvas id="chart" aria-label="Keys per second over time, with the map's density behind it"></canvas>
-        <p id="note" class="note" hidden></p>
-      </div>
+<section id="kps" class="kps" aria-label="Keys per second" data-view="init" data-orient="v" data-align="left" data-backing="none">
+  <p id="chip" class="chip" role="status" hidden><i></i><span id="chipText"></span></p>
+  <div class="readouts">
+    <span class="phase"><i></i><span id="phase"></span></span>
+    <span id="pLabel" class="label p">Now</span>
+    <span id="aLabel" class="label a" data-key="peak">Peak</span>
+    <span id="bLabel" class="label b" data-key="avg">Avg</span>
+    <span class="figure"><b id="pValue">—</b><span id="pUnit" class="unit">kps</span></span>
+    <b id="aValue" class="stat a">—</b>
+    <b id="bValue" class="stat b">—</b>
+  </div>
+  <div class="plot">
+    <div class="axis" aria-hidden="true">
+      <span id="axisL"></span><span id="axisM"></span><span id="axisN"></span><span id="axisR"></span>
     </div>
-  </section>
-</div>
+    <canvas id="chart" aria-label="Keys per second over time, with the map's density behind it"></canvas>
+    <p id="note" class="note" hidden></p>
+  </div>
+</section>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

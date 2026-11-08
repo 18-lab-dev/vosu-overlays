@@ -1,5 +1,6 @@
 name = KPS graph
 author = 18-LAB
-version = 0.2.0
-description = osu!mania keys per second as a vertical chart-recorder strip beside the stage: the map's strain density falls toward the now line, your live KPS (rolling one-second window) trails below it with the attempt's peak and average. Results add the whole run's KPS envelope; song select adds the map's density and note rate.
-resolution = [1920,1080]
+version = 0.3.0
+description = osu!mania keys per second as a chart-recorder strip: the map's strain density runs toward the now line and your live KPS (rolling one-second window) trails behind it, with the attempt's peak and average. Re-flows to its box: vertical beside the stage, horizontal in wide boxes. Results add the whole run's KPS; song select adds the map's density and note rate.
+resolution = [232,400]
+placement = {"mania":["left+40","bottom-32"]}

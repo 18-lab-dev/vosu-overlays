@@ -1,18 +1,15 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Fruit ledger: osu!catch judgements as a ruled ledger floating in the side band beside the
-// playfield — caught and missed per object class, combo status, accuracy and the accuracy
-// still reachable. Song select shows the map's fruit/drop/droplet split (osu! shows only
-// circles/sliders/spinners); results and menus show nothing.
-import { subscribe, settings, fit, activeMode, osuLayout, mapPalette, applyPalette } from './vosu-overlay.js';
+// Fruit ledger: osu!catch judgements as a ruled ledger — caught and missed per object class,
+// combo status, accuracy and the accuracy still reachable. A content-sized page: the host
+// (OBS, vosulay, the replay renderer) places and sizes it; the ledger re-flows to that box,
+// vertical for side columns and corners, horizontal for top/bottom bands. Gameplay only: a page
+// placed for gameplay would sit on song select's carousel art, and osu!'s results screen already
+// lists every catch judgement, so song select, results and menus show nothing.
+import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const CLUSTER = 296; // px, .anchor width
-const GUTTER = 40; // px between the playfield edge and the ledger
-const TRACK = CLUSTER - 46 - 12; // the bar spans the label and caught columns
-const MIN_SHARE = 2 / TRACK; // a non-zero share stays visible
+const PAD = 20; // design px around the ledger, holding the scrim's fade (.frame padding)
+const STRETCH = 1.3; // a wide box widens the ledger up to this factor before scaling it up
 const PLAYING = 2;
-const SONG_SELECT = new Set([5, 12, 13]); // select play, multiplayer match setup, multiplayer select
 
 const P = {
   state: '/state/number',
@@ -29,11 +26,9 @@ const playHits = HIT_KEYS.map(key => `/play/hits/${key}`);
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
-const stage = $('stage');
-const anchor = $('anchor');
+const frame = $('frame');
 const ledger = $('ledger');
 const chip = $('chip');
-fit(stage, WIDTH, HEIGHT);
 
 // ------------------------------------------------------------ writers (DOM touched only on change)
 function textCell(el) {
@@ -52,16 +47,19 @@ function classCell(el, name) {
   let last = null;
   return on => { if (on !== last) { last = on; el.classList.toggle(name, on); } };
 }
+let mirrored = false;
+let segEpoch = 0; // bumped when the bars' direction flips, so every bar rewrites
 function segCell(el) {
-  let lastStart = -1, lastWidth = -1;
+  let lastStart = -1, lastWidth = -1, lastEpoch = -1;
   return (start, width) => {
-    if (width > 0 && width < MIN_SHARE) width = MIN_SHARE;
+    // A non-zero share stays visible (2 px of a ~120 px track).
+    if (width > 0 && width < 0.016) width = 0.016;
     if (start + width > 1) start = Math.max(0, 1 - width);
     start = Math.round(start * 1000) / 1000;
     width = Math.round(width * 1000) / 1000;
-    if (start === lastStart && width === lastWidth) return;
-    lastStart = start; lastWidth = width;
-    el.style.transform = `translateX(${start * 100}%) scaleX(${width})`;
+    if (start === lastStart && width === lastWidth && segEpoch === lastEpoch) return;
+    lastStart = start; lastWidth = width; lastEpoch = segEpoch;
+    el.style.transform = `translateX(${(mirrored ? -start : start) * 100}%) scaleX(${width})`;
   };
 }
 const stat = name => document.querySelector(`.stat-${name}`);
@@ -70,14 +68,8 @@ const ui = {
   chipState: attrCell(chip, 'data-state'),
   chipText: textCell($('chip-text')),
   hidden: classCell(ledger, 'is-hidden'),
-  compact: classCell(ledger, 'compact'),
-  backing: attrCell(ledger, 'data-backing'),
-  phaseAttr: attrCell(ledger, 'data-phase'),
-  brand: attrCell($('brand'), 'hidden'),
-  phase: textCell($('phase')),
   verdict: textCell($('verdict')),
   tone: attrCell($('verdict'), 'data-tone'),
-  colCaught: textCell($('col-caught')),
   fruit: textCell($('n-fruit')),
   drop: textCell($('n-drop')),
   tiny: textCell($('n-tiny')),
@@ -92,10 +84,8 @@ const ui = {
   segDmiss: segCell($('seg-dmiss')),
   acc: textCell($('acc')),
   accEmpty: attrCell(stat('acc'), 'data-empty'),
-  accHidden: attrCell(stat('acc'), 'hidden'),
   max: textCell($('max')),
-  maxEmpty: attrCell(stat('max'), 'data-empty'),
-  maxHidden: attrCell(stat('max'), 'hidden'),
+  maxUnknown: attrCell(stat('max'), 'data-unknown'),
   combo: textCell($('combo')),
   comboEmpty: attrCell(stat('combo'), 'data-empty'),
   comboOf: textCell($('combo-of')),
@@ -106,14 +96,15 @@ const count = n => (n === null ? '—' : grouping.format(n));
 const percent = n => (n === null ? '—' : n.toFixed(2));
 
 // ------------------------------------------------------------ state
-const DEFAULTS = { zone: 'right', offsetX: 0, offsetY: 0, scale: 1, backing: 'scrim', accent: 'map', compact: false, showAcc: true, showBrand: true };
+const DEFAULTS = { orientation: 'auto', align: 'right', backing: 'scrim', accent: 'map', compact: false, showAcc: true };
 let values = {};
 let options = { ...DEFAULTS };
 let status = 'connecting';
 let dirty = true;
-let frame = 0;
+let rafId = 0;
 
-// Map composition from vosu's (and tosu's) calculator: one request per selected map.
+// Map composition from vosu's (and tosu's) calculator: one request per selected map. The
+// replay renderer does not serve it; MAX then stays hidden.
 let composition = null;
 let compositionFor = null;
 let compositionTimer = 0;
@@ -121,37 +112,55 @@ let paletteFor = null;
 
 function markDirty() {
   dirty = true;
-  if (!frame) frame = requestAnimationFrame(render);
+  if (!rafId) rafId = requestAnimationFrame(render);
 }
 
-// osu!stable song select at 1920×1080: the centre column between the local leaderboard and the
-// beatmap carousel, below the map info header, is empty (the mode chooser there is normally shut).
-const SONG_SELECT_COLUMN = { x: 540, y: 190, w: 620 };
-let placedAt = '';
+// ------------------------------------------------------------ re-flow to the page box (never in rAF)
+let relayoutTimer = 0;
+function scheduleRelayout() {
+  clearTimeout(relayoutTimer);
+  relayoutTimer = setTimeout(relayout, 0);
+}
 
 /**
- * Gameplay: the side band beside the 4:3 playfield (osuLayout geometry), top clear of score and
- * accuracy, bottom clear of a key counter at the right edge. Song select: the centre column.
- * Writes the transform only when the spot changes.
+ * Picks the arrangement for the box (horizontal when it is much wider than tall, unless the
+ * orientation setting forces one), measures the ledger at design size, then scales the frame to
+ * fit and aligns it. A box too small for the full ledger at ≥ 70 % (e.g. a 4-player renderer
+ * cell) gets the compact ledger, which keeps type larger. Runs on resize, settings change and
+ * font load only.
  */
-function place(phase) {
-  const scale = Math.min(2, Math.max(0.5, options.scale || 1));
-  let x, y;
-  if (phase === 'map') {
-    x = SONG_SELECT_COLUMN.x + (SONG_SELECT_COLUMN.w - CLUSTER * scale) / 2;
-    y = SONG_SELECT_COLUMN.y + 40;
-  } else {
-    const { busy, hud } = osuLayout('fruits', { width: WIDTH, height: HEIGHT });
-    x = options.zone === 'left' ? busy.x - GUTTER - CLUSTER * scale : busy.x + busy.w + GUTTER;
-    y = hud.accuracy.y + hud.accuracy.h + 34;
+function relayout() {
+  const W = innerWidth, H = innerHeight;
+  if (!W || !H) return;
+  const orient = options.orientation === 'horizontal' ? 'h'
+    : options.orientation === 'vertical' ? 'v'
+      : W / H > 2.2 ? 'h' : 'v';
+  ledger.dataset.orient = orient;
+  ledger.dataset.align = options.align;
+  frame.dataset.align = options.align;
+  const nowMirrored = orient === 'v' && options.align === 'right';
+  if (nowMirrored !== mirrored) { mirrored = nowMirrored; segEpoch++; dirty = true; }
+  ledger.style.width = '';
+  const measure = () => {
+    const naturalW = ledger.offsetWidth;
+    const naturalH = ledger.offsetHeight;
+    return { naturalW, naturalH, scale: Math.min(4, W / (naturalW + 2 * PAD), H / (naturalH + 2 * PAD)) };
+  };
+  ledger.classList.toggle('compact', options.compact);
+  let box = measure();
+  if (!options.compact && box.scale < 0.7) {
+    ledger.classList.add('compact');
+    box = measure();
   }
-  // Scaled or nudged, the ledger never leaves the 1920×1080 source.
-  x = Math.min(WIDTH - CLUSTER * scale, Math.max(0, x + options.offsetX));
-  y = Math.max(0, y + options.offsetY);
-  const transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${scale})`;
-  if (transform === placedAt) return;
-  placedAt = transform;
-  anchor.style.transform = transform;
+  const { naturalW, naturalH, scale } = box;
+  const width = Math.min(W / scale - 2 * PAD, naturalW * STRETCH);
+  ledger.style.width = `${Math.floor(width)}px`;
+  const frameW = (width + 2 * PAD) * scale;
+  const frameH = (naturalH + 2 * PAD) * scale;
+  const x = options.align === 'left' ? 0 : options.align === 'right' ? W - frameW : (W - frameW) / 2;
+  const y = (H - frameH) / 2;
+  frame.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${scale})`;
+  markDirty();
 }
 
 function wantComposition(checksum) {
@@ -226,7 +235,6 @@ function verdictOf(hits, maxCombo) {
 }
 
 function chipOnly(state, text) {
-  place('live');
   ui.chipState(state);
   ui.chipText(text);
   ui.hidden(true);
@@ -234,13 +242,9 @@ function chipOnly(state, text) {
 
 // ------------------------------------------------------------ render (rAF only)
 function render() {
-  frame = 0;
+  rafId = 0;
   if (!dirty) return;
   dirty = false;
-
-  ui.compact(options.compact);
-  ui.backing(options.backing);
-  ui.brand(options.showBrand ? null : '');
 
   if (status !== 'live') return chipOnly(status, status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
 
@@ -248,37 +252,13 @@ function render() {
   if (!Number.isInteger(state)) return chipOnly('idle', 'Waiting for osu!');
   ui.chipState('live');
 
-  const mode = activeMode(state, values[P.playMode], values[P.settingsMode]);
-  const phase = state === PLAYING ? 'live' : SONG_SELECT.has(state) ? 'map' : null;
-  // Another ruleset, results, menus — or song select without anything osu! doesn't show: nothing.
-  if (mode !== 'fruits' || phase === null || (phase === 'map' && !composition)) {
+  // Another ruleset, song select, results, menus: nothing.
+  if (state !== PLAYING || activeMode(state, values[P.playMode], values[P.settingsMode]) !== 'fruits') {
     ui.hidden(true);
     return;
   }
-  place(phase);
   ui.hidden(false);
-  ui.phaseAttr(phase);
-  ui.phase(phase === 'live' ? 'Live' : 'Map');
 
-  if (phase === 'map') {
-    // The map's opening balance: osu! song select shows circles/sliders/spinners, not this split.
-    const c = composition;
-    ui.colCaught('In map');
-    ui.fruit(count(c.fruits));
-    ui.drop(count(c.drops));
-    ui.tiny(count(c.droplets));
-    const combos = c.fruits + c.drops;
-    ui.segFruit(0, combos ? c.fruits / combos : 0);
-    ui.segDrop(combos ? c.fruits / combos : 0, combos ? c.drops / combos : 0);
-    ui.segMiss(1, 0);
-    ui.segTiny(0, c.droplets ? 1 : 0);
-    ui.segDmiss(1, 0);
-    return;
-  }
-
-  ui.colCaught('Caught');
-  ui.accHidden(options.showAcc ? null : '');
-  ui.maxHidden(options.showAcc ? null : '');
   const mapCombo = Number.isFinite(values[P.mapCombo]) && values[P.mapCombo] > 0 ? values[P.mapCombo] : null;
   ui.comboOf(mapCombo === null ? '' : `/ ${count(mapCombo)}`);
   const combo = Number.isFinite(values[P.combo]) ? values[P.combo] : null;
@@ -287,11 +267,11 @@ function render() {
 
   const hits = readHits();
   if (!hits) {
-    for (const write of [ui.fruit, ui.drop, ui.tiny, ui.miss, ui.dmiss, ui.acc, ui.max]) write('—');
+    for (const write of [ui.fruit, ui.drop, ui.tiny, ui.miss, ui.dmiss, ui.acc]) write('—');
     ui.missHot(false); ui.dmissHot(false);
     for (const seg of [ui.segFruit, ui.segDrop, ui.segMiss, ui.segTiny, ui.segDmiss]) seg(0, 0);
     ui.tone('none'); ui.verdict('');
-    ui.accEmpty(''); ui.maxEmpty('');
+    ui.accEmpty(''); ui.maxUnknown('');
     return;
   }
 
@@ -324,14 +304,15 @@ function render() {
   ui.acc(percent(accuracy));
   ui.accEmpty(accuracy === null ? '' : null);
 
-  // Max achievable: everything not yet missed is still catchable.
+  // Max achievable: everything not yet missed is still catchable. Needs the map's object counts
+  // and a known droplet-miss count; otherwise the readout stays hidden rather than a dash.
   let max = null;
   if (composition && composition.total > 0 && hits.dropletMisses !== null) {
     max = Math.max(0, (composition.total - hits.misses - hits.dropletMisses) / composition.total) * 100;
     max = Math.floor(max * 100) / 100;
   }
   ui.max(percent(max));
-  ui.maxEmpty(max === null ? '' : null);
+  ui.maxUnknown(max === null ? '' : null);
 }
 
 // ------------------------------------------------------------ wiring
@@ -353,7 +334,13 @@ subscribe([...Object.values(P), ...playHits], (next, changed) => {
 
 settings(DEFAULTS, next => {
   options = next;
+  ledger.dataset.backing = options.backing;
+  stat('acc').hidden = !options.showAcc;
+  stat('max').hidden = !options.showAcc;
   const fruits = activeMode(values[P.state], values[P.playMode], values[P.settingsMode]) === 'fruits';
   wantPalette(fruits ? values[P.checksum] : null);
-  markDirty();
+  scheduleRelayout();
 });
+
+new ResizeObserver(scheduleRelayout).observe(root);
+document.fonts.ready.then(scheduleRelayout);

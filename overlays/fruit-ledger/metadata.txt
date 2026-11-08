@@ -1,5 +1,6 @@
 name = Fruit ledger
 author = 18-LAB
-version = 0.2.0
-description = osu!catch judgement ledger floating in the side band beside the playfield: fruits, drops and droplets caught and missed with proportion bars, combo status (full combo, combo intact, broken), accuracy, max achievable accuracy and combo. Song select shows the map's fruit/drop/droplet split.
-resolution = [1920,1080]
+version = 0.3.0
+description = osu!catch judgement ledger: fruits, drops and droplets caught and missed with proportion bars, combo status (full combo, combo intact, broken), accuracy, max achievable accuracy and combo. A column for corners and side bands that re-flows into a band in wide boxes. Gameplay only.
+resolution = [320,289]
+placement = {"fruits":["right-24","bottom-24"]}

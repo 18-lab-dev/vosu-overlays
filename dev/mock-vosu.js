@@ -29,14 +29,17 @@ const arg = (name, fallback) => {
 const PORT = Number(arg('port', 24100));
 const VOSU_URL = process.env.VOSU_URL || 'http://127.0.0.1:24050';
 const VOSU_ASSETS = process.env.VOSU_ASSETS || '';
-// Optional directory of 1920×1080 transparent gameplay captures (osu.png, taiko.png, fruits.png,
-// mania-<keys>k.png), e.g. renders of your own skin. The stage draws them over the background in
-// place of the wireframe, so overlays are judged against real HUD and playfield placement.
+// Optional directory of 1920×1080 captures, e.g. renders of your own skin: gameplay frames
+// (osu.png, taiko.png, fruits.png, mania-<keys>k.png), songselect.png and results-<mode>.png.
+// The stage draws the one matching the scenario's state and ruleset over the background in place
+// of the wireframe, so overlays are judged against real HUD and screen placement.
 const STAGE_BACKDROPS = process.env.VOSU_STAGE_BACKDROPS || '';
 
 function backdropFile() {
   if (!STAGE_BACKDROPS) return null;
-  const name = config.mode === 'mania' ? `mania-${config.keys}k.png` : `${config.mode}.png`;
+  const name = config.state === 'menu' ? 'songselect.png'
+    : config.state === 'results' ? `results-${config.mode}.png`
+    : config.mode === 'mania' ? `mania-${config.keys}k.png` : `${config.mode}.png`;
   const file = join(STAGE_BACKDROPS, name);
   return existsSync(file) ? file : null;
 }
@@ -584,7 +587,7 @@ function stagePage(id, params) {
   const x = Number(params.get('x') ?? 0);
   const y = Number(params.get('y') ?? 0);
   // Wireframe when there is no backdrop for this ruleset, or when asked for explicitly (layout=1).
-  const backdrop = backdropFile() && params.get('layout') !== '1' ? `<img src="/__dev/backdrop?${encodeURIComponent(config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
+  const backdrop = backdropFile() && params.get('layout') !== '1' ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
   const layout = backdrop || params.get('layout') === '0' ? backdrop : layoutSvg();
   return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:1920px;height:1080px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;border:0;background:transparent;color-scheme:normal}</style>${layout}<iframe src="/${id}/" allowtransparency="true"></iframe>`;
 }

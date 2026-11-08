@@ -121,7 +121,7 @@ Mode-specific overlays render nothing outside their ruleset, so an OBS source ne
 
 ## Developing official overlays
 
-Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.png`. They link vosu's own `/assets/tokens.css` (18-LAB tokens and fonts) rather than copying it, and follow the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js` (packages must be self-contained). Edit the shared file, then run:
+Self-contained overlays live in `overlays/<id>/` and follow vosu's counter layout: `index.html`, `metadata.txt`, `settings.json`, optional `preview.webp` (a stage screenshot; WebP keeps packages small). They link vosu's own `/assets/tokens.css` (18-LAB tokens and fonts) rather than copying it, and follow the game through `vosu-overlay.js`, a byte-identical copy of `shared/vosu-overlay.js` (packages must be self-contained). Edit the shared file, then run:
 
 ```sh
 python scripts/sync_shared.py          # refresh every overlay's copy

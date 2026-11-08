@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leaderboard · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <p id="chip" class="chip" role="status" hidden><i></i><span id="chip-text">Connecting to vosu</span></p>
+  <section id="board" class="board" aria-label="Leaderboard">
+    <header class="head">
+      <span class="brand">18—LAB</span>
+      <span class="title"><i></i><span id="title">Leaderboard</span></span>
+      <span id="hgap" class="hgap"><b></b><span></span></span>
+      <span class="rank"><b id="rank-pos">—</b><span id="rank-total"></span></span>
+    </header>
+    <div id="rows" class="rows"><div id="skip" class="skip out"><span></span></div></div>
+  </section>
+</div>
+<template id="row-template"><div class="row out"><div class="flash"></div><span class="pos"></span><span class="who"><span class="name"></span><span class="delta"></span></span><span class="score"></span><span class="meta"><span class="fail">Failed</span><span class="mods"></span><span class="acc"></span><span class="combo"></span></span><span class="gapv"><b></b><span></span></span></div></template>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

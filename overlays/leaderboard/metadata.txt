@@ -1,0 +1,5 @@
+name = Leaderboard
+author = 18-LAB
+version = 0.1.0
+description = Live in-game leaderboard for every ruleset: position, name, score, accuracy, combo and mods, with rows sliding past each other as you overtake, your row highlighted and always in view, and the score gap to the next position.
+resolution = [420,720]

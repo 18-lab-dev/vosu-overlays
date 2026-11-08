@@ -1,0 +1,9 @@
+[
+ {"uniqueID":"rows","type":"number","title":"Rows","description":"Most rows shown (1–16). When you are below them, the top rows give way to the row you are chasing and your own row, so you are always visible.","value":8},
+ {"uniqueID":"showAcc","type":"checkbox","title":"Show accuracy","value":true},
+ {"uniqueID":"showCombo","type":"checkbox","title":"Show max combo","value":true},
+ {"uniqueID":"showMods","type":"checkbox","title":"Show mods","value":true},
+ {"uniqueID":"compact","type":"checkbox","title":"Compact","description":"One line per row; the gap to the next position moves into the header.","value":false},
+ {"uniqueID":"showGap","type":"checkbox","title":"Show gap to next position","description":"Score you need to pass the player above you, or your lead when you are first.","value":true},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","value":true}
+]

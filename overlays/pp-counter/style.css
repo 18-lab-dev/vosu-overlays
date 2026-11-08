@@ -1,0 +1,206 @@
+/* Copyright (c) 2026 18-LAB. MIT. */
+:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* tokens.css sets color-scheme: dark; when the embedding page's scheme differs, Chromium paints an
+   opaque backdrop behind the iframe. Normal keeps the source transparent. */
+html[data-theme] { color-scheme: normal; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; overflow: hidden; }
+[hidden] { display: none !important; }
+#stage { position: relative; }
+
+.label {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Panel -------------------------------------------------------------------------------------- */
+.panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 424px;
+  color: var(--fg);
+  font-family: var(--font-body);
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  contain: layout paint;
+  user-select: none;
+  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft);
+}
+.panel[data-view="offline"] { opacity: 0; transform: translateY(-4px); }
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand { color: var(--fg); }
+.title { color: var(--muted); margin-right: auto; }
+.mods {
+  color: var(--fg-dim);
+  padding: 2px 4px 2px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+}
+.mods:empty, .mode:empty { display: none; }
+.mode { color: var(--muted); text-transform: none; letter-spacing: .02em; }
+.state { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+.panel[data-tone="idle"] .dot { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+.panel[data-tone="live"] .dot { background: var(--accent); }
+.panel[data-tone="live"] .state { color: var(--fg); }
+.panel[data-tone="watch"] .dot { background: var(--signal); }
+.panel[data-tone="fail"] .dot { background: var(--danger); }
+.panel[data-tone="fail"] .state { color: var(--danger); }
+.panel[data-tone="done"] .dot { background: var(--fg-dim); }
+
+/* Readout ------------------------------------------------------------------------------------ */
+.readout {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  align-items: end;
+  gap: 12px;
+  padding: 12px 12px 0;
+}
+.main { display: grid; gap: 6px; min-width: 0; }
+.big {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 68px;
+  line-height: 56px;
+  height: 56px;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.frac { font-size: 34px; color: var(--fg-dim); letter-spacing: 0; }
+.unit {
+  margin-left: 6px;
+  font: 500 13px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.panel[data-view="select"] #kicker { color: var(--accent); }
+.panel[data-view="idle"] .big, .panel[data-view="offline"] .big, .big[data-empty] { color: var(--muted); }
+.big[data-empty] .unit { visibility: hidden; }
+.big[data-empty] #int { font-weight: 500; }
+
+.side {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 4px 12px;
+  border-left: 1px solid var(--rule);
+}
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.row dd {
+  margin: 0;
+  font: 600 24px/20px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+#rowA dd { color: var(--fg); }
+
+/* Rail --------------------------------------------------------------------------------------- */
+.gauge { padding: 14px 12px 0; }
+#rail { display: block; width: 100%; height: 28px; }
+.scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.panel:not([data-view="play"]):not([data-view="results"]):not([data-view="select"]) .gauge { padding-bottom: 12px; }
+.panel[data-view="select"]:has(.ladder[hidden]) .gauge,
+.panel[data-view="play"]:has(.chips[hidden]) .gauge { padding-bottom: 12px; }
+
+/* Ladder (song select) ----------------------------------------------------------------------- */
+.ladder {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+.ladder li { display: grid; gap: 6px; padding: 8px 12px 10px; }
+.ladder li + li { border-left: 1px solid var(--rule); }
+.ladder b {
+  font: 600 22px/18px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+.ladder li:last-child .label { color: var(--accent); }
+.ladder li:last-child b { color: var(--fg); }
+
+/* Breakdown chips ---------------------------------------------------------------------------- */
+.chips {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+.chips li { position: relative; display: grid; gap: 6px; padding: 8px 12px 10px; }
+.chips li + li { border-left: 1px solid var(--rule); }
+.chips b {
+  font: 600 22px/18px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.chips i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: var(--fg-dim);
+  opacity: .55;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 240ms var(--ease-draft);
+}
+.chips li[data-tone="empty"] b { color: var(--muted); }
+.chips li[data-tone="rank"] b { color: var(--accent); }
+
+/* Connection chip ---------------------------------------------------------------------------- */
+.status {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  background: rgb(17 18 20 / .86);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  transition: opacity 200ms var(--ease-draft);
+}
+.status[data-state="live"] { opacity: 0; }
+.status[data-state="connecting"] .dot { background: var(--caution); }
+.status[data-state="offline"] .dot { background: var(--danger); }

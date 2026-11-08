@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Performance counter · 18-LAB</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <section id="panel" class="panel" data-view="idle" aria-label="Performance points">
+    <header class="head">
+      <span id="brand" class="brand">18—LAB</span>
+      <span class="title">Performance</span>
+      <span id="mods" class="mods"></span>
+      <span id="mode" class="mode"></span>
+      <span class="state"><i class="dot"></i><span id="state">Idle</span></span>
+    </header>
+    <div class="readout">
+      <div class="main">
+        <span id="kicker" class="label">Current</span>
+        <div class="big"><span id="int">—</span><span id="frac" class="frac"></span><span class="unit">pp</span></div>
+      </div>
+      <dl class="side">
+        <div id="rowA" class="row"><dt id="labelA" class="label">If FC</dt><dd id="valA">—</dd></div>
+        <div id="rowB" class="row"><dt id="labelB" class="label">Max</dt><dd id="valB">—</dd></div>
+      </dl>
+    </div>
+    <div class="gauge">
+      <canvas id="rail" aria-hidden="true"></canvas>
+      <div class="scale"><span>0</span><span id="scaleMax">SS —</span></div>
+    </div>
+    <ol id="ladder" class="ladder" hidden>
+      <li data-acc="95"><span class="label">95%</span><b>—</b></li>
+      <li data-acc="97"><span class="label">97%</span><b>—</b></li>
+      <li data-acc="98"><span class="label">98%</span><b>—</b></li>
+      <li data-acc="99"><span class="label">99%</span><b>—</b></li>
+      <li data-acc="100"><span class="label">SS</span><b>—</b></li>
+    </ol>
+    <ul id="chips" class="chips" hidden></ul>
+  </section>
+  <div id="status" class="status" data-state="connecting"><i class="dot"></i><span id="statusText">Connecting to vosu</span></div>
+</div>
+<script type="module" src="overlay.js"></script>
+</body>
+</html>

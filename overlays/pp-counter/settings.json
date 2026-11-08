@@ -1,0 +1,8 @@
+[
+ {"uniqueID":"showIfFc","type":"checkbox","title":"Show if-FC pp","description":"During play, shows what the score would be worth as a full combo at the current accuracy, as a readout and an FC marker on the rail.","value":true},
+ {"uniqueID":"showMax","type":"checkbox","title":"Show max achievable pp","description":"During play, shows the most this attempt can still reach if every remaining object is hit perfectly; the hatched band on the rail runs from current pp to it.","value":true},
+ {"uniqueID":"showLadder","type":"checkbox","title":"Show accuracy ladder in song select","description":"In song select, lists pp at 95, 97, 98, 99 and 100% accuracy for the selected map and mods, and notches those values on the rail.","value":true},
+ {"uniqueID":"showBreakdown","type":"checkbox","title":"Show pp breakdown","description":"During play, splits current pp into its non-zero components: aim, speed, accuracy and flashlight for osu!; difficulty and accuracy for taiko, catch and mania.","value":true},
+ {"uniqueID":"decimals","type":"options","title":"Decimal places","options":["0","1","2"],"description":"Decimal places on pp readouts. The accuracy ladder and breakdown always show whole pp.","value":"1"},
+ {"uniqueID":"showBrand","type":"checkbox","title":"Show 18—LAB tag","description":"Shows the 18—LAB tag in the panel header.","value":true}
+]

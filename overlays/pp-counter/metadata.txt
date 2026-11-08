@@ -1,0 +1,5 @@
+name = Performance counter
+author = 18-LAB
+version = 0.1.0
+description = Live pp with a count-up readout, if-FC and max-achievable markers on a rail scaled to the map's SS value, an accuracy→pp ladder in song select and final pp at results. All rulesets.
+resolution = [424,236]

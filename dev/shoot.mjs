@@ -26,6 +26,8 @@ const dpr = Number(arg('dpr', 1));
 // Milliseconds to let the page run before each capture; raise it for live cases whose
 // visuals accumulate (trails, scrolling bars).
 const settle = Number(arg('settle', 900));
+// --layout 1 forces the wireframe stage (previews), 0 hides it; default: backdrop if available.
+const layout = arg('layout', '');
 const base = `http://127.0.0.1:${port}`;
 const defaults = [];
 for (const mode of ['osu', 'taiko', 'fruits', 'mania']) {
@@ -55,7 +57,7 @@ const reset = async query => {
 };
 
 async function stage() {
-  await page.goto(`${base}/__dev/stage?id=${encodeURIComponent(id)}`);
+  await page.goto(`${base}/__dev/stage?id=${encodeURIComponent(id)}${layout ? `&layout=${encodeURIComponent(layout)}` : ''}`);
   const size = await page.evaluate(() => ({ width: document.body.offsetWidth, height: document.body.offsetHeight }));
   await page.setViewportSize(size);
   await page.waitForTimeout(settle);

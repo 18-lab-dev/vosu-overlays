@@ -93,23 +93,23 @@ Placements follow one slot plan (docs/overlay-system.md "Placement"): side colum
 
 | Overlay | Rulesets | Default box | Shows |
 | --- | --- | --- | --- |
-| `now-playing` | all | 256×192 column | Map identity, live stars, mod-adjusted stats, BPM, rate-adjusted length, progress; strip in wide boxes (gameplay only) |
-| `now-playing-ticker` | all | 720×32 line | One-line map bar with progress hairline; two-line stack or side column in taller boxes (gameplay only) |
-| `key-overlay` | all | 256×264 columns | Scrolling key-press tape with counts and KPS; rows in wide boxes, mania lanes keep the skin's column proportions (*vosu* `keys.all`) |
-| `key-counter` | all | 256×96 strip | Key caps, counts and KPS sparkline; mania caps follow the skin's columns; per-key counts and KPS history on results (*vosu* `keys.all`) |
-| `pp-counter` | all | 256×144 column | Live pp, if-FC and max achievable on a 0→SS rail; accuracy→pp ladder in song select; if-FC gap on results |
-| `strain-graph` | all | 256×96 strip | Map strain with playhead, kiai and breaks; time runs upward in tall boxes; preview in song select |
-| `results-card` | all | 840×96 row | Results-only strip: UR, timing histogram, pp and if-FC; stacked in upright boxes |
-| `leaderboard` | all | 256×400 list | In-game-style board on the left where osu!'s sits (taiko: strip above the lane); rival style optional; nothing when the leaderboard is idle |
-| `profile-card` | all | 256×96 card | Player tag: name, country, avatar, rank, pp, session deltas; every field can be overridden with a custom value (shown in the replay renderer too) |
+| `now-playing` | all | 256×192 column | Map identity, star rating with a live-rating bar, BPM, mods, mod-adjusted AR/CS/OD/HP, progress hairline; strip in wide boxes (gameplay only) |
+| `now-playing-ticker` | all | 720×32 line | One-line map bar with progress hairline, the alternative to `now-playing`; two-line stack or side column in taller boxes (gameplay only) |
+| `key-overlay` | all | 256×264 columns (mania 256×96) | Scrolling key-press tape with counts, optional KPS; rows in wide boxes; mania shows caps and counts unless the tape is on (*vosu* `keys.all`) |
+| `key-counter` | all | 256×96 strip | Key caps with counts and the set's KPS readout (osu!, taiko, catch) with peak; 10 s KPS history where there is room; peak and average KPS on results (*vosu* `keys.all`) |
+| `pp-counter` | all | 256×144 column | Live pp on a 0→SS rail (max achievable hatched, if-FC tick), pp breakdown, if-FC split out after a choke; accuracy→pp ladder in song select; if-FC gap on results |
+| `strain-graph` | all | 256×96 strip | Map strain on the shared map clock: played portion in the map colour, kiai band, breaks as gaps; time runs upward in tall boxes; preview in song select |
+| `results-card` | all | 840×96 row | Results-only strip: UR, timing mean, early/late split, hit-error histogram and the pp a full combo would have added; stacked in upright boxes |
+| `leaderboard` | all | 256×400 list | In-game-style board on the left where osu!'s sits (taiko: strip above the lane): your position as the hero, your row always in view with the gap to the next place, rows slide on overtakes; rival style optional; nothing when the leaderboard is idle |
+| `profile-card` | all | 256×96 card | Player tag: global rank as the hero, name, country, avatar, pp, session deltas; every field can be overridden with a custom value (shown in the replay renderer too) |
 | `aim-scatter` | osu | 256×240 column | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
-| `taiko-drum` | taiko | 560×96 row | Four-zone drum, zone counts, hand balance, recent hits, alternation, KPS (*vosu* `keys.all`) |
-| `taiko-pace` | taiko | 280×80 chip | OK and miss budget for a target accuracy, max achievable accuracy, counts, UR, pp |
-| `catcher-trail` | catch | 256×240 column | Catcher position seismograph with dash, travel and turns; final readouts on results (*vosu* `catcher`) |
-| `catcher-heatmap` | catch | 256×240 column | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
-| `fruit-ledger` | catch | 256×96 chip | Fruits/drops/droplets caught and missed, accuracy, combo status (gameplay only) |
-| `judgement-ratio` | mania | 256×352 column | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS; focus row over the stage in wide boxes |
-| `kps-graph` | mania | 152×400 column | KPS over the attempt against the map's density, time running upward; horizontal in wide boxes |
+| `taiko-drum` | taiko | 560×96 row | The taiko input display: four zones lit on press, zone counts, hand split, alternation rate, optional KPS (*vosu* `keys.all`) |
+| `taiko-pace` | taiko | 280×80 chip | OKs (or misses) still affordable for a target accuracy, with a gauge that drains as you spend them |
+| `catcher-trail` | catch | 256×240 column | The catcher's path over the last seconds: dashes in amber, misses pinned where the catcher was, kiai stretches, dash share; direction changes on results (*vosu* `catcher`) |
+| `catcher-heatmap` | catch | 256×240 column | Where the catcher spends time, its centre, the live catcher, dash share and left/right split; alternative to `catcher-trail` (*vosu* `catcher`) |
+| `fruit-ledger` | catch | 256×96 chip | What the HUD never counts: droplets missed and combo breaks, flashing as they happen; caught counts, accuracy and combo optional (gameplay only) |
+| `judgement-ratio` | mania | 256×352 column | MAX:300 ratio and the judgement mix as one bar with 50/miss marks; counts, accuracy, combo and KPS optional; kept on results |
+| `kps-graph` | mania | 152×400 column | Live KPS (the mania KPS owner) as a strip beside the stage, zero on the stage side, with peak, average and the map's upcoming density when sent; horizontal in wide boxes |
 | `stream-interstitial` | all | 1920×1080 | Starting soon / be right back / ending scene (a full scene, not an overlay over gameplay) |
 
 Mode-specific overlays render nothing outside their ruleset. In the replay renderer, which always reports gameplay, profile and leaderboard are idle, `/performance/graph` is empty and `hitOffsets`/`catcher` are not served: `aim-scatter`, `catcher-heatmap` and `catcher-trail` show a one-line notice there, `strain-graph` falls back to a progress track, `leaderboard` renders nothing, and `profile-card` shows the replay's player name unless custom values are set.

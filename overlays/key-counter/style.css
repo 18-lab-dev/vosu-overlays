@@ -1,51 +1,134 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
 
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-
 *, *::before, *::after { box-sizing: border-box; }
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { font: 400 14px/1.2 var(--font-body); color: var(--fg); -webkit-font-smoothing: antialiased; }
 
-/* The page is the overlay's box: its host sizes and places it; the canvas fills it. */
-#hud { --hl: var(--accent); position: absolute; inset: 0; user-select: none; contain: strict; }
-#hud[data-accent="map"] { --hl: var(--map-accent, var(--accent)); }
-#keys { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 200ms var(--ease-draft); }
-#hud[data-phase="play"] #keys,
-#hud[data-phase="results"] #keys { opacity: 1; }
+/* The page is the overlay's box (its host sizes and places it); #hud fills it. --u is set by
+   overlay.js from the box (1 at 256 × 96). Every element sits on two baselines: labels at 15 px
+   from the content top, numbers 5 px above the content bottom (line-height .8 puts a Barlow
+   baseline on its box's bottom edge, so bottom-aligned boxes share a baseline across sizes). */
+#hud {
+  --lb: calc(var(--u, 1) * 15px);
+  --nb: calc(var(--u, 1) * 5px);
+  --gap: calc(var(--u, 1) * 16px);
+  --cap-gap: calc(var(--u, 1) * 6px);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: var(--justify, center);
+  gap: var(--gap);
+  contain: strict;
+}
+#hud[data-align="right"] { flex-direction: row-reverse; }
+/* Without a backing the kit adds no padding; keep the content clear of the registration marks. */
+#hud[data-backing="none"] { padding: calc(var(--u, 1) * 6px); }
+/* Entering and leaving play: the whole box (backing and signature too) fades and settles 4 px. */
+#hud[data-out] { transition-timing-function: var(--ease-in); }
+[hidden] { display: none !important; }
 
-/* Optional backing: a soft scrim that fades to the box edges, or an 18-LAB panel. Only while shown. */
-#hud::before { content: ""; position: absolute; inset: 0; display: none; opacity: 0; transition: opacity 200ms var(--ease-draft); pointer-events: none; }
-#hud[data-backing="scrim"]::before { display: block; background: radial-gradient(closest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .3) 60%, transparent); }
-#hud[data-backing="panel"]::before { display: block; background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius); }
-#hud[data-phase="play"]::before,
-#hud[data-phase="results"]::before { opacity: 1; }
+.col { position: relative; flex: none; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.lbl { display: block; line-height: .8; margin-top: calc(var(--lb) - .8em); white-space: nowrap; }
+.num { display: block; line-height: .8; margin-bottom: var(--nb); white-space: nowrap; }
+.num.kit-value { font-size: calc(var(--u, 1) * 20px); }
+.pv { color: var(--text-1); font-variant-numeric: tabular-nums lining-nums; }
+#stats-label { color: var(--text-2); }
+.dash, .num.dash, .pv.dash { color: var(--text-3); }
 
-/* Connection and no-data states: one small chip, centred in the box. */
+/* ------------------------------------------------------------------ key caps
+   A graphite body with a hairline edge. Lit (held, or tapped since the last frame) = a 2 px amber
+   underline and an amber numeral; the body never fills. The light comes on at once and goes off over
+   --dur-fast, except above 15 keys per second (data-snap) and under motion reduced/off, where it snaps. */
+#caps { position: relative; flex: none; display: flex; gap: var(--cap-gap); }
+.cap {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 calc(var(--u, 1) * 8px);
+  background: rgb(239 236 229 / .05);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: max(2px, calc(var(--u, 1) * 2px));
+  background: var(--you);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.cap .num { transition: color var(--dur-fast) var(--ease-out); }
+.cap.lit::after { opacity: 1; transition: none; }
+.cap.lit .num { color: var(--you); transition: none; }
+#hud:is([data-snap], [data-motion="reduced"]) .cap::after,
+#hud:is([data-snap], [data-motion="reduced"]) .cap .num { transition: none; }
+.cap .key { display: block; line-height: .8; margin-top: calc(var(--lb) - .8em); white-space: nowrap; }
+/* Taiko: the zone's game colour as a hairline along the top; the label is the bound key. */
+.cap[data-zone]::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: max(2px, calc(var(--u, 1) * 2px)); }
+.cap[data-zone="kat"]::before { background: var(--kat); }
+.cap[data-zone="don"]::before { background: var(--don); }
+/* Long counts in narrow caps are condensed horizontally (transform, set per digit count) rather than clipped. */
+.cap .num { transform-origin: 0 100%; }
+/* osu!stable catch: the one dash cap carries the overlay's only number, at value size. */
+.cap.wide .num { font-size: calc(var(--u, 1) * 32px); }
+
+/* Rows: three keys in a 64 px column (osu! with smoke, lazer catch) or the vertical layout. */
+#caps[data-rows] { flex-direction: column; }
+#caps[data-rows] .cap { flex: 1 1 0; flex-direction: row; align-items: flex-end; padding: 0 calc(var(--u, 1) * 6px); }
+#caps[data-rows] .cap .key { margin: 0 auto calc(var(--u, 1) * 4px) 0; }
+/* 64 px hold three rows of 20 px, so the counts drop to 16 px here (and to 14–20 px in a 256 px
+   mania row of 5+ keys): the slot is narrower than the type scale's 20 px floor for rows. */
+#caps[data-rows] .cap .num { font-size: calc(var(--u, 1) * 16px); margin-bottom: calc(var(--u, 1) * 4px); transform-origin: 100% 100%; }
+
+/* ------------------------------------------------------------------ mania: a strip over a row of caps
+   that spans the box with the skin's column proportions (so a page as wide as the stage lines up). */
+#hud[data-layout="mania"] {
+  display: grid;
+  grid-template: auto 1fr / 1fr auto;
+  row-gap: calc(var(--u, 1) * 6px);
+  column-gap: var(--gap);
+}
+#hud[data-layout="mania"] #stats { grid-area: 1 / 1; flex-direction: row-reverse; justify-content: flex-end; align-items: last baseline; gap: calc(var(--u, 1) * 10px); }
+#hud[data-layout="mania"] #total { grid-area: 1 / 2; flex-direction: row; align-items: last baseline; gap: calc(var(--u, 1) * 6px); }
+#hud[data-layout="mania"] :is(#stats, #total) :is(.lbl, .num) { margin: 0; }
+#hud[data-layout="mania"] #caps { grid-area: 2 / 1 / 3 / 3; gap: 0; }
+#hud[data-layout="mania"] .cap { position: absolute; top: 0; bottom: 0; justify-content: flex-end; align-items: center; padding: 0; }
+#hud[data-layout="mania"] .cap .num { font-size: var(--mania-n, calc(var(--u, 1) * 20px)); transform-origin: 50% 100%; }
+#hud[data-layout="mania"][data-strip="off"] { grid-template-rows: 0 1fr; row-gap: 0; }
+
+/* ------------------------------------------------------------------ vertical: key rows, then the readout */
+#hud[data-layout="column"] { flex-direction: column; justify-content: flex-end; gap: calc(var(--u, 1) * 12px); }
+#hud[data-layout="column"] #caps { flex-direction: column; }
+#hud[data-layout="column"] .cap { flex-direction: row; align-items: flex-end; height: calc(var(--u, 1) * 30px); }
+#hud[data-layout="column"] .cap .key { margin: 0 auto var(--nb) 0; }
+#hud[data-layout="column"] .cap .num { transform-origin: 100% 100%; }
+#hud[data-layout="column"][data-align="right"] .cap { flex-direction: row-reverse; }
+#hud[data-layout="column"][data-align="right"] .cap .key { margin: 0 0 var(--nb) auto; }
+#hud[data-layout="column"] .col { gap: calc(var(--u, 1) * 8px); }
+
+/* ------------------------------------------------------------------ history */
+#spark-col { flex: 1 1 0; }
+#spark { display: block; width: 100%; height: calc(var(--u, 1) * 30px); margin-bottom: var(--nb); }
+
+/* Connection and no-data states: one caption on a small panel, centred in the box. */
 #chip {
   position: absolute;
   left: 50%;
   top: 50%;
   translate: -50% -50%;
-  display: none;
-  align-items: center;
-  gap: 8px;
   max-width: 100%;
   margin: 0;
   padding: 6px 10px;
-  background: rgb(17 18 20 / .84);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
-  font: 500 12px/1 var(--font-mono);
-  letter-spacing: .02em;
-  color: var(--fg-dim);
+  background: rgb(var(--backing-rgb) / .9);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  border-radius: 2px;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
 }
-#hud[data-phase="connecting"] #chip,
-#hud[data-phase="offline"] #chip,
-#hud[data-phase="absent"] #chip,
-#hud[data-phase="nokeys"] #chip { display: flex; }
-.dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-#hud[data-phase="offline"] .dot { background: var(--danger); }
-#hud[data-phase="nokeys"] .dot { background: var(--caution); }

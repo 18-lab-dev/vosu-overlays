@@ -5,13 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Key counter</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="hud" data-phase="connecting" data-backing="none" data-accent="map">
-  <canvas id="keys" aria-label="Key presses per key, keys per second, total and peak"></canvas>
-  <p id="chip" role="status"><i class="dot"></i><span id="chip-text">Connecting to vosu</span></p>
+<div id="hud" class="kit kit-enter" data-out data-layout="row" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Key presses per key, keys per second and peak">
+  <div id="caps"></div>
+  <div id="total" class="col" hidden><span class="kit-label lbl">Total</span><span class="kit-value num">—</span></div>
+  <div id="stats" class="col">
+    <span class="kit-label lbl"><span id="stats-label">Peak</span> <span id="peak" class="pv">—</span></span>
+    <span id="hero" class="kit-hero num"><span id="kps">—</span><span class="kit-unit">kps</span></span>
+  </div>
+  <div id="spark-col" class="col" hidden><span class="kit-caption lbl" id="spark-label">Last 10 s</span><canvas id="spark"></canvas></div>
 </div>
+<p id="chip" class="kit-caption" role="status" hidden></p>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

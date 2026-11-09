@@ -73,8 +73,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .clock { display: inline-flex; align-items: baseline; gap: calc(6px * var(--s)); }
 .clock b { font: 600 calc(24px * var(--s))/1 var(--font-display); letter-spacing: .01em; color: var(--fg); font-variant-numeric: tabular-nums; }
 .clock .total { font-size: calc(13px * var(--s)); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-.clock .live { display: none; width: calc(7px * var(--s)); height: calc(7px * var(--s)); border-radius: 50%; background: var(--tint); align-self: center; box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
-.w[data-phase="play"] .clock .live { display: inline-block; }
 .phase:empty { display: none; }
 .w[data-time="off"] .clock { display: none; }
 

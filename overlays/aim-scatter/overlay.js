@@ -584,7 +584,7 @@ function updateDom() {
   if (status === 'connecting') { nextTone = 'busy'; nextLabel = 'Connecting'; }
   else if (status === 'offline') { nextTone = 'error'; nextLabel = 'vosu offline'; }
   else if (state === undefined) nextLabel = 'No game';
-  else if (state === PLAYING) { nextTone = 'live'; nextLabel = extension === 'off' ? 'Playing' : small ? csShort : csFull; }
+  else if (state === PLAYING) { nextTone = 'play'; nextLabel = extension === 'off' ? '' : small ? csShort : csFull; }
   else nextLabel = resultsLabel;
   if (nextTone !== tone) { tone = nextTone; el.status.dataset.tone = tone; }
   if (nextLabel !== label) { label = nextLabel; text(el.statusText, label); }

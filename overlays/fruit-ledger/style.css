@@ -67,8 +67,6 @@ body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: 
   font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
 }
 .title { color: var(--fg-dim); }
-.phase { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); }
-.phase::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--tint); }
 
 /* Combo status: a tone tick and the words, never colour alone. */
 .verdict {
@@ -158,7 +156,6 @@ body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: 
 .ledger[data-orient="v"][data-align="right"] .head,
 .ledger[data-orient="v"][data-align="right"] .verdict,
 .ledger[data-orient="v"][data-align="right"] .foot { flex-direction: row-reverse; }
-.ledger[data-orient="v"][data-align="right"] .phase { margin-left: 0; margin-right: auto; }
 .ledger[data-orient="v"][data-align="right"] .table { grid-template-columns: 46px 58px 1fr; }
 .ledger[data-orient="v"][data-align="right"] .label { grid-column: 3; flex-direction: row-reverse; }
 .ledger[data-orient="v"][data-align="right"] .num { text-align: left; }
@@ -181,10 +178,8 @@ body { font-family: var(--font-body); color: var(--fg); -webkit-font-smoothing: 
   width: max-content; display: grid; align-items: center; column-gap: 26px;
   grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
 }
-.ledger[data-orient="h"] .head { grid-column: 1; grid-row: 1; height: 22px; align-self: end; }
-.ledger[data-orient="h"] .title { display: none; }
-.ledger[data-orient="h"] .phase { margin-left: 0; }
-.ledger[data-orient="h"] .verdict { grid-column: 1; grid-row: 2; margin: 0; align-self: start; }
+.ledger[data-orient="h"] .head { display: none; }
+.ledger[data-orient="h"] .verdict { grid-column: 1; grid-row: 1 / 3; margin: 0; align-self: center; }
 .ledger[data-orient="h"] .table {
   grid-column: 2; grid-row: 1 / 3; column-gap: 20px;
   grid-template-columns: repeat(3, minmax(92px, 1fr)) auto auto; grid-template-rows: 18px 30px 9px;

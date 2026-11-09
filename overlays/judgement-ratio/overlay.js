@@ -26,7 +26,6 @@ const P = {
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
   resultsMode: '/resultsScreen/mode/number',
-  source: '/play/source',
   accuracy: '/play/accuracy',
   combo: '/play/combo/current',
   keys: '/keys/all',
@@ -47,7 +46,7 @@ const rows = [...hud.querySelectorAll('.row')].map(row => ({
   flashTarget: row.querySelector('.flash'),
 }));
 const text = {
-  status: $('status'), keys: $('keys'), ratio: $('ratio'), acc: $('acc'), combo: $('combo'),
+  keys: $('keys'), ratio: $('ratio'), acc: $('acc'), combo: $('combo'),
   kps: $('kps'), peak: $('peak'), peakLabel: $('peak-label'), chip: $('chip-text'),
 };
 const note = $('note');
@@ -330,8 +329,6 @@ function render() {
       total += counts[i];
     }
     phase = 'live';
-    const source = v[P.source];
-    setText(text.status, source === 'replay' ? 'Replay' : source === 'spectator' || source === 'watching' ? 'Spectating' : source === 'autoplay' ? 'Autoplay' : 'Live');
     showKeyCount(keyCount);
     setText(text.peakLabel, 'Peak');
     const accuracy = num(v[P.accuracy]) ? v[P.accuracy] : NaN;
@@ -363,7 +360,6 @@ function render() {
     // Nothing osu!'s ranking screen lacks to add: stay off its screen.
     if (!total || (!options.showRatio && !(options.showKps && num(resultPeak)))) { hide(); return; }
     phase = 'results';
-    setText(text.status, 'Result');
     showKeyCount(keyCount);
     setText(text.peakLabel, 'Peak KPS');
     showPeak(num(resultPeak) ? resultPeak : NaN);
@@ -510,7 +506,7 @@ settings({ orientation: 'auto', align: 'auto', backing: 'none', accent: 'map', s
 addEventListener('resize', layout);
 
 feed = subscribe([
-  P.state, P.playMode, P.settingsMode, P.resultsMode, P.source,
+  P.state, P.playMode, P.settingsMode, P.resultsMode,
   ...PLAY_HITS, P.accuracy, P.combo, P.keys,
   ...RESULT_HITS, P.keyCount, P.checksum,
 ], onFrame, { onStatus });

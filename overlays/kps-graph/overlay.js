@@ -833,7 +833,6 @@ function columns() {
   return typeof cs === 'number' && cs > 0 ? Math.round(cs) : null;
 }
 
-const SOURCES = { replay: 'Replay', spectator: 'Spectating', watching: 'Watching', autoplay: 'Autoplay' };
 const NONE = '—';
 /** A readout value; placeholders render dimmed. */
 function show(node, value) {
@@ -863,7 +862,8 @@ function phase(label) {
   if (label === phaseLabel && keyCount === phaseColumns && rate === phaseRate) return;
   phaseLabel = label; phaseColumns = keyCount; phaseRate = rate;
   const rateText = Math.abs(rate - 1) > 0.001 ? ` · ${rate.toFixed(2)}×` : '';
-  put(el.phase, keyCount ? `${label} · ${keyCount}K${rateText}` : `${label}${rateText}`);
+  const detail = keyCount ? `${keyCount}K${rateText}` : rateText.slice(3);
+  put(el.phase, label && detail ? `${label} · ${detail}` : label || detail);
 }
 
 function labels(p, a, b, aKey, bKey, unit) {
@@ -875,7 +875,7 @@ function labels(p, a, b, aKey, bKey, unit) {
 /** `current`: the live window's count, or −1 when there is none to show. */
 function readouts(current, keysPresent) {
   if (view === 'live') {
-    phase(SOURCES[values['/play/source']] ?? 'Live');
+    phase('');
     labels('Now', 'Peak', 'Avg', 'peak', 'avg', 'kps');
     attr(el.aValue, 'data-peak', '');
     const live = keysPresent && current >= 0;

@@ -90,10 +90,7 @@ body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoot
   font: 500 var(--lab)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
   color: var(--fg-dim); font-variant-numeric: tabular-nums;
 }
-.phase i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--fg-dim); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
 .kps[data-view="live"] .phase { color: var(--fg); }
-.kps[data-view="live"] .phase i { background: var(--hl); border-color: var(--hl); }
-.kps[data-view="summary"] .phase i { background: var(--fg-dim); }
 
 .label {
   display: flex; align-items: center; gap: 5px; white-space: nowrap;

@@ -107,7 +107,7 @@ html[data-theme] { color-scheme: normal; }
 .title { color: var(--fg-dim); }
 .status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--fg-dim); }
 .status .dot { width: calc(7px * var(--t)); height: calc(7px * var(--t)); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
-.status[data-tone="live"] .dot { background: var(--hl); }
+.status[data-tone="play"] .dot { display: none; }
 .status[data-tone="busy"] .dot { background: var(--caution); }
 .status[data-tone="error"] .dot { background: var(--danger); }
 

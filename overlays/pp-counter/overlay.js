@@ -16,7 +16,7 @@ const HORIZONTAL = { w: 720, h: 80 };
 
 const P = {
   state: '/state/number', client: '/client', playMode: '/play/mode/number', setMode: '/settings/mode/number',
-  source: '/play/source', failed: '/play/failed', checksum: '/beatmap/checksum',
+  failed: '/play/failed', checksum: '/beatmap/checksum',
   cur: '/play/pp/current', fc: '/play/pp/fc', max: '/play/pp/maxAchievable',
   rPp: '/resultsScreen/pp/current', rFc: '/resultsScreen/pp/fc',
 };
@@ -40,7 +40,6 @@ const OSU_PARTS = [PART.aim, PART.speed, PART.accuracy, PART.flashlight];
 const OTHER_PARTS = [PART.difficulty, PART.accuracy];
 const LADDER_I = LADDER.map(a => I[`a${a}`]);
 const SELECT_STATES = new Set([5, 6, 13]);
-const SOURCE_LABEL = { player: 'Live', replay: 'Replay', spectator: 'Spectating', watching: 'Spectating', autoplay: 'Auto' };
 
 const $ = id => document.getElementById(id);
 const el = {
@@ -213,9 +212,8 @@ function derive() {
   else if (next === 'idle') stateLabel = 'osu! not running';
   else if (next === 'play') {
     const failed = D[I.failed] === true;
-    const source = D[I.source];
-    stateLabel = failed ? 'Failed' : SOURCE_LABEL[source] || 'Live';
-    tone = failed ? 'fail' : source === 'player' || source == null ? 'live' : 'watch';
+    stateLabel = failed ? 'Failed' : '';
+    tone = failed ? 'fail' : 'play';
   } else if (next === 'results') { stateLabel = 'Result'; tone = 'done'; }
   else if (next === 'select') stateLabel = 'by accuracy';
   text(el.state, stateLabel);

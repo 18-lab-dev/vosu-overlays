@@ -66,7 +66,6 @@ b { font-weight: inherit; }
 .keys { margin-inline-start: auto; }
 .keys:empty { display: none; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-dim); flex: none; }
-.hud[data-phase="live"] .head .dot { background: var(--tint); }
 
 .readout { display: grid; gap: 4px; }
 .hud[data-ratio="false"] .ratio { display: none; }

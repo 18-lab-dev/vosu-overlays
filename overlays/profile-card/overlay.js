@@ -9,9 +9,12 @@ import {
 } from './vosu-overlay.js';
 
 const PLAYING = 2;
-// Design boxes per arrangement at --u = 1 (metadata resolution is the strip); --u scales to fit.
-// `orientation: auto` takes whichever arrangement fits the page at the larger size.
-const BOX = { horizontal: [256, 72], vertical: [232, 212] };
+// Design boxes per arrangement at --u = 1; --u scales to fit. `tag` (two lines beside the avatar)
+// is the metadata resolution; `strip` (one line) serves short boxes; `card` is the stacked
+// (vertical) form. The two-line tag wins whenever it fits at full size or larger than the strip;
+// otherwise the strip. `orientation: auto` then takes the card when that fits larger;
+// `horizontal` picks between tag and strip, `vertical` is the card.
+const BOX = { tag: [256, 96], strip: [256, 72], card: [232, 212] };
 // A ruleset or account switch can deliver stats that are still settling; the session baseline
 // follows the latest values for this long after a key is first seen.
 const SETTLE_MS = 2000;
@@ -97,7 +100,7 @@ const baselines = new Map();
 let session = null;
 let frame = 0;
 // Arrangement and unit for the current box; computed on resize, never inside a frame.
-let orient = 'horizontal';
+let arrangement = 'tag';
 let unit = 1;
 let unitShown = NaN;
 // The tag's natural width is measured again only after something that changes it.
@@ -108,13 +111,13 @@ function invalidate() {
 }
 
 function measure() {
-  const width = innerWidth || BOX.horizontal[0];
-  const height = innerHeight || BOX.horizontal[1];
+  const width = innerWidth || BOX.tag[0];
+  const height = innerHeight || BOX.tag[1];
   const fits = ([w, h]) => Math.min(width / w, height / h);
-  orient = opts.orientation === 'horizontal' || opts.orientation === 'vertical'
-    ? opts.orientation
-    : fits(BOX.horizontal) >= fits(BOX.vertical) ? 'horizontal' : 'vertical';
-  unit = Math.round(fits(BOX[orient]) * 1000) / 1000 || 1;
+  arrangement = opts.orientation === 'vertical' ? 'card'
+    : fits(BOX.tag) >= 1 || fits(BOX.tag) >= fits(BOX.strip) ? 'tag' : 'strip';
+  if (opts.orientation !== 'horizontal' && opts.orientation !== 'vertical' && fits(BOX.card) > fits(BOX[arrangement])) arrangement = 'card';
+  unit = Math.round(fits(BOX[arrangement]) * 1000) / 1000 || 1;
   fitDirty = true;
   invalidate();
 }
@@ -281,7 +284,8 @@ function render() {
     unitShown = unit;
     document.documentElement.style.setProperty('--u', String(unit));
   }
-  data(stage, 'orient', orient);
+  data(stage, 'orient', arrangement === 'card' ? 'vertical' : 'horizontal');
+  data(stage, 'rows', arrangement === 'tag' ? '2' : '1');
   data(stage, 'align', opts.align === 'left' || opts.align === 'center' ? opts.align : 'right');
 
   const chip = chipFor();

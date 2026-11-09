@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
 /* Player tag on the 18-LAB kit (kit.css, docs/overlay-system.md). The page is the overlay's box;
-   overlay.js sets --u (unitless, 1 at the 256×72 strip or the 232×212 card) and picks the
-   arrangement from the box's aspect. The tag (.kit) is content-sized and hugs the align side, so
-   its backing and registration marks wrap what it shows. */
+   overlay.js sets --u (unitless, 1 at the 256×96 two-line tag, the 256×72 one-line strip or the
+   232×212 card) and picks the arrangement that fits the box largest. The tag (.kit) is
+   content-sized and hugs the align side, so its backing and registration marks wrap what it shows. */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
@@ -29,18 +29,15 @@ p, figure { margin: 0; }
   max-width: 100%;
   white-space: nowrap;
 }
-/* Without a backing .kit has no padding, so the registration marks would sit on the glyphs; keep
-   them a step clear (the kit is silent on this). */
-.tag[data-backing="none"] { padding: var(--s-2); }
 .stage[data-align="right"] .tag { flex-direction: row-reverse; text-align: right; }
 
-/* Strip: hero rank on the inner side, name over pp, avatar on the outer edge. Content is 40 px
-   tall inside the 72 px slot, so the hero sets at 40 px (the kit's 52 in the card). */
+/* One-line strip (short boxes): hero rank on the inner side, name over pp, avatar on the outer
+   edge. Content is 40 px tall inside a 72 px box, so the hero sets at 40 px. */
 .info { display: flex; flex-direction: column; min-width: 0; }
 .stage[data-align="right"] .info { align-items: flex-end; }
 .who, .pp-line, .rank-line { display: flex; align-items: baseline; max-width: 100%; }
 .stage[data-align="right"] :is(.who, .pp-line, .rank-line) { justify-content: flex-end; }
-.who { gap: var(--s-2); height: calc(var(--u, 1) * 20px); }
+.who { gap: var(--s-2); min-width: 0; height: calc(var(--u, 1) * 20px); }
 /* Ellipsis needs overflow hidden; the padding keeps descenders inside it without adding height. */
 .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 1; padding-block: .12em; margin-block: -.12em; }
 .country { flex: none; }
@@ -107,6 +104,37 @@ p, figure { margin: 0; }
 }
 .avatar img.is-loaded { opacity: 1; }
 
+/* ---------- two-line tag (the default 256×96 box) ---------- */
+
+/* 64 px of content: name, country and pp on a 24 px line over the 40 px rank, the avatar on the
+   outer edge (the outer 40 px, where osu!stable's input overlay can sit, holds only the avatar).
+   The rank stays 40 px so a six-digit rank and its change fit the 172 px beside the avatar. */
+.stage[data-rows="2"] .tag {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content);
+  grid-template-rows: calc(var(--u, 1) * 24px) calc(var(--u, 1) * 40px);
+  grid-template-areas: "av info" "av rank";
+  column-gap: var(--s-3);
+  row-gap: 0;
+  justify-items: start;
+}
+.stage[data-rows="2"][data-align="right"] .tag {
+  grid-template-columns: minmax(0, max-content) auto;
+  grid-template-areas: "info av" "rank av";
+  justify-items: end;
+}
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"]) { grid-template-columns: minmax(0, max-content); grid-template-areas: "info" "rank"; }
+.stage[data-rows="2"] .avatar { grid-area: av; align-self: center; }
+.stage[data-rows="2"] .info { grid-area: info; flex-direction: row; align-items: baseline; align-self: center; gap: var(--s-3); max-width: 100%; }
+.stage[data-rows="2"] .who { flex: 0 1 auto; }
+.stage[data-rows="2"] .pp-line { flex: none; }
+.stage[data-rows="2"] .rank-line { grid-area: rank; align-self: stretch; }
+.stage[data-rows="2"] .tag[data-nums="off"] { grid-template-rows: auto; grid-template-areas: "info av"; }
+.stage[data-rows="2"][data-align="left"] .tag[data-nums="off"],
+.stage[data-rows="2"][data-align="center"] .tag[data-nums="off"] { grid-template-areas: "av info"; }
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"])[data-nums="off"] { grid-template-areas: "info"; }
+.stage[data-rows="2"] .tag[data-view="status"] { display: flex; }
+
 /* ---------- card (vertical) ---------- */
 
 .stage[data-orient="vertical"] .tag { flex-direction: column; align-items: flex-start; gap: 0; }
@@ -136,5 +164,7 @@ p, figure { margin: 0; }
 .tag:is([data-fit="1"], [data-fit="2"], [data-fit="3"]) #d-pp,
 .tag:is([data-fit="2"], [data-fit="3"]) .country,
 .tag[data-fit="3"] .avatar { display: none; }
-/* Measuring pass: the tag at its natural (max-content) width, read once and removed. */
-.stage[data-measure] .tag { position: absolute; max-width: none; }
+/* Measuring pass: the tag at its natural (max-content) width, read once and removed. A long name
+   counts as 96 px (about ten characters): past that it truncates instead of pushing out the rest. */
+.stage[data-measure] .tag { position: absolute; width: max-content; max-width: none; }
+.stage[data-measure] .name { max-width: calc(var(--u, 1) * 96px); }

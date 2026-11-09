@@ -5,28 +5,24 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Player tag</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="overlay.js"></script>
 </head>
 <body>
-<main id="stage" class="stage" data-orient="horizontal" data-align="right" data-backing="none" data-accent="map">
-  <section id="tag" class="tag" aria-label="Player">
+<main id="stage" class="stage" data-orient="horizontal" data-align="right">
+  <section id="tag" class="tag kit kit-enter" data-backing="scrim" data-motion="full" data-view="none" data-out aria-label="Player">
     <figure class="avatar" id="avatar" aria-hidden="true">
       <span class="monogram" id="monogram"></span>
       <img id="avatar-img" alt="" decoding="async" referrerpolicy="no-referrer" draggable="false" hidden>
     </figure>
-    <div class="info">
-      <div class="who">
-        <span class="name" id="name"></span>
-        <span class="country" id="country" hidden></span>
-      </div>
-      <div class="nums" id="nums">
-        <span class="num" id="rank-num"><span class="v rank" id="rank"></span><span class="d" id="d-rank"></span></span>
-        <span class="num" id="pp-num"><span class="v" id="pp"></span><span class="unit">pp</span><span class="d" id="d-pp"></span></span>
-      </div>
+    <div class="info" id="info">
+      <p class="who" id="who"><span class="name kit-title" id="name"></span><span class="country kit-code" id="country" hidden></span></p>
+      <p class="pp-line" id="pp-line"><span class="pp kit-value"><span id="pp"></span><span class="kit-unit" id="pp-unit">pp</span></span><span class="delta kit-label" id="d-pp" data-tone="flat"><span id="d-pp-text"></span></span></p>
     </div>
+    <p class="rank-line" id="rank-line"><span class="rank kit-hero"><span class="hash" id="hash">#</span><span id="rank"></span><i class="gain" id="gain" aria-hidden="true"></i></span><span class="delta kit-label" id="d-rank" data-tone="flat"><i class="tri" aria-hidden="true"></i><span id="d-rank-text"></span></span></p>
+    <p class="status kit-caption" id="status" role="status"></p>
   </section>
-  <div id="chip" class="chip" role="status" hidden><i class="dot" aria-hidden="true"></i><span id="chip-text"></span></div>
 </main>
 </body>
 </html>

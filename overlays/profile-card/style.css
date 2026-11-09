@@ -1,114 +1,99 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Player tag on the 18-LAB kit (kit.css, docs/overlay-system.md). The page is the overlay's box;
+   overlay.js sets --u (unitless, 1 at the 256×72 strip or the 232×212 card) and picks the
+   arrangement from the box's aspect. The tag (.kit) is content-sized and hugs the align side, so
+   its backing and registration marks wrap what it shows. */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-/* tokens.css sets color-scheme: dark; a host page with another scheme would then paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
+p, figure { margin: 0; }
 
-/* The page is the overlay's own box. overlay.js sets --u (px per design px) from the box size and
-   picks the arrangement from its aspect; every size below scales with it. */
 .stage {
-  --u: 1px;
-  --tag-accent: var(--accent);
-  --shadow-text: 0 1px 2px rgb(0 0 0 / .65), 0 0 1px rgb(0 0 0 / .5);
   position: fixed;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: calc(var(--u) * 8);
-  color: var(--fg);
-  font: 400 calc(var(--u) * 14)/1.2 var(--font-body);
-  font-variant-numeric: tabular-nums;
-  user-select: none;
   pointer-events: none;
 }
-.stage[data-accent="map"] { --tag-accent: var(--map-accent, var(--accent)); }
 .stage[data-align="center"] { justify-content: center; }
 .stage[data-align="right"] { justify-content: flex-end; }
 
 /* ---------- tag ---------- */
 
 .tag {
-  position: relative;
-  isolation: isolate;
   display: flex;
   align-items: center;
-  gap: calc(var(--u) * 12);
+  gap: var(--s-3);
   min-width: 0;
   max-width: 100%;
-  text-shadow: var(--shadow-text);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(calc(var(--u) * 6));
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft), visibility 0s linear 200ms;
+  white-space: nowrap;
 }
-.stage[data-show="tag"] .tag { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+/* Without a backing .kit has no padding, so the registration marks would sit on the glyphs; keep
+   them a step clear (the kit is silent on this). */
+.tag[data-backing="none"] { padding: var(--s-2); }
 .stage[data-align="right"] .tag { flex-direction: row-reverse; text-align: right; }
 
-.stage[data-orient="vertical"] .tag { flex-direction: column; align-items: flex-start; gap: calc(var(--u) * 10); }
-.stage[data-orient="vertical"][data-align="center"] .tag { align-items: center; text-align: center; }
-.stage[data-orient="vertical"][data-align="right"] .tag { align-items: flex-end; text-align: right; }
+/* Strip: hero rank on the inner side, name over pp, avatar on the outer edge. Content is 40 px
+   tall inside the 72 px slot, so the hero sets at 40 px (the kit's 52 in the card). */
+.info { display: flex; flex-direction: column; min-width: 0; }
+.stage[data-align="right"] .info { align-items: flex-end; }
+.who, .pp-line, .rank-line { display: flex; align-items: baseline; max-width: 100%; }
+.stage[data-align="right"] :is(.who, .pp-line, .rank-line) { justify-content: flex-end; }
+.who { gap: var(--s-2); height: calc(var(--u, 1) * 20px); }
+/* Ellipsis needs overflow hidden; the padding keeps descenders inside it without adding height. */
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 1; padding-block: .12em; margin-block: -.12em; }
+.country { flex: none; }
+.country[hidden] { display: none; }
+.pp-line { gap: var(--s-2); height: calc(var(--u, 1) * 20px); }
+.pp { font-size: calc(var(--u, 1) * 20px); }
+.rank-line { flex: none; gap: var(--s-1); align-self: stretch; align-items: last baseline; }
+.rank { position: relative; font-size: calc(var(--u, 1) * 40px); }
+.hash { font-size: .6em; color: var(--text-2); margin-right: .06em; }
 
-/* Backing: none floats on the game; scrim adds a soft local fade; panel is a graphite plate. */
-.tag::before { content: ""; position: absolute; z-index: -1; pointer-events: none; display: none; }
-.stage[data-backing="scrim"] .tag::before {
-  display: block;
-  inset: calc(var(--u) * -24) calc(var(--u) * -40);
-  background: radial-gradient(closest-side, rgb(11 12 13 / .6), rgb(11 12 13 / .32) 55%, transparent);
-}
-.stage[data-backing="panel"] .tag { padding: calc(var(--u) * 10) calc(var(--u) * 12); }
-.stage[data-backing="panel"] .tag::before {
-  display: block;
-  inset: 0;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--tag-accent);
-  border-radius: var(--radius);
-}
-.stage[data-backing="panel"] .tag, .stage[data-backing="panel"] .chip { text-shadow: none; }
+/* Session change: ▲/▼ rank places, signed pp. Gains are yours (amber); a loss stays neutral and
+   the arrow carries it; ±0 before anything changed. */
+.delta { display: inline-flex; align-items: baseline; gap: .2em; color: var(--text-3); }
+.delta[data-tone="up"] { color: var(--you); }
+.delta[data-tone="down"] { color: var(--text-2); }
+.tri { display: none; width: .62em; height: .54em; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.delta[data-tone="none"] { display: none; }
+.rank-line[data-unknown] .hash { display: none; }
+:is(.rank-line, .pp-line)[data-unknown] :is(#rank, #pp) { color: var(--text-3); }
+.delta:is([data-tone="up"], [data-tone="down"]) .tri { display: inline-block; }
+.delta[data-tone="down"] .tri { transform: rotate(180deg); }
 
+/* Rank gain: an amber rule drawn under the rank, then gone (overlay.js animates it; full only). */
+.gain {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--u, 1) * -1px);
+  height: max(2px, calc(var(--u, 1) * 2px));
+  background: var(--you);
+  transform-origin: 0 50%;
+  opacity: 0;
+}
+.stage[data-align="right"] .gain { transform-origin: 100% 50%; }
+
+/* Avatar: the picture, or the initial on a 10 % amber tile (no border) while it loads or when
+   there is none. */
 .avatar {
-  --size: calc(var(--u) * 64);
+  --size: calc(var(--u, 1) * 40px);
   position: relative;
   flex: none;
   width: var(--size);
   height: var(--size);
-  margin: 0;
-  background: rgb(11 12 13 / .72);
-  border: 1px solid var(--rule-strong);
-}
-.stage[data-orient="vertical"] .avatar { --size: calc(var(--u) * 72); }
-/* Drafting registration corners; the outer top corner carries the accent. */
-.avatar::after {
-  --m: calc(var(--u) * 8);
-  content: "";
-  position: absolute;
-  inset: calc(var(--u) * -5);
-  pointer-events: none;
-  background:
-    linear-gradient(var(--tag-accent) 0 0) 0 0 / var(--m) 2px no-repeat,
-    linear-gradient(var(--tag-accent) 0 0) 0 0 / 2px var(--m) no-repeat,
-    linear-gradient(var(--fg-dim) 0 0) 100% 100% / var(--m) 1px no-repeat,
-    linear-gradient(var(--fg-dim) 0 0) 100% 100% / 1px var(--m) no-repeat;
-}
-.stage[data-align="right"] .avatar::after {
-  background:
-    linear-gradient(var(--tag-accent) 0 0) 100% 0 / var(--m) 2px no-repeat,
-    linear-gradient(var(--tag-accent) 0 0) 100% 0 / 2px var(--m) no-repeat,
-    linear-gradient(var(--fg-dim) 0 0) 0 100% / var(--m) 1px no-repeat,
-    linear-gradient(var(--fg-dim) 0 0) 0 100% / 1px var(--m) no-repeat;
+  overflow: hidden;
+  background: rgb(255 150 63 / .1);
 }
 .monogram {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  padding-top: calc(var(--u) * 3);
-  font: 600 calc(var(--size) * .6)/1 var(--font-display);
-  color: var(--fg-dim);
+  font: 600 calc(var(--size) * .62)/1 var(--font-display);
+  color: var(--you);
   text-shadow: none;
 }
 .avatar img {
@@ -118,68 +103,38 @@ html[data-theme] { color-scheme: normal; }
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 200ms var(--ease-draft);
+  transition: opacity var(--dur-base) var(--ease-out);
 }
 .avatar img.is-loaded { opacity: 1; }
-.stage[data-avatar="off"] .avatar { display: none; }
 
-.info { display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-width: 0; }
-.stage[data-orient="vertical"][data-align="center"] .info { align-items: center; }
-.stage[data-orient="vertical"][data-align="right"] .info { align-items: flex-end; }
-.who, .nums { display: flex; align-items: baseline; gap: calc(var(--u) * 8); white-space: nowrap; min-width: 0; }
-.stage[data-align="right"] .who { flex-direction: row-reverse; }
-.stage[data-align="right"] .nums { justify-content: flex-end; }
-.stage[data-orient="vertical"] .nums { flex-direction: column; align-items: inherit; gap: calc(var(--u) * 4); }
-.stage[data-orient="vertical"][data-align="left"] .nums { align-items: flex-start; }
-.stage[data-orient="vertical"][data-align="center"] .nums { align-items: center; }
-.stage[data-orient="vertical"][data-align="right"] .nums { align-items: flex-end; }
+/* ---------- card (vertical) ---------- */
 
-.name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font: 600 calc(var(--u) * 22)/calc(var(--u) * 26) var(--font-body);
-  letter-spacing: .005em;
-}
-.country {
-  position: relative;
-  top: calc(var(--u) * -2);
-  flex: none;
-  padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 1);
-  border: 1px solid rgb(184 181 173 / .5);
-  border-radius: var(--radius);
-  font: 500 calc(var(--u) * 12)/1 var(--font-mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.country[hidden], .num[hidden], .nums[hidden] { display: none; }
+.stage[data-orient="vertical"] .tag { flex-direction: column; align-items: flex-start; gap: 0; }
+.stage[data-orient="vertical"][data-align="center"] .tag { align-items: center; text-align: center; }
+.stage[data-orient="vertical"][data-align="right"] .tag { align-items: flex-end; }
+.stage[data-orient="vertical"] .info { display: contents; }
+.stage[data-orient="vertical"] .avatar { --size: calc(var(--u, 1) * 48px); order: 0; margin-bottom: var(--s-3); }
+.stage[data-orient="vertical"] .who { order: 1; height: auto; }
+.stage[data-orient="vertical"] .name { line-height: 1.2; }
+.stage[data-orient="vertical"] .rank-line { order: 2; align-self: auto; margin-top: var(--s-2); }
+.stage[data-orient="vertical"] .rank { font-size: calc(var(--u, 1) * 52px); }
+.stage[data-orient="vertical"] .pp-line { order: 3; height: auto; margin-top: var(--s-1); }
+.stage[data-orient="vertical"] .pp { font-size: calc(var(--u, 1) * 32px); }
 
-.nums { gap: calc(var(--u) * 16); }
-.num { display: inline-flex; align-items: baseline; gap: calc(var(--u) * 6); }
-.v { font: 600 calc(var(--u) * 32)/calc(var(--u) * 32) var(--font-display); letter-spacing: .005em; }
-.rank:not([data-raw])::before { content: "#"; margin-right: 1px; color: var(--tag-accent); }
-.unit { margin-left: calc(var(--u) * -2); font: 500 calc(var(--u) * 13)/1 var(--font-mono); color: var(--fg-dim); }
-.unit[hidden] { display: none; }
-.d { font: 500 calc(var(--u) * 13)/1 var(--font-mono); letter-spacing: .02em; }
-.d:empty { display: none; }
-.d[data-tone="up"] { color: var(--ok); }
-.d[data-tone="down"] { color: var(--danger); }
-.stage[data-deltas="off"] .d { display: none; }
+/* ---------- what is shown ---------- */
 
-/* ---------- connection / no-data chip ---------- */
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--u) * 6);
-  font: 500 calc(var(--u) * 12)/1 var(--font-mono);
-  letter-spacing: .02em;
-  color: var(--fg-dim);
-  text-shadow: var(--shadow-text);
-}
-.chip[hidden], .stage[data-show="tag"] .chip { display: none; }
-/* The tag keeps its slot while hidden (so it can fade); the chip takes the box when shown. */
-.stage[data-show="chip"] .tag { position: absolute; }
-.dot { width: calc(var(--u) * 6); height: calc(var(--u) * 6); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); flex: none; }
-.chip[data-tone="error"] .dot { background: var(--danger); }
+/* data-view: full (a tag), status (connection), none (hidden: not in gameplay). */
+.status { display: none; }
+.tag[data-view="status"] > :not(.status) { display: none; }
+.tag[data-view="status"] > .status { display: block; }
+.tag[data-avatar="off"] .avatar { display: none; }
+.tag[data-nums="off"] :is(.pp-line, .rank-line) { display: none; }
+.tag[data-deltas="off"] .delta { display: none; }
+.pp-line[data-raw] .kit-unit, .rank-line[data-raw] .hash { display: none; }
+/* A narrow box gives way in this order: the pp change, the country, the avatar (overlay.js
+   measures after the text changes; never per frame). */
+.tag:is([data-fit="1"], [data-fit="2"], [data-fit="3"]) #d-pp,
+.tag:is([data-fit="2"], [data-fit="3"]) .country,
+.tag[data-fit="3"] .avatar { display: none; }
+/* Measuring pass: the tag at its natural (max-content) width, read once and removed. */
+.stage[data-measure] .tag { position: absolute; max-width: none; }

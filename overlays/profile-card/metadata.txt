@@ -1,6 +1,6 @@
 name = Player tag
 author = 18-LAB
-version = 0.3.0
-description = Player tag for gameplay: avatar, name, country, global rank and pp with this session's changes, or custom values. Strip or stacked card, re-flowing to its box. Hidden in song select and results, which already show your profile.
+version = 0.4.0
+description = Player tag for gameplay: your global rank as the hero, with name, country, avatar and pp, and this session's changes (▲ places, + pp) that count in after a results screen; or custom values. Strip or stacked card, re-flowing to its box. Hidden in song select and results, which already show your profile.
 resolution = [256,72]
 placement = {"osu":["right-24","bottom-528",256,72],"fruits":["right-24","bottom-528",256,72],"taiko":["right-24","bottom-72",328,72],"mania":["right-24","bottom-192",256,72]}

@@ -5,23 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Catcher trail</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="overlay.js"></script>
 </head>
 <body>
-<main id="root" data-view="connecting" data-orient="vertical" data-align="right" data-backing="none" aria-label="Catcher trail">
-  <dl class="stats" id="stats">
-    <div class="stat"><dt><i class="key"></i>Dash</dt><dd><b id="dash">—</b><span class="unit">%</span></dd></div>
-    <div class="stat"><dt>Travel</dt><dd><b id="travel">—</b><span class="unit">screens</span></dd></div>
-    <div class="stat"><dt>Turns</dt><dd><b id="turns">—</b><span class="unit">/min</span></dd></div>
+<main id="root" class="kit" data-view="connecting" data-orient="vertical" data-align="right" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Catcher trail">
+  <header class="head">
+    <p class="dash" id="dash-row"><span class="kit-label">Dashing</span><span class="kit-value"><span id="dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></span></p>
+    <p class="kit-caption" id="span">last 6 s</p>
+  </header>
+  <div class="plot"><canvas id="trace" aria-label="Catcher position over the last seconds: dashes in amber, misses in red"></canvas></div>
+  <dl class="final" id="final">
+    <div><dt class="kit-label">Dashing</dt><dd class="kit-value"><span id="final-dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></dd></div>
+    <div><dt class="kit-label">Direction changes</dt><dd class="kit-value"><span id="final-turns" class="kit-dash">—</span></dd></div>
   </dl>
-  <div class="plot">
-    <canvas id="trace" aria-label="Catcher position over time"></canvas>
-    <ol class="ruler" aria-hidden="true"><li>0</li><li>128</li><li>256</li><li>384</li><li>512</li></ol>
-    <span class="span" id="span">−6 s</span>
-  </div>
-  <p class="note">Catcher position needs vosu</p>
-  <p class="chip" role="status"><i></i><span id="chip-text">Connecting</span></p>
+  <p class="note kit-text">Catcher position needs vosu</p>
+  <p class="chip kit-caption" id="chip" role="status">Connecting</p>
 </main>
 </body>
 </html>

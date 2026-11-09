@@ -5,13 +5,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 p, dl, dd { margin: 0; }
 [hidden] { display: none !important; }
 
-/* The page is the overlay's box; hosts size it. --u (overlay.js) is 1 at the 256×264 column.
-   The padding is the kit's --pad on every backing, so the layout and the trace do not move when
-   the backing changes. */
+/* The page is the overlay's box; hosts size it. --u (overlay.js) is 1 at the 256×240 column. */
 #root {
   position: fixed; inset: 0;
   display: grid; gap: var(--s-3);
-  padding: var(--pad);
   contain: strict;
   opacity: 0;
   transition: opacity var(--dur-base) var(--ease-in);

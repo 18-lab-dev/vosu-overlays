@@ -74,7 +74,7 @@ const CHIP = { offline: 'vosu offline', nodata: 'No data' };
 
 // ---------------------------------------------------------------- state
 const DEFAULTS = {
-  orientation: 'auto', align: 'right', window: 6, showDash: true, showOnResults: true,
+  orientation: 'auto', align: 'left', window: 6, showDash: true, showOnResults: true,
   motion: 'full', backing: 'scrim', mapTint: true,
 };
 let opts = { ...DEFAULTS };
@@ -326,7 +326,7 @@ settings(DEFAULTS, s => {
   const w = Math.round(Math.min(30, Math.max(2, Number(s.window) || DEFAULTS.window)));
   opts = {
     orientation: ['vertical', 'horizontal'].includes(s.orientation) ? s.orientation : 'auto',
-    align: s.align === 'left' ? 'left' : 'right',
+    align: s.align === 'right' ? 'right' : 'left',
     window: w,
     showDash: s.showDash !== false, showOnResults: s.showOnResults !== false,
     motion: s.motion, backing: s.backing, mapTint: s.mapTint,
@@ -343,11 +343,11 @@ settings(DEFAULTS, s => {
 // ---------------------------------------------------------------- box layout
 /** Orientation from the box's aspect (or the setting) and the kit unit from its size. */
 function layoutBox() {
-  const w = innerWidth || 256, h = innerHeight || 264;
+  const w = innerWidth || 256, h = innerHeight || 240;
   orient = opts.orientation === 'auto' ? (w / h >= WIDE ? 'horizontal' : 'vertical') : opts.orientation;
   laneLeft = orient === 'horizontal';
-  // 1 at the slot's 256×264 column; wide boxes are laid out for 560×120.
-  const k = orient === 'vertical' ? Math.min(w / 256, h / 264) : Math.min(h / 120, w / 560);
+  // 1 at the slot's 256×240 column; wide boxes are laid out for 560×120.
+  const k = orient === 'vertical' ? Math.min(w / 256, h / 240) : Math.min(h / 120, w / 560);
   unit = Math.round(Math.min(1.6, Math.max(0.75, k)) * 100) / 100;
   layoutDirty = true;
   measure();

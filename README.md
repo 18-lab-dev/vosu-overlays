@@ -138,10 +138,12 @@ bun dev/mock-vosu.js --port 24100
 #     the page at its suggested placement; guide=1 draws the focus ellipse and flags a centre inside it,
 #     w/h/x/y override the box, cell=474x1080 simulates a replay-renderer cell, layout=1 a wireframe HUD
 node dev/shoot.mjs --port 24100 --id <id>     # screenshots of every state plus live perf numbers
-node dev/shoot.mjs --port 24100 --id <id> --cases ";" --perf "mode=osu&state=play&start=40000" --warm 10000
+node dev/shoot.mjs --port 24100 --id <id> --cases ";" --perf "mode=osu&state=play&start=40000" --warm 10000 --gpu 1
 ```
 
 The perf run reports script, layout and style time per second, and the allocation rate (`allocKBps`, objects already collected included) split into the overlay's own files, the shared client and the harness, with the top overlay allocation sites. `--warm` lets V8 optimise the hot paths before the 5 s window opens, which is the state a long stream runs in. The bar for an overlay: with frozen data it allocates nothing and runs no animation loop; while live, its frame and draw code allocates nothing (histories live in typed-array rings, scratch objects and canvas state are reused, layout reads happen on resize), and new strings are made only for displayed numbers that changed. `subscribe()` reuses its `values` object and `changed` Set for every frame, so read them inside the callback and never keep them.
+
+Perf runs load the overlay page alone at its box size, as OBS, vosulay and the replay renderer do, and also report CPU per Chromium process (`cpuPct`: renderer = script, style, layout and paint; gpu = compositing and rasterisation) over a 5 s window before the frame counter starts. `--gpu 1` renders on the hardware GPU (ANGLE over Vulkan) and adds `gpuSm`, the GPU process's peak SM load from `nvidia-smi pmon` (below 1 % reads 0); without it Chromium uses SwiftShader, so GPU work shows as CPU, the case of a host without hardware acceleration. The mock serves vosu's `/json/sc` timing points (404 with `compat=tosu`) for beat-synced motion.
 
 ## Internal packaging / future releases
 

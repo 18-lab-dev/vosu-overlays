@@ -11,6 +11,7 @@
 // osu!/mania with vosu extensions disabled. --perf runs a live attempt for 5 s starting 110 s
 // into the map, so hit-error/key histories are already long (~2000 events) and keep growing.
 import { mkdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -45,7 +46,11 @@ const warm = Number(arg('warm', 0));
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright').catch(() =>
   import(`${process.env.HOME}/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs`));
 mkdirSync(out, { recursive: true });
-const browser = await chromium.launch();
+// --gpu 1 renders on the hardware GPU (ANGLE over Vulkan), as OBS's browser source and vosulay
+// do with hardware acceleration on; the default is SwiftShader, which turns all GPU work into
+// CPU time (the worst case, a host without acceleration).
+const gpu = arg('gpu', '0') === '1';
+const browser = await chromium.launch(gpu ? { args: ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=vulkan', '--enable-features=Vulkan,VulkanFromANGLE', '--enable-gpu-rasterization'] } : {});
 const context = await browser.newContext({ deviceScaleFactor: dpr, viewport: { width: 1984, height: 1144 } });
 const page = await context.newPage();
 // Keep runs offline and deterministic: avatars come from a.ppy.sh; overlays must show their fallback.
@@ -96,15 +101,47 @@ for (const query of cases) {
 
 if (perf !== 'none') {
   await reset(perf);
-  await stage();
+  const [box] = await stage();
+  // Measured as hosts load it: the overlay page alone at its box size (an OBS browser source, a
+  // vosulay layer, a renderer layer), not inside the stage, whose full-screen backdrop would be
+  // re-composited with every overlay frame.
+  await page.setViewportSize({ width: box.width, height: box.height });
+  await page.goto(`${base}/${id}/`);
+  await page.waitForTimeout(settle);
   const cdp = await context.newCDPSession(page);
   await cdp.send('Performance.enable');
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
-  const frame = page.frames().find(f => f.url().includes(`/${id}/`));
+  const frame = page.mainFrame();
   // Code that has not been optimised yet allocates for numbers and loops that optimised code
   // does not, so a window opened right after load overstates a long session; --warm shows the
   // steady state. Keep start + warm + 5 s clear of the mock's break (about 61–66 s).
   if (warm) await page.waitForTimeout(warm);
+  // Process CPU (Chromium's own per-process accounting) and GPU load over 5 s, before the frame
+  // counter below starts: its requestAnimationFrame loop would keep every overlay drawing frames.
+  // renderer = script, style, layout, paint; gpu = compositing and rasterisation (in software
+  // without --gpu 1).
+  const browserCdp = await browser.newBrowserCDPSession();
+  const processes = async () => (await browserCdp.send('SystemInfo.getProcessInfo')).processInfo;
+  const cpuBefore = await processes();
+  const gpuPid = cpuBefore.find(p => p.type === 'GPU')?.id;
+  let pmon = '';
+  const sampler = gpu && gpuPid ? spawn('nvidia-smi', ['pmon', '-c', '5', '-s', 'u']) : null;
+  sampler?.stdout.on('data', chunk => { pmon += chunk; });
+  sampler?.on('error', () => {});
+  const cpuSeconds = 5;
+  await page.waitForTimeout(cpuSeconds * 1000);
+  const cpuAfter = await processes();
+  if (sampler) await new Promise(resolve => { sampler.on('close', resolve); setTimeout(resolve, 2000); });
+  const cpuPct = { renderer: 0, gpu: 0, browser: 0, other: 0 };
+  for (const p of cpuAfter) {
+    const was = cpuBefore.find(q => q.id === p.id && q.type === p.type)?.cpuTime ?? 0;
+    const key = p.type === 'renderer' ? 'renderer' : p.type === 'GPU' ? 'gpu' : p.type === 'browser' ? 'browser' : 'other';
+    cpuPct[key] += (p.cpuTime - was) / cpuSeconds * 100;
+  }
+  for (const key in cpuPct) cpuPct[key] = Math.round(cpuPct[key] * 10) / 10;
+  // pmon prints "-" below 1 %; counted as 0.
+  const sm = pmon.split('\n').filter(line => line.trim().split(/\s+/)[1] === String(gpuPid)).map(line => Number(line.trim().split(/\s+/)[3]) || 0);
+  const gpuSm = sampler ? { maxPct: sm.length ? Math.max(...sm) : 0, samples: sm.length } : null;
   await frame.evaluate(() => { window.__frames = 0; const loop = () => { window.__frames++; requestAnimationFrame(loop); }; requestAnimationFrame(loop); });
   // Allocation sampling over the same window, counting objects already collected, so the rate
   // includes short-lived garbage. Built-ins (JSON.parse, Array.from) have no script URL; their
@@ -135,6 +172,7 @@ if (perf !== 'none') {
   console.log(JSON.stringify({
     perf: perf,
     msPerSecond: { script: per('ScriptDuration'), layout: per('LayoutDuration'), style: per('RecalcStyleDuration'), task: per('TaskDuration') },
+    cpuPct, gpu: gpu ? 'hardware' : 'swiftshader', gpuSm,
     fps: Math.round(frames / seconds),
     layouts: after.LayoutCount - before.LayoutCount,
     allocKBps: { overlay: kbps(alloc.overlay), client: kbps(alloc.client), harness: kbps(alloc.other) },

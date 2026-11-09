@@ -768,6 +768,13 @@ Bun.serve({
     if (path === '/json/v2') return current ? Response.json(current.doc) : Response.json({ error: 'osu is not ready/running' });
     if (path === '/json/v2/precise') return current ? Response.json(current.precise) : Response.json({ error: 'osu is not ready/running' });
     if (path === '/api/calculate/pp') return calculatePp();
+    // vosu's StreamCompanion projection; overlays only read its uninherited timing points (one
+    // red line at the first object, map ms) to phase beat-synced motion. tosu and the replay
+    // renderer do not serve it, so compat=tosu answers 404 like they do.
+    if (path === '/json/sc') {
+      if (config.compat === 'tosu') return new Response('not found', { status: 404 });
+      return Response.json({ md5: `mock${config.mode}${config.keys}`.padEnd(32, '0'), mapTimingPoints: [{ startTime: scenario.first, beatLength: scenario.beat }] });
+    }
     if (path === '/files/beatmap/background') return new Response(background(), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } });
     if (path.toLowerCase() === '/files/skin/skin.ini') {
       // vosu serves the current skin's files; the mock serves a skin.ini placed beside the backdrops.

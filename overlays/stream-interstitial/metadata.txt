@@ -1,5 +1,5 @@
 name = Stream interstitial
 author = 18-LAB
-version = 0.1.1
+version = 0.4.0
 description = Starting soon, be right back and ending scene: big headline, countdown, the selected map with its background and the session's plays and playtime.
 resolution = [1920,1080]

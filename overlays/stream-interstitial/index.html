@@ -5,76 +5,72 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stream interstitial</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main id="stage" data-scene="starting-soon" data-backdrop="map" data-enter>
-  <div class="backdrop" aria-hidden="true">
-    <img class="backdrop__img" alt="" decoding="async">
-    <img class="backdrop__img" alt="" decoding="async">
-    <div class="backdrop__scrim"></div>
-    <div class="backdrop__grid"></div>
+  <div class="sheet kit" id="sheet" data-backing="none" data-motion="full" data-map-tint="on">
+    <div class="backdrop" aria-hidden="true">
+      <img class="backdrop__img" alt="" decoding="async">
+      <img class="backdrop__img" alt="" decoding="async">
+      <div class="backdrop__scrim" id="scrim"></div>
+      <div class="backdrop__grid"></div>
+    </div>
+
+    <header class="sheet-head">
+      <span class="kit-label"><span id="scene-index">01</span> / <span id="scene-code">Pre-show</span></span>
+      <span class="sheet-head__spacer"></span>
+      <span class="status kit-caption kit-enter" id="status" data-out>Connecting to vosu</span>
+      <span class="kit-caption" id="date"></span>
+    </header>
+
+    <section class="hero">
+      <div class="hero__words">
+        <h1 class="headline kit-title" id="headline">Starting soon</h1>
+        <p class="subline kit-text" id="subline">Warming up</p>
+      </div>
+      <div class="countdown" id="countdown">
+        <span class="countdown__label kit-label" id="countdown-label">Starts in</span>
+        <div class="countdown__digits kit-hero" id="digits" role="timer"></div>
+        <div class="ruler" aria-hidden="true">
+          <div class="ruler__fill" id="ruler-fill"></div>
+          <div class="ruler__ticks" id="ruler-ticks"></div>
+        </div>
+        <div class="ruler__scale kit-caption" aria-hidden="true"><span>0</span><span id="ruler-max">5 min</span></div>
+      </div>
+    </section>
+
+    <section class="block" id="block" aria-label="Map and session">
+      <figure class="thumb" id="thumb" data-empty>
+        <img class="thumb__img" alt="" decoding="async">
+        <img class="thumb__img" alt="" decoding="async">
+        <figcaption class="thumb__empty kit-caption">No map</figcaption>
+      </figure>
+      <div class="cell cell--map" id="map-cell">
+        <div class="cell__head" id="map-head"><span class="kit-label" id="map-label">Up first</span><span class="kit-caption" id="map-meta"></span></div>
+        <div class="map__title kit-title" id="map-title">—</div>
+        <div class="map__artist kit-text" id="map-artist"></div>
+        <div class="map__diff"><span class="kit-text map__version" id="map-version"></span><span class="kit-caption" id="map-mapper"></span></div>
+      </div>
+      <div class="cell cell--stat" id="stat-stars"><span class="kit-label">Stars</span><span class="readout" id="r-stars" data-unknown><span class="kit-value" id="v-stars">—</span><span class="kit-unit tight readout__star">★</span></span></div>
+      <div class="cell cell--stat" id="stat-bpm"><span class="kit-label">Tempo</span><span class="readout" id="r-bpm" data-unknown><span class="kit-value" id="v-bpm">—</span><span class="kit-unit">bpm</span></span></div>
+      <div class="cell cell--stat" id="stat-length"><span class="kit-label">Length</span><span class="readout" id="r-length" data-unknown><span class="kit-value" id="v-length">—</span></span></div>
+      <div class="cell cell--session" id="session-cell">
+        <span class="kit-label" id="session-label">This session</span>
+        <div class="session">
+          <div class="session__item">
+            <span class="readout" id="r-plays" data-unknown><span class="kit-value" id="v-plays">—</span></span>
+            <span class="kit-label">Plays</span>
+          </div>
+          <div class="session__item">
+            <span class="readout" id="r-time" data-unknown><span class="kit-value" id="v-time-a">—</span><span class="kit-unit" id="v-time-ua"></span><span class="kit-value readout__next" id="v-time-b"></span><span class="kit-unit" id="v-time-ub"></span></span>
+            <span class="kit-label">Playtime</span>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
-
-  <i class="crop crop--tl" aria-hidden="true"></i><i class="crop crop--tr" aria-hidden="true"></i>
-  <i class="crop crop--bl" aria-hidden="true"></i><i class="crop crop--br" aria-hidden="true"></i>
-
-  <header class="sheet-head">
-    <span class="label"><b id="scene-index">01</b> / <span id="scene-code">Pre-show</span></span>
-    <span class="sheet-head__spacer"></span>
-    <span class="status" id="status" data-state="connecting" hidden><i class="status__dot"></i><span id="status-text">Connecting to vosu</span></span>
-    <span class="label" id="date"></span>
-  </header>
-
-  <section class="hero">
-    <div class="hero__words">
-      <h1 class="headline" id="headline">Starting soon</h1>
-      <p class="subline" id="subline">Warming up</p>
-    </div>
-    <div class="countdown" id="countdown" aria-live="off">
-      <span class="label countdown__label"><i class="countdown__mark"></i><span id="countdown-label">Starts in</span></span>
-      <div class="countdown__digits" id="digits" role="timer"></div>
-      <div class="ruler" aria-hidden="true">
-        <div class="ruler__fill" id="ruler-fill"></div>
-        <div class="ruler__ticks" id="ruler-ticks"></div>
-      </div>
-      <div class="ruler__scale label" aria-hidden="true"><span>0</span><span id="ruler-max">5 min</span></div>
-    </div>
-  </section>
-
-  <section class="block" id="block" aria-label="Map and session">
-    <figure class="thumb" id="thumb" data-empty>
-      <img class="thumb__img" alt="" decoding="async">
-      <img class="thumb__img" alt="" decoding="async">
-      <figcaption class="thumb__empty label">No map</figcaption>
-    </figure>
-    <div class="cell cell--map" id="map-cell">
-      <div class="cell__head">
-        <span class="label" id="map-label">Up first</span>
-        <span class="tag" id="map-mode" hidden></span>
-        <span class="tag tag--status" id="map-status" hidden></span>
-      </div>
-      <div class="map__title" id="map-title">—</div>
-      <div class="map__artist" id="map-artist"></div>
-      <div class="map__diff"><b id="map-version"></b><span id="map-mapper"></span></div>
-    </div>
-    <div class="cell cell--stat" id="stat-stars"><span class="label">Stars</span><span class="readout"><span class="readout__v" id="v-stars">—</span><span class="readout__u" id="v-stars-u"></span></span></div>
-    <div class="cell cell--stat" id="stat-bpm"><span class="label">BPM</span><span class="readout"><span class="readout__v" id="v-bpm">—</span></span></div>
-    <div class="cell cell--stat" id="stat-length"><span class="label">Length</span><span class="readout"><span class="readout__v" id="v-length">—</span></span></div>
-    <div class="cell cell--session" id="session-cell">
-      <span class="label" id="session-label">This session</span>
-      <div class="session">
-        <div class="session__item">
-          <span class="readout"><span class="readout__v" id="v-plays">—</span></span>
-          <span class="label label--sub">Plays</span>
-        </div>
-        <div class="session__item">
-          <span class="readout" id="v-time"><span class="readout__v" id="v-time-a">—</span><span class="readout__u" id="v-time-ua"></span><span class="readout__v" id="v-time-b"></span><span class="readout__u" id="v-time-ub"></span></span>
-          <span class="label label--sub">Playtime</span>
-        </div>
-      </div>
-    </div>
-  </section>
 </main>
 <script type="module" src="overlay.js"></script>
 </body>

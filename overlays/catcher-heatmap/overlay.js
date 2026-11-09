@@ -16,7 +16,7 @@ const RETRY_JUMP_MS = 1500;      // clock jumping back this far mid-play = a new
 const TEXT_INTERVAL_MS = 200;    // readouts don't need 60 Hz; keeps layout/style idle
 const RESULTS = 7;
 // Design boxes (u = 1, padding included): the column (the R4 slot) and the band.
-const VERTICAL = { w: 256, h: 264 };
+const VERTICAL = { w: 256, h: 240 };
 const HORIZONTAL = { w: 420, h: 128 };
 const HORIZONTAL_ASPECT = 2;     // auto orientation: wider than 2:1 lays out as a band
 const COMPACT_BELOW = 0.8;       // u below this drops the scope caption (multiplayer cells)

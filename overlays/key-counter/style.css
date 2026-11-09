@@ -20,8 +20,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   contain: strict;
 }
 #hud[data-align="right"] { flex-direction: row-reverse; }
-/* Without a backing the kit adds no padding; keep the content clear of the registration marks. */
-#hud[data-backing="none"] { padding: calc(var(--u, 1) * 6px); }
 /* Entering and leaving play: the whole box (backing and signature too) fades and settles 4 px. */
 #hud[data-out] { transition-timing-function: var(--ease-in); }
 [hidden] { display: none !important; }

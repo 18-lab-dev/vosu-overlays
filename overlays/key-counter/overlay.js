@@ -30,7 +30,7 @@ const BASE_H = 96;
 const PAD = 16, GAP = 16, CAP_GAP = 6;
 const CAP_MIN = 52, CAP_MAX = 72;      // a cap fits "8,888" at 20 px with 6 px either side
 const ROWS_MIN = 112, ROWS_MAX = 150;  // three keys as rows when three caps do not fit
-const STATS_W = 84;                    // "88" at 52 px plus the kps unit
+const STATS_W = 88;                    // "88" at 52 px plus the kps unit (measured 87)
 const TOTAL_W = 56;
 const SPARK_MIN = 96;
 const COLUMN_W = 160;                  // vertical layout
@@ -345,7 +345,7 @@ function layout() {
   const mode = view.mode;
   const held = view.phase === 'results';
   view.kpsShown = !(mode === 'fruits' && view.client === 'stable') && (mode !== 'mania' || opts.showKps);
-  const pad = opts.backing === 'none' ? 6 : PAD; // style.css insets 6 px without a backing
+  const pad = PAD; // kit.css pads every backing (none included) by --pad
   const vertical = opts.orientation === 'vertical' || (opts.orientation === 'auto' && H > W * 1.15);
   hud.dataset.align = opts.align;
   hud.style.setProperty('--justify', opts.align === 'center' ? 'center' : 'flex-start');

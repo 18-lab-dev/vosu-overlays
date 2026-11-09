@@ -5,34 +5,31 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Performance counter</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main id="root" class="root" data-view="offline" data-orient="vertical" data-align="right" data-backing="none" data-accent="map" aria-label="Performance points">
-  <div class="cluster">
-    <div class="head">
-      <div class="tag"><i class="dot"></i><span id="kicker" class="kicker"></span><span id="state" class="state"></span></div>
-      <div id="big" class="big"><span id="int">—</span><span id="frac" class="frac"></span><span class="unit">pp</span></div>
-    </div>
-    <div id="pairs" class="pairs">
-      <span id="rowA" class="pair"><span id="labelA" class="label">If FC</span><b id="valA">—</b></span>
-      <span id="rowB" class="pair"><span id="labelB" class="label">Max</span><b id="valB">—</b></span>
-    </div>
-    <div class="meter">
-      <div class="gauge">
-        <canvas id="rail" aria-hidden="true"></canvas>
-        <div class="scale"><span>0</span><span id="scaleMax">SS —</span></div>
-      </div>
-      <ul id="chips" class="chips"></ul>
-    </div>
-    <ol id="ladder" class="ladder">
-      <li><span class="label">95%</span><b>—</b></li>
-      <li><span class="label">97%</span><b>—</b></li>
-      <li><span class="label">98%</span><b>—</b></li>
-      <li><span class="label">99%</span><b>—</b></li>
-      <li><span class="label">SS</span><b>—</b></li>
-    </ol>
+<main id="root" class="kit root" data-view="offline" data-orient="vertical" data-align="right" data-backing="scrim" data-motion="full" aria-label="Performance points">
+  <p id="note" class="note kit-caption"></p>
+  <div class="head">
+    <span class="tagline"><span id="fail" class="fail kit-code" hidden>Fail</span><span id="heroLabel" class="kit-label"></span><span id="heroGap" class="kit-caption"></span></span>
+    <span id="big" class="big kit-hero"><span id="int" class="int"></span><span id="frac" class="kit-frac"></span><span class="kit-unit">pp</span></span>
   </div>
+  <div class="second">
+    <span id="fcRow" class="fc-row"><span id="fcLabel" class="kit-label">If FC</span><span class="kit-value"><span id="fcVal">—</span><span class="kit-unit">pp</span></span><span id="fcGap" class="kit-caption"></span></span>
+    <ul id="chips" class="chips"></ul>
+  </div>
+  <div class="meter">
+    <canvas id="rail" aria-hidden="true"></canvas>
+    <span id="ss" class="ss" hidden><span class="kit-code">SS</span><span id="ssVal" class="kit-label">—</span></span>
+  </div>
+  <ol id="ladder" class="ladder">
+    <li><span class="kit-label">95%</span><b class="kit-value">—</b></li>
+    <li><span class="kit-label">97%</span><b class="kit-value">—</b></li>
+    <li><span class="kit-label">98%</span><b class="kit-value">—</b></li>
+    <li><span class="kit-label">99%</span><b class="kit-value">—</b></li>
+    <li><span class="kit-code">SS</span><span><b class="kit-value">—</b><span class="kit-unit">pp</span></span></li>
+  </ol>
 </main>
 <script type="module" src="overlay.js"></script>
 </body>

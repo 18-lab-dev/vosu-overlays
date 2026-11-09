@@ -1,171 +1,121 @@
-/* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-/* tokens.css sets color-scheme: dark; when the embedding page's scheme differs, Chromium paints an
-   opaque backdrop behind the iframe. Normal keeps the source transparent. */
-html[data-theme] { color-scheme: normal; }
-
+/* Copyright (c) 2026 18-LAB. MIT. Type, colour roles, backing, signature and motion tokens come
+   from kit.css (docs/overlay-system.md); this file only lays the counter out. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+body { display: flex; align-items: center; }
 [hidden] { display: none !important; }
 
-/* Root fills the page box; --u (set from the box in overlay.js) scales every size. ----------- */
+/* The .kit root wraps the content and is centred in the page box; --u (unitless, set in overlay.js
+   from the box) scales everything. In play it fills the box's width at the design aspect. */
 .root {
-  --u: 1;
-  --hl: var(--map-accent, var(--accent));
-  --label: #d2cfc7;
-  --shade: 0 0 calc(var(--u) * 1px) rgb(0 0 0 / .9), 0 calc(var(--u) * 1px) calc(var(--u) * 2px) rgb(0 0 0 / .65);
-  --gap: calc(var(--u) * 8px);
-  position: fixed;
-  inset: 0;
+  width: 100%;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  color: var(--fg);
-  font-family: var(--font-body);
-  text-shadow: var(--shade);
-  user-select: none;
-  contain: strict;
-  transition: opacity 200ms var(--ease-draft);
+  flex-direction: column;
+  row-gap: calc(var(--u) * 7px);
+  transition: opacity var(--dur-base) var(--ease-draft);
 }
-.root[data-accent="18-lab"] { --hl: var(--accent); }
 .root[data-view="hidden"] { opacity: 0; }
-
-/* Optional backing: a soft scrim that fades out (no edges) or the graphite panel. */
-.root[data-backing="scrim"] {
-  padding: calc(var(--u) * 10px) calc(var(--u) * 12px);
-  background: radial-gradient(farthest-side, rgb(11 12 13 / .62), rgb(11 12 13 / .4) 60%, transparent);
-}
-.root[data-backing="panel"] {
-  --shade: none;
-  padding: calc(var(--u) * 10px) calc(var(--u) * 12px);
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--hl);
-  border-radius: var(--radius);
-}
-
-.cluster { display: flex; width: 100%; min-width: 0; }
-
-/* Vertical column: stacked, mirrored by alignment. */
-.root[data-orient="vertical"] .cluster { flex-direction: column; align-items: flex-end; text-align: right; }
-.root[data-orient="vertical"][data-align="left"] .cluster { align-items: flex-start; text-align: left; }
-.root[data-orient="vertical"][data-align="center"] .cluster { align-items: center; text-align: center; }
-.root[data-orient="vertical"] .pairs { margin-top: var(--gap); }
-.root[data-orient="vertical"] .meter { width: 100%; margin-top: calc(var(--u) * 10px); }
-.root[data-orient="vertical"][data-align="right"] .meter { align-items: flex-end; }
-.root[data-orient="vertical"][data-align="center"] .meter { align-items: center; }
-
-/* Horizontal strip: readout | pairs | rail + breakdown; right alignment mirrors the order. */
-.root[data-orient="horizontal"] .cluster { flex-direction: row; align-items: center; gap: calc(var(--u) * 24px); }
-.root[data-orient="horizontal"][data-align="right"] .cluster { flex-direction: row-reverse; text-align: right; }
-.root[data-orient="horizontal"][data-align="right"] .head { align-items: flex-end; }
-.root[data-orient="horizontal"][data-align="center"] .cluster { justify-content: center; }
-.root[data-orient="horizontal"] .pairs { flex-direction: column; gap: calc(var(--u) * 6px); }
-.root[data-orient="horizontal"][data-align="right"] .pairs { align-items: flex-end; }
-.root[data-orient="horizontal"] .meter { flex: 1 1 0; min-width: calc(var(--u) * 200px); max-width: calc(var(--u) * 520px); }
-.root[data-orient="horizontal"][data-align="right"] .meter { align-items: flex-end; }
-
-.label {
-  font: 500 calc(var(--u) * 12px)/1 var(--font-mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--label);
-}
-
-/* Tag line: what this is and the state. Doubles as the connection/no-data line. */
-.head { display: flex; flex-direction: column; align-items: inherit; }
-.root[data-orient="horizontal"] .head { align-items: flex-start; }
-.tag {
-  display: flex;
-  align-items: center;
-  gap: var(--gap);
-  height: calc(var(--u) * 14px);
-  font: 500 calc(var(--u) * 12px)/1 var(--font-mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--label);
-  white-space: nowrap;
-}
-.kicker { color: var(--hl); }
-.kicker:empty { display: none; }
-/* State words keep sentence case (and osu!'s own casing). */
-.state { text-transform: none; letter-spacing: .02em; }
-.dot {
-  width: calc(var(--u) * 7px);
-  height: calc(var(--u) * 7px);
-  border-radius: 50%;
-  flex: none;
-  background: var(--fg-dim);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / .45);
-}
-.root[data-tone="idle"] .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-dim), 0 0 0 1px rgb(0 0 0 / .35); }
-.root[data-tone="play"] .dot { display: none; }
-.root[data-tone="fail"] .dot { background: var(--danger); }
-.root[data-tone="fail"] .state { color: var(--danger); }
-.root[data-tone="wait"] .dot { background: var(--caution); }
-.root[data-tone="down"] .dot { background: var(--danger); }
-.root[data-view="select"] .dot { display: none; }
-
-/* Big readout. */
-.big {
-  display: flex;
-  align-items: baseline;
-  height: calc(var(--u) * 52px);   /* mixed-size spans would otherwise grow the line box */
-  margin-top: var(--gap);
-  font: 600 calc(var(--u) * 64px)/calc(var(--u) * 52px) var(--font-display);
-  letter-spacing: -.01em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.frac { font-size: calc(var(--u) * 32px); color: var(--label); letter-spacing: 0; }
-.unit { margin-left: calc(var(--u) * 6px); font: 500 calc(var(--u) * 14px)/1 var(--font-mono); letter-spacing: .04em; color: var(--label); }
-.big[data-empty] { color: var(--label); }
-.big[data-empty] .unit { visibility: hidden; }
-
-.pairs { display: flex; gap: calc(var(--u) * 20px); }
-.pair { display: inline-flex; align-items: baseline; gap: var(--gap); white-space: nowrap; }
-.pair b, .ladder b {
-  font: 600 calc(var(--u) * 24px)/calc(var(--u) * 20px) var(--font-display);
-  font-variant-numeric: tabular-nums;
-}
-#rowB b { color: var(--label); }
-
-/* Rail: 0 → SS, current pp filled, hatched up to max achievable, FC tick. */
-.meter { display: flex; flex-direction: column; min-width: 0; }
-.gauge { width: 100%; }
-#rail { display: block; width: 100%; height: calc(var(--u) * 30px); }
-.scale {
-  display: flex;
-  justify-content: space-between;
-  margin-top: calc(var(--u) * 2px);
-  font: 500 calc(var(--u) * 12px)/1 var(--font-mono);
-  letter-spacing: .04em;
-  color: var(--label);
-  font-variant-numeric: tabular-nums;
-}
-
-.chips { display: flex; gap: calc(var(--u) * 16px); margin: var(--gap) 0 0; padding: 0; list-style: none; }
-.chips li { display: inline-flex; align-items: baseline; gap: calc(var(--u) * 6px); white-space: nowrap; }
-.chips b { font: 600 calc(var(--u) * 20px)/calc(var(--u) * 18px) var(--font-display); font-variant-numeric: tabular-nums; }
-
-/* Accuracy → pp ladder (song select). */
-.ladder { display: flex; gap: calc(var(--u) * 18px); margin: var(--gap) 0 0; padding: 0; list-style: none; }
-.root[data-orient="horizontal"] .ladder { margin: 0; }
-.ladder li { display: grid; gap: calc(var(--u) * 4px); justify-items: inherit; }
-.ladder li:last-child .label { color: var(--hl); }
-.ladder li:not(:last-child) b { color: var(--label); }
-
-/* Song select puts skin art and the carousel under most corners: the ladder gets a soft local
-   scrim (fading out, no edges) even without a backing. */
-.root[data-view="select"][data-backing="none"] .cluster {
-  width: auto;
-  padding: calc(var(--u) * 16px) calc(var(--u) * 26px);
-  background: radial-gradient(farthest-side, rgb(11 12 13 / .8) 55%, rgb(11 12 13 / .45) 80%, transparent);
-}
-.root[data-view="select"][data-align="right"] { justify-content: flex-end; }
-.root[data-view="select"][data-align="center"] { justify-content: center; }
+/* The kit pads only backed overlays; without a backing the padding stays, so the registration marks
+   on the box corners keep clear of the numbers. */
+.root[data-backing="none"] { padding: var(--pad); }
+.root[data-align="right"] { align-items: flex-end; text-align: right; }
+.root[data-align="center"] { align-items: center; text-align: center; }
+/* Status and song-select content is narrower than the box: the backing hugs it, on the aligned edge. */
+.root:is([data-view="offline"], [data-view="idle"], [data-view="select"]) { width: auto; }
+body[data-align="right"] { justify-content: flex-end; }
+body[data-align="center"] { justify-content: center; }
 
 /* What each view shows. */
-.root:is([data-view="offline"], [data-view="idle"]) :is(.big, .pairs, .meter, .ladder),
-.root[data-view="select"] :is(.big, .pairs, .meter),
-.root[data-view="play"] .ladder,
-.root[data-view="results"] :is(.meter, .ladder) { display: none; }
+.note, .ladder { display: none; }
+.root:is([data-view="offline"], [data-view="idle"], [data-view="select"]) .note { display: block; margin: 0; }
+.root[data-view="select"] .ladder { display: flex; }
+/* The strip has no room for the ladder's caption; the unit after the SS value says what it is. */
+.root[data-orient="horizontal"][data-view="select"] .note { display: none; }
+.root:is([data-view="offline"], [data-view="idle"], [data-view="select"]) :is(.head, .second, .meter),
+.root[data-view="results"] .meter,
+.root[data-slot="off"] .second { display: none; }
+
+/* Hero row: the readout on the aligned edge, its label (FAIL, If FC) on the other. */
+.head { display: flex; align-items: center; column-gap: var(--s-3); width: 100%; min-width: 0; }
+.root[data-align="right"] .head { justify-content: flex-end; }
+.root[data-align="center"] .head { justify-content: center; }
+.root[data-align="left"] .head { flex-direction: row-reverse; justify-content: flex-end; }
+.tagline { display: flex; flex-direction: column; row-gap: calc(var(--u) * 2px); min-width: 0; }
+.root[data-align="right"] .tagline { margin-right: auto; text-align: left; }
+.root[data-align="left"] .tagline { margin-left: auto; text-align: right; }
+.fail { color: var(--j-miss); }
+
+/* Fixed height: the fraction and unit sit on the hero's baseline and would otherwise grow the line. */
+.big { display: flex; align-items: baseline; height: calc(var(--u) * 52px); }
+.int { display: inline-flex; }
+/* One box per character, so a changing digit can roll on its own (transform needs a box). */
+.int > i { display: inline-block; font-style: normal; }
+.int > i:empty { display: none; }
+.big[data-empty] { color: var(--text-3); }
+.big[data-empty] :is(.kit-unit, .kit-frac) { visibility: hidden; }
+
+/* Secondary line: the breakdown, until the full combo is lost; then the if-FC value takes the line
+   (detaching from the hero, overlay.js). Both sit in one grid cell so nothing reflows. */
+.second { display: grid; align-items: center; width: 100%; height: calc(var(--u) * 32px); }
+.second > * { grid-area: 1 / 1; min-width: 0; }
+.root[data-align="right"] .second { justify-items: end; }
+.root[data-align="center"] .second { justify-items: center; }
+.root[data-align="left"] .second { justify-items: start; }
+.fc-row { display: flex; align-items: baseline; column-gap: var(--s-2); }
+.root[data-align="right"] .fc-row { transform-origin: 100% 60%; }
+.root[data-align="left"] .fc-row { transform-origin: 0 60%; }
+.root:not([data-fc]) .fc-row { opacity: 0; transition: opacity var(--dur-base) var(--ease-in); }
+.root[data-fc] .chips { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;          /* a chip that does not fit wraps onto the clipped second line */
+  column-gap: var(--s-3);
+  max-height: calc(var(--u) * 24px);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.root[data-align="right"] .chips { justify-content: flex-end; }
+.root[data-align="center"] .chips { justify-content: center; }
+.chips li { display: inline-flex; align-items: baseline; column-gap: var(--s-1); height: calc(var(--u) * 24px); }
+.chips .kit-value { font-size: calc(var(--u) * 20px); color: var(--text-2); }
+
+/* Rail: 0 → the map's SS value, current pp filled amber (you), hatched up to max achievable, a tick
+   at if-FC. The SS value labels the right end. */
+.meter { display: flex; align-items: center; column-gap: var(--s-2); width: 100%; height: calc(var(--u) * 14px); }
+#rail { display: block; flex: 1 1 0; min-width: 0; height: calc(var(--u) * 12px); }
+.ss { display: inline-flex; align-items: baseline; column-gap: var(--s-1); line-height: 1; }
+.ss .kit-label { line-height: 1; }
+
+/* Song select: the accuracy → pp ladder. */
+.ladder { column-gap: var(--s-3); margin: 0; padding: 0; list-style: none; }
+.ladder li { display: grid; row-gap: calc(var(--u) * 4px); }
+.root[data-align="right"] .ladder li { justify-items: end; }
+.root[data-align="center"] .ladder li { justify-items: center; }
+.ladder .kit-value { font-size: calc(var(--u) * 20px); color: var(--text-2); }
+.ladder li:last-child .kit-value { color: var(--text-1); }
+.ladder li .kit-value[data-empty] { color: var(--text-3); }
+.ladder li .kit-value[data-empty] + .kit-unit { visibility: hidden; }
+
+/* Horizontal strip (wide boxes, e.g. taiko's bottom row): readout | secondary line over the rail.
+   Right alignment mirrors it. Line boxes tighten to fit the 48 px content height. */
+.root[data-orient="horizontal"]:is([data-view="play"], [data-view="results"], [data-view="hidden"]) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--s-4);
+  row-gap: calc(var(--u) * 4px);
+  align-items: center;
+}
+.root[data-orient="horizontal"] .head { grid-column: 1; grid-row: 1 / span 2; width: auto; }
+.root[data-orient="horizontal"] .second { grid-column: 2; grid-row: 1; height: calc(var(--u) * 30px); }
+.root[data-orient="horizontal"] .meter { grid-column: 2; grid-row: 2; }
+.root[data-orient="horizontal"][data-view="results"] .second { grid-row: 1 / span 2; }
+.root[data-orient="horizontal"] .big { height: calc(var(--u) * 48px); line-height: calc(var(--u) * 48px); }
+.root[data-orient="horizontal"] .fc-row .kit-value { line-height: calc(var(--u) * 30px); }
+.root[data-orient="horizontal"][data-align="right"] { grid-template-columns: minmax(0, 1fr) auto; }
+.root[data-orient="horizontal"][data-align="right"] .head { grid-column: 2; }
+.root[data-orient="horizontal"][data-align="right"] :is(.second, .meter) { grid-column: 1; }

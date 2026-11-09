@@ -1,193 +1,164 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Built on kit.css (docs/overlay-system.md): type roles, colour roles, backing and signature come
+   from the kit; this file only lays the line out. */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-/* tokens.css sets color-scheme: dark; inside a host page with another scheme Chromium would
-   paint an opaque backdrop behind the frame. */
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 
-/* The page is the overlay's box; its layout re-flows to whatever box the host gives it.
-   --s scales every size from the box (set in overlay.js on resize). */
+/* The page is the overlay's box (720 × 32 at the top of the screen); the strip is content-sized
+   inside it and hugs the aligned edge. */
 #root {
-  --s: 1;
-  --px: calc(var(--s) * 1px);
-  --tint: var(--map-accent, var(--accent));
-  --ink: rgb(235 232 225 / .8);
-  --ink-quiet: rgb(235 232 225 / .5);
-  --hair: rgb(235 232 225 / .3);
-  --shadow: 0 1px 2px rgb(0 0 0 / .65);
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   contain: strict;
-  transition: opacity 200ms var(--ease-draft);
 }
 #root[data-align="left"] { justify-content: flex-start; }
 #root[data-align="right"] { justify-content: flex-end; }
-#root[data-show="off"] { opacity: 0; }
 #root[data-layout="column"] { align-items: flex-start; }
 
+/* The .kit strip. A 32 px box has no room for the kit's 16 px padding above and below, so the
+   line sits on the full height with the padding at the ends only, and the scrim feathers over
+   8 px instead of 12 (it keeps 80 % behind the glyphs). */
 #panel {
+  --pad: var(--s-4);
+  --feather: var(--s-2);
   position: relative;
   display: flex; align-items: center;
   min-width: 0; max-width: 100%; max-height: 100%;
-  padding: 0 0 calc(var(--px) * 5);
-  color: var(--fg);
-  font: 500 calc(var(--px) * 19)/1 var(--font-body);
+  padding: 0 var(--pad) var(--s-1);
   white-space: nowrap;
-  text-shadow: var(--shadow);
-  user-select: none;
+  /* Enter / exit with play: settles down from the screen edge, leaves faster. */
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
-#panel:not([data-backing="none"]) { padding: calc(var(--px) * 6) calc(var(--px) * 14) calc(var(--px) * 8); }
-
-/* Backing layer: transparent by default; a soft fading scrim or the 18-LAB panel on request.
-   Its own layer, so a width change can be eased with transform alone. */
-.bg { position: absolute; inset: 0; transform-origin: 50% 0; }
-#root[data-align="left"] .bg { transform-origin: 0 0; }
-#root[data-align="right"] .bg { transform-origin: 100% 0; }
-#panel[data-backing="scrim"] .bg {
-  background: rgb(8 9 10 / .55);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent), linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
-  mask-composite: intersect;
-}
-#panel[data-backing="panel"] .bg {
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--tint);
-  border-radius: var(--radius);
-}
-#panel[data-backing="panel"]:not([data-kind="map"]) .bg { border-top-color: var(--rule-strong); }
-
-/* Play progress: a hairline under the line (a rule down the aligned edge in the column). */
-.prog {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: rgb(235 232 225 / .2);
-  box-shadow: 0 1px 2px rgb(0 0 0 / .45);
+#root[data-layout="line"] #panel { height: 100%; }
+#root[data-show="off"] #panel {
   opacity: 0;
-  transition: opacity 200ms var(--ease-draft);
+  transform: translateY(calc(var(--u, 1) * -4px));
+  transition-timing-function: var(--ease-in);
 }
-#panel:not([data-backing="none"]) .prog { left: 14px; right: 14px; bottom: 4px; }
-#panel[data-backing="panel"] .prog { left: -1px; right: -1px; bottom: -1px; box-shadow: none; }
-#panel.playing .prog { opacity: 1; }
-.prog i { display: block; width: 100%; height: 100%; background: var(--tint); transform-origin: 0 0; transform: scaleX(0); }
-#root[data-layout="column"] .prog { left: 0; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
-#root[data-layout="column"][data-align="right"] .prog { left: auto; right: 0; }
-#root[data-layout="column"] #panel:not([data-backing="none"]) .prog { top: 6px; bottom: 6px; left: 6px; }
-#root[data-layout="column"][data-align="right"] #panel:not([data-backing="none"]) .prog { left: auto; right: 6px; }
-#root[data-layout="column"] .prog i { transform: scaleY(0); }
+/* kit.css zeroes transitions inside the root under motion=off; the root's own one goes here. */
+#panel[data-motion="off"] { transition: none; }
 
-.roll { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
-.meta { display: flex; align-items: center; flex: none; }
+.roll { position: relative; display: flex; align-items: baseline; flex: 0 1 auto; min-width: 0; }
+/* Shrink order when the line is too long, as near-sequential steps (shrink is weighted by width,
+   and the factors stay ≥ 1 so the whole overflow is taken): the title's "(…)" suffix, then the
+   difficulty, the artist, last the title itself; the meta segments only once the map line is
+   gone. When any of the map line is cut, overlay.js drops the mapper first (data-fit). */
+.meta { display: flex; align-items: baseline; flex: 0 1 auto; min-width: 0; }
+#panel[data-fit="compact"] .mapper { display: none; }
 
-/* Title viewport: clips the marquee track (or ellipsizes it in truncate mode). */
-.vp { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: calc(var(--px) * 30); }
-.track { display: block; width: max-content; }
-#panel[data-overflow="truncate"] .track { width: auto; overflow: hidden; text-overflow: ellipsis; }
-.vp[data-edge="r"] {
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
-  mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
-}
-.vp[data-edge="l"] {
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px);
-  mask-image: linear-gradient(90deg, transparent, #000 32px);
-}
-.vp[data-edge="lr"] {
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
-}
+/* Map line: artist — title (suffix) [difficulty]. At rest every part ellipsizes on its own. While
+   the line scrolls once (data-scroll) it is one run of text, clipped with soft edges. */
+.vp { display: flex; flex: 0 1e8 auto; min-width: 0; overflow: hidden; }
+.track { display: flex; align-items: baseline; min-width: 0; }
+.track > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.track > .sep { flex: none; overflow: visible; }
+.track > .suffix { flex-shrink: 1e12; }
+.track > .ver { flex-shrink: 1e8; }
+.track > .artist { flex-shrink: 1e4; }
+.track > .title { flex-shrink: 1; }
+.vp[data-scroll] .track { display: block; flex: none; width: max-content; will-change: transform; }
+.vp[data-scroll] .track > * { display: inline; overflow: visible; }
+.vp[data-edge="r"] { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - var(--s-4)), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - var(--s-4)), transparent); }
+.vp[data-edge="l"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--s-4)); mask-image: linear-gradient(90deg, transparent, #000 var(--s-4)); }
+.vp[data-edge="lr"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--s-4), #000 calc(100% - var(--s-4)), transparent); mask-image: linear-gradient(90deg, transparent, #000 var(--s-4), #000 calc(100% - var(--s-4)), transparent); }
 
-.artist { font-weight: 500; color: var(--ink); }
-.sep { margin: 0 .3em; font-weight: 400; color: var(--ink-quiet); }
-.title { font-weight: 600; color: var(--fg); }
-.ver { margin-left: .35em; font-weight: 500; color: var(--ink); }
-.ver::before { content: "["; color: var(--ink-quiet); }
-.ver::after { content: "]"; color: var(--ink-quiet); }
+.sep { margin: 0 .35em; color: var(--text-3); }
+.suffix { margin-left: .3em; font-weight: 500; color: var(--text-2); }
+.ver { margin-left: .4em; }
+.ver::before { content: "["; color: var(--text-3); }
+.ver::after { content: "]"; color: var(--text-3); }
 
+/* Segments after the map line, each behind a hairline divider. */
 .seg {
   position: relative; flex: none;
-  display: flex; align-items: center;
-  margin-left: calc(var(--px) * 12); padding-left: calc(var(--px) * 12);
+  display: flex; align-items: baseline;
+  margin-left: var(--s-3); padding-left: var(--s-3);
 }
 .seg::before {
   content: ""; position: absolute; left: 0; top: 50%;
-  width: 1px; height: calc(var(--px) * 16); margin-top: calc(var(--px) * -8);
+  width: 1px; height: calc(var(--u, 1) * 16px); margin-top: calc(var(--u, 1) * -8px);
+  background: var(--hair-strong);
+}
+.stars .kit-value { font-size: calc(var(--u, 1) * 24px); }
+.stars .kit-unit { color: var(--map); }
+.mods .rate { margin-left: .5em; }
+.mapper { flex: 0 1 auto; min-width: 0; }
+.mapper .by { margin-right: .35em; }
+.mapper .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Connection chip (vosu offline, connecting). */
+.status { line-height: calc(var(--u, 1) * 24px); }
+
+/* Play progress: a hairline under the line, the map's colour on a hairline track (a rule down the
+   aligned edge in the column). Steps by device pixel; no loop. */
+.prog {
+  position: absolute; left: var(--pad); right: var(--pad); bottom: calc(var(--u, 1) * 2px);
+  height: max(1px, calc(var(--u, 1) * 2px));
   background: var(--hair);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .45);
+  opacity: 0;
+  transform-origin: 50% 100%;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-slow) var(--ease-draft);
 }
-.stars svg {
-  width: calc(var(--px) * 12); height: calc(var(--px) * 12); margin: 0 calc(var(--px) * 5) calc(var(--px) * 1) 0;
-  fill: var(--tint); stroke: rgb(0 0 0 / .45); stroke-width: .6px; paint-order: stroke;
+.prog i {
+  display: block; width: 100%; height: 100%;
+  background: var(--map);
+  opacity: .78;
+  transform-origin: 0 0; transform: scaleX(0);
+  transition: opacity var(--dur-slow) var(--ease-draft);
 }
-.stars .num {
-  min-width: 3.1ch;
-  font: 600 calc(var(--px) * 24)/1 var(--font-display);
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-}
-.mods { gap: calc(var(--px) * 4); }
-.mod {
-  padding: calc(var(--px) * 3) calc(var(--px) * 4) calc(var(--px) * 2);
-  border: 1px solid var(--hair); border-radius: var(--radius);
-  font: 500 calc(var(--px) * 12)/1 var(--font-mono); letter-spacing: .06em;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  background: rgb(8 9 10 / .35);
-}
-.mod span { margin-left: .4em; color: var(--ink); }
-.by {
-  margin-right: calc(var(--px) * 6);
-  font: 500 calc(var(--px) * 12)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
-  color: var(--ink-quiet);
-}
-.mapper .name { font-size: calc(var(--px) * 18); font-weight: 500; color: var(--ink); }
+#panel.playing .prog { opacity: 1; }
+/* Kiai (motion=full only): the rule thickens and the map colour comes up, one transition in and
+   one out; no pulse. */
+#panel[data-kiai] .prog { transform: scaleY(1.5); }
+#panel[data-kiai] .prog i { opacity: 1; }
+#root[data-layout="column"] .prog { left: 0; right: auto; top: var(--pad); bottom: var(--pad); width: max(1px, calc(var(--u, 1) * 2px)); height: auto; transform-origin: 0 50%; }
+#root[data-layout="column"][data-align="right"] .prog { left: auto; right: 0; transform-origin: 100% 50%; }
+#root[data-layout="column"] #panel[data-kiai] .prog { transform: scaleX(1.5); }
+#root[data-layout="column"] .prog i { transform: scaleY(0); }
 
-.status {
-  display: flex; align-items: center; gap: calc(var(--px) * 8);
-  font: 500 calc(var(--px) * 12)/calc(var(--px) * 30) var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
-  color: var(--ink);
-}
-.dot { width: calc(var(--px) * 7); height: calc(var(--px) * 7); border-radius: 50%; background: var(--muted); box-shadow: var(--shadow); }
-#panel[data-status="offline"] .dot { background: var(--danger); }
-
-/* Stack: title line above a meta line (narrow ticker, e.g. a mania top band). */
-#root[data-layout="stack"] .roll { flex-direction: column; align-items: flex-start; gap: calc(var(--px) * 4); }
+/* Stack: a title line over a meta line (a box about 66 px tall or more). */
+#root[data-layout="stack"] #panel { padding-block: var(--s-2) var(--s-3); }
+#root[data-layout="stack"] .roll { flex-direction: column; align-items: flex-start; gap: var(--s-1); }
 #root[data-layout="stack"][data-align="center"] .roll { align-items: center; }
 #root[data-layout="stack"][data-align="right"] .roll { align-items: flex-end; }
 #root[data-layout="stack"] .vp { max-width: 100%; }
-#root[data-layout="stack"] .meta .seg:not([hidden]) ~ .seg:not([hidden]) { margin-left: calc(var(--px) * 10); padding-left: calc(var(--px) * 10); }
+#root[data-layout="stack"] .meta { max-width: 100%; }
 #root[data-layout="stack"] .meta .seg { margin-left: 0; padding-left: 0; }
 #root[data-layout="stack"] .meta .seg::before { display: none; }
+#root[data-layout="stack"] .meta .seg:not([hidden]) ~ .seg:not([hidden]) { margin-left: var(--s-3); padding-left: var(--s-3); }
 #root[data-layout="stack"] .meta .seg:not([hidden]) ~ .seg:not([hidden])::before { display: block; }
 
-/* Column: a side column; lines wrap instead of scrolling, the progress rule runs down the edge. */
-#root[data-layout="column"] #panel { white-space: normal; padding-left: calc(var(--px) * 14); }
-#root[data-layout="column"][data-align="right"] #panel { padding-left: 0; padding-right: calc(var(--px) * 14); text-align: right; }
-#root[data-layout="column"] .roll { flex-direction: column; align-items: flex-start; gap: calc(var(--px) * 10); }
+/* Column: an upright box; lines wrap instead of truncating, the progress rule runs down the edge. */
+#root[data-layout="column"] #panel { padding: var(--pad) var(--pad) var(--pad) calc(var(--pad) + var(--s-2)); white-space: normal; }
+#root[data-layout="column"][data-align="right"] #panel { padding: var(--pad) calc(var(--pad) + var(--s-2)) var(--pad) var(--pad); text-align: right; }
+#root[data-layout="column"] .roll { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
 #root[data-layout="column"][data-align="right"] .roll { align-items: flex-end; }
-#root[data-layout="column"] .vp { overflow: visible; line-height: 1.2; }
-#root[data-layout="column"] .track { display: flex; flex-direction: column; gap: calc(var(--px) * 4); width: auto; }
+#root[data-layout="column"] .vp { overflow: visible; max-width: 100%; }
+#root[data-layout="column"] .track { flex-direction: column; align-items: inherit; gap: var(--s-1); }
+#root[data-layout="column"] .track > * { max-width: 100%; }
 #root[data-layout="column"][data-align="right"] .track { align-items: flex-end; }
 #root[data-layout="column"] .sep { display: none; }
-#root[data-layout="column"] .title {
-  font-size: calc(var(--px) * 22);
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
-}
+/* Title two lines at most, its "(…)" suffix one, both with a real ellipsis. */
+#root[data-layout="column"] .title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+#root[data-layout="column"] .suffix { margin-left: 0; white-space: nowrap; }
 #root[data-layout="column"] .ver { margin-left: 0; }
-#root[data-layout="column"] .meta { flex-direction: column; align-items: inherit; gap: calc(var(--px) * 8); }
-#root[data-layout="column"] .meta { align-items: flex-start; }
+#root[data-layout="column"] .meta { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
 #root[data-layout="column"][data-align="right"] .meta { align-items: flex-end; }
 #root[data-layout="column"] .seg { margin-left: 0; padding-left: 0; }
 #root[data-layout="column"] .seg::before { display: none; }
-#root[data-layout="column"] .mods { flex-wrap: wrap; }
+#root[data-layout="column"] .mapper { flex-wrap: wrap; }
 
 /* Content kinds: transport status, no data, map. */
 #panel[data-kind="status"] .vp,
 #panel[data-kind="status"] .meta,
+#panel[data-kind="status"] .prog,
 #panel[data-kind="empty"] .meta,
 #panel[data-kind="empty"] .artist,
 #panel[data-kind="empty"] .sep,
 #panel[data-kind="empty"] .ver,
 #panel:not([data-kind="status"]) .status { display: none; }
-#panel[data-kind="empty"] .title { font-weight: 400; color: var(--ink-quiet); }
+#panel[data-kind="empty"] .title { color: var(--text-3); }
+#panel[data-kind="empty"] .suffix { display: none; }

@@ -16,9 +16,6 @@ body { display: flex; align-items: center; }
   transition: opacity var(--dur-base) var(--ease-draft);
 }
 .root[data-view="hidden"] { opacity: 0; }
-/* The kit pads only backed overlays; without a backing the padding stays, so the registration marks
-   on the box corners keep clear of the numbers. */
-.root[data-backing="none"] { padding: var(--pad); }
 .root[data-align="right"] { align-items: flex-end; text-align: right; }
 .root[data-align="center"] { align-items: center; text-align: center; }
 /* Status and song-select content is narrower than the box: the backing hugs it, on the aligned edge. */

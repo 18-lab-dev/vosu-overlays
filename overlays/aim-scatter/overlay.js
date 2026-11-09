@@ -19,7 +19,7 @@ import {
   DASH, MOTION_MS,
 } from './vosu-overlay.js';
 
-const REF = { w: 256, h: 264 };   // default box: --u = 1
+const REF = { w: 256, h: 240 };   // default box: --u = 1
 const STRIP = { w: 416, h: 160 }; // strip box at --u = 1
 const RING_RATIO = 104 / 288;     // hit-circle radius / target diameter
 const RECENT = 40;                // newest hits drawn bright on the recent layer
@@ -83,7 +83,7 @@ function readColours() {
 }
 
 // ------------------------------------------------------------------ target geometry (CSS px)
-let VIEW = 192;                   // target diameter
+let VIEW = 168;                   // target diameter
 let HALF = VIEW / 2;
 let RING = VIEW * RING_RATIO;     // hit-circle radius on screen
 let EDGE = HALF - 4;              // off-target hits pin to this radius

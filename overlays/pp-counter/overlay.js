@@ -10,8 +10,8 @@
 // everything has settled.
 import { subscribe, settings, activeMode, known, numberFormatter, applyKitSettings, MOTION_MS, DASH } from './vosu-overlay.js';
 
-// Design boxes at --u = 1 (the metadata placements), the --pad padding included (style.css keeps
-// it with backing none too, so the registration marks never touch the numbers).
+// Design boxes at --u = 1 (the metadata placements), the kit's --pad padding included (every
+// backing, none too).
 const VERTICAL = { w: 256, h: 144 };
 const HORIZONTAL = { w: 336, h: 80 };
 const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';   // kit --ease-out

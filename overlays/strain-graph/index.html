@@ -5,25 +5,29 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Strain graph</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<section class="w" id="w" aria-label="Difficulty strain graph" data-show="off">
-  <div class="scrim" aria-hidden="true"></div>
+<section class="kit w" id="w" aria-label="Difficulty strain graph" data-show="off" data-backing="scrim" data-motion="full" data-map-tint="on">
   <header class="head">
-    <span class="label">Strain</span>
-    <span class="status" id="status" data-state="connecting"><i aria-hidden="true"></i><span id="statusText">Connecting…</span></span>
-    <span class="chips"><span class="chip chip--kiai" id="kiai">Kiai</span><span class="chip chip--break" id="break">Break</span></span>
-    <span class="clock" id="clock"><span class="phase" id="phase"></span><b id="now">—</b><span class="total" id="total"></span></span>
+    <span class="slot">
+      <span class="kit-label kit-enter title" id="title">Strain</span>
+      <span class="kit-label kit-enter legend" id="legend" data-out></span>
+      <span class="kit-label kit-enter chip chip--kiai" id="kiai" data-out>Kiai</span>
+      <span class="kit-label kit-enter chip chip--break" id="break" data-out>Break</span>
+    </span>
+    <span class="kit-caption status" id="status">Connecting…</span>
+    <span class="clock" id="clock"><span class="kit-value now" id="now">—</span><span class="kit-caption total" id="total"></span></span>
   </header>
   <div class="body">
     <div class="axis" id="axis" aria-hidden="true"><div class="ticks" id="ticks"></div></div>
     <div class="plot" id="plot">
       <canvas id="graph" aria-label="Strain over time with playback position"></canvas>
-      <p class="empty" id="empty">—</p>
+      <canvas class="lift" id="lift" aria-hidden="true"></canvas>
+      <p class="empty kit-dash" id="empty">—</p>
     </div>
   </div>
-  <span class="legend" id="legend"></span>
 </section>
 <script type="module" src="overlay.js"></script>
 </body>

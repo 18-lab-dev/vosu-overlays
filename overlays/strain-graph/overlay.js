@@ -4,111 +4,148 @@
 // Frames are requested only when the playhead crosses a device pixel or a readout changes.
 // The page is the overlay's box (hosts place and size it): a wide box draws time left→right,
 // a tall box draws time running upward (the mania side strip).
-import { subscribe, settings, formatDuration, mapPalette, applyPalette } from './vosu-overlay.js';
+//
+// Time is the set's one map clock (createMapClock): the graph spans the first to the last hit
+// object, so the playhead sits where now-playing's progress bar does and the clock reads the same.
+import {
+  subscribe, settings, formatDuration, mapPalette, applyPalette, createMapClock, isKnown, DASH,
+  applyKitSettings, MOTION_MS,
+} from './vosu-overlay.js';
 
 const P = {
   state: '/state/number',
   checksum: '/beatmap/checksum',
   live: '/beatmap/time/live',
+  trackRate: '/beatmap/time/rate',
+  first: '/beatmap/time/firstObject',
+  last: '/beatmap/time/lastObject',
   mp3: '/beatmap/time/mp3Length',
   kiai: '/beatmap/isKiai',
   brk: '/beatmap/isBreak',
   // The graph x-axis is map time ÷ the calculation's mod rate; the track rate is only a fallback.
   rate: '/play/mods/rate',
-  trackRate: '/beatmap/time/rate',
   series: '/performance/graph/series',
   xaxis: '/performance/graph/xaxis',
 };
-/** Thickness (css px across the time axis) the type scale is designed for: --s = 1. */
-const BASE = 112;
 
 const $ = id => document.getElementById(id);
 const widget = $('w');
 const plot = $('plot');
 const canvas = $('graph');
+const liftCanvas = $('lift');
 const ticksRow = $('ticks');
 const legend = $('legend');
 const empty = $('empty');
+const titleText = $('title');
+const kiaiChip = $('kiai');
+const breakChip = $('break');
+const statusText = $('status');
+const nowText = $('now');
+const totalText = $('total');
 const ctx = canvas.getContext('2d', { alpha: true });
+const liftCtx = liftCanvas.getContext('2d', { alpha: true });
 
-// ---------------------------------------------------------------- colours (tokens, read once)
+// ---------------------------------------------------------------- colours (kit roles, read once)
 const css = getComputedStyle(document.documentElement);
 const token = (name, fallback) => {
   const value = css.getPropertyValue(name).trim();
   return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 };
 const C = {
-  accent: token('--accent', '#ff963f'),
-  signal: token('--signal', '#7fa6cf'),
-  ok: token('--ok', '#6fbf8e'),
-  fg: token('--fg', '#ebe8e1'),
-  fgDim: token('--fg-dim', '#b8b5ad'),
+  text1: token('--text-1', '#efece5'),
+  text3: token('--text-3', '#ada99f'),
+  neutral: token('--map-neutral', '#c9c4ba'),
+  ground: '#0b0c0d', // --backing-rgb
 };
 const channels = hex => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
 const rgba = (hex, a) => `rgb(${channels(hex).join(' ')} / ${a})`;
 const mix = (a, b, t) => '#' + channels(a).map((v, i) => Math.round(v + (channels(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
-const SHADOW = 'rgb(0 0 0 / 0.55)';
-// Map-tinted inks; rebuilt (with a re-raster) only when the tint changes.
-const INK = { tint: '', grid: rgba(C.fg, 0.08), dimFill: rgba(C.fg, 0.13), dimEdge: rgba(C.fg, 0.6), litEdge: '', kiaiWash: '', preview: C.fgDim, ring: 'rgb(17 18 20 / 0.9)' };
+// The dark under-stroke that keeps hairlines readable over bright maps (with any backing).
+const UNDER = 'rgb(11 12 13 / 0.6)';
+// The map's identity inks (--map: the map's tone, or neutral); rebuilt, with a re-raster, only
+// when the map colour changes. Unplayed strain is neutral; nothing here is amber ("you").
+const INK = {
+  map: '', litEdge: '', base: '', bandDim: '', wash: '',
+  dimFill: rgba(C.text1, 0.12), dimEdge: rgba(C.text1, 0.55), hair: rgba(C.text1, 0.22), grid: rgba(C.text1, 0.1),
+  preview: C.text3,
+  // Per-skill bands: tonal steps of the map colour (lighter, the colour, darker, neutral).
+  skills: ['', '', '', C.text3],
+};
 function setTint(hex) {
-  if (hex === INK.tint) return false;
-  INK.tint = hex;
-  INK.litEdge = mix(hex, C.fg, 0.35);
-  INK.kiaiWash = rgba(hex, 0.09);
+  if (hex === INK.map) return false;
+  INK.map = hex;
+  INK.litEdge = mix(hex, C.text1, 0.35);
+  INK.base = rgba(hex, 0.55);
+  INK.bandDim = rgba(hex, 0.8);
+  INK.wash = rgba(hex, 0.16);
+  INK.skills[0] = hex;
+  INK.skills[1] = mix(hex, C.text1, 0.5);
+  INK.skills[2] = mix(hex, C.ground, 0.45);
   return true;
 }
-setTint(C.accent);
+setTint(C.neutral);
 
-// vosu series per ruleset (converts included); the first group present wins. Slot 0 takes the tint.
+// vosu series per ruleset (converts included); the first group present wins.
 const SKILLS = {
   aim: ['Aim', 0], speed: ['Speed', 1],
   color: ['Colour', 0], rhythm: ['Rhythm', 1], stamina: ['Stamina', 2],
   movement: ['Movement', 0], strains: ['Strain', 0],
 };
 const GROUPS = [['aim', 'speed'], ['color', 'rhythm', 'stamina'], ['movement'], ['strains']];
-const skillColor = slot => (slot === 0 ? INK.tint : [C.accent, C.signal, C.ok, C.fgDim][slot]);
+const skillColor = slot => INK.skills[slot < 3 ? slot : 3];
+
+// ---------------------------------------------------------------- motion
+// Map change: the new silhouette grows out of the baseline (one reveal per map). Created once and
+// restarted; the keyframes follow the orientation. motion=off skips it.
+const REVEAL_H = [{ opacity: 0, transform: 'scaleY(0.2)' }, { opacity: 1, transform: 'none' }];
+const REVEAL_V = [{ opacity: 0, transform: 'scaleX(0.2)' }, { opacity: 1, transform: 'none' }];
+const reveal = plot.animate(REVEAL_H, { duration: MOTION_MS.slow, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+reveal.finish();
 
 // ---------------------------------------------------------------- state
-const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, backing: 'none', accent: 'map' };
-const view = { phase: null, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status' };
+const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, motion: 'full', backing: 'scrim', mapTint: true };
+const view = { phase: null, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status', motion: 'full', legend: false };
+// The set's map clock: span (first → last object, else the audio), elapsed and total.
+const clock = createMapClock();
 // The map clock as received. Messages arrive every few ms and the code that reads them runs
 // unoptimised for its first thousands of calls, where every fractional result is a new heap
 // number; so these fields keep the parsed numbers by reference (null-initialised: tagged fields,
 // never boxed copies) and the per-message path only compares them. `lo`..`hi` is the live-clock
 // span in which neither the playhead pixel nor the clock second can change.
-const tick = { live: null, rate: null, prev: null, lo: null, hi: null, scale: null };
+const tick = { live: null, rate: null, modRate: null, prev: null, lo: null, hi: null };
 const head = { px: -1, sec: -1 }; // playhead device px along time and whole second; -1 when none
 // The graph inputs, captured when they change (the subscribe values object is reused per frame).
-const source = { series: undefined, xaxis: undefined, mp3: undefined };
-// skills empty but end > 0: no strain data (e.g. the replay renderer), the strip is a plain progress track.
-const graph = { skills: [], end: 0, section: 400, key: '' };
+const source = { series: undefined, xaxis: undefined };
+// The drawn time span in map ms: the map clock's when it knows one (fromClock), else the strain
+// data's own extent. No skills but span > 0: no strain data (e.g. the replay renderer), the strip
+// is a plain progress track.
+const graph = { skills: [], start: 0, span: 0, fromClock: false, clockStart: NaN, clockEnd: NaN, section: 400, key: '', k: 0 };
 // Device-pixel geometry. u runs along time (0..L), v across it (0 = peak side, T = baseline).
 const size = { w: 0, h: 0, cssW: 0, cssH: 0, cssL: 0, ratio: 1, lw: 1, L: 0, T: 0 };
 const geo = { vertical: false, align: 'left', m: [1, 0, 0, 1, 0, 0] }; // ints only: no boxing per setTransform
-const drawn = { px: -2, sec: -2 };
-const nowText = $('now');
-const totalText = $('total');
+const drawn = { px: -2, sec: -2, total: -1 };
+const lifted = { u0: -1, u1: -1 }; // the kiai section the lift layer holds (device px)
 const TAU = Math.PI * 2;
-let needleX = 0.5, needleR = 2.5; // needle centre offset from the playhead column, radius (device px)
+let needleX = 0.5, needleR = 3; // needle centre offset from the playhead column, radius (device px)
 const lit = document.createElement('canvas');
 const dim = document.createElement('canvas');
 const litCtx = lit.getContext('2d');
 const dimCtx = dim.getContext('2d');
-let hatch = null;
 const NONE = new Float32Array(0);
 let surface = NONE; // silhouette v per u column, for the playhead needle
 let rawLevel = NONE; // one skill resampled per u column (raster scratch)
 const levelPool = []; // stacked skill levels per u column, reused while L holds
 let palette = null;
-let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, fadeIn = false;
+let modelDirty = false, rasterDirty = false, metaDirty = true, frameDirty = true, legendDirty = true, axisDirty = false, revealPending = false;
 let ticks = [];
-let legendW = 0;
 let raf = 0;
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const positive = value => (typeof value === 'number' && value > 0 ? value : 0);
+const same = (a, b) => a === b || (a !== a && b !== b); // NaN-aware
 const setText = (el, text) => { if (el.$text !== text) { el.$text = text; el.textContent = text; } };
 const setData = (el, key, value) => { if (el.dataset[key] !== value) el.dataset[key] = value; };
+const setOut = (el, out) => { if (el.hasAttribute('data-out') !== out) el.toggleAttribute('data-out', out); };
 const request = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
 // ---------------------------------------------------------------- kiai / break sections
@@ -148,6 +185,7 @@ function loadMarks(key) {
   marks.runKiai = marks.runBrk = null;
   marks.prevKiai = marks.prevBrk = false;
   tick.prev = null;
+  lifted.u0 = -1;
   if (!key) return;
   try {
     const stored = JSON.parse(localStorage.getItem(STORE + key) || 'null');
@@ -187,6 +225,25 @@ function observe(key, t, kiai, brk) {
   tick.prev = t;
 }
 
+/** The kiai section the map clock is in (map ms into `active`): the one being learned, widened by
+ *  any remembered section it overlaps, so a known map lifts the whole section at once. */
+const active = { a: 0, b: 0 };
+function activeKiai(t) {
+  const run = marks.runKiai;
+  let found = false;
+  if (run) { active.a = run[0]; active.b = run[1]; found = true; }
+  if (typeof t !== 'number') return found;
+  const list = marks.kiai;
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
+    if (r === run || t < r[0] - 250 || t > r[1] + 250) continue;
+    if (!found) { active.a = r[0]; active.b = r[1]; found = true; continue; }
+    if (r[0] < active.a) active.a = r[0];
+    if (r[1] > active.b) active.b = r[1];
+  }
+  return found;
+}
+
 // ---------------------------------------------------------------- data
 /** play (2, incl. replay/spectate) | select (5) | results (7) | menu (anything else) | null. */
 function phaseOf(state) {
@@ -195,25 +252,31 @@ function phaseOf(state) {
 }
 
 /**
- * Places the playhead (`head`): graph time is the map clock ÷ rate, clamped to the track. Also
- * sets `tick.lo..hi`, the live-clock span that keeps both the pixel and the second, shrunk by a
- * microsecond so rounding can never hide a change; runs only when the clock leaves that span.
+ * Places the playhead (`head`): progress and elapsed seconds from the map clock, clamped to the
+ * span (lead-in reads 0:00). Also sets `tick.lo..hi`, the live-clock span that keeps both the
+ * pixel and the second, shrunk by a microsecond so rounding can never hide a change; runs only
+ * when the clock leaves that span.
  */
 function locate() {
-  const end = graph.end, L = size.L, live = tick.live;
-  if (end > 0 && L > 0 && typeof live === 'number' && Number.isFinite(live)) {
-    const rate = tick.rate;
-    let t = live / rate;
-    t = t < 0 ? 0 : t > end ? end : t;
-    const px = Math.round(t / end * L), sec = Math.floor(t / 1000);
+  const span = graph.span, L = size.L, live = tick.live;
+  if (span > 0 && L > 0 && typeof live === 'number' && Number.isFinite(live)) {
+    const start = graph.start;
+    let t = live - start;
+    t = t < 0 ? 0 : t > span ? span : t;
+    const px = Math.round((graph.fromClock ? clock.progress(live) : t / span) * L);
     head.px = px;
-    head.sec = sec;
-    // px holds for t in [px − ½, px + ½)·end/L, sec for [sec, sec + 1)·1000; clamping extends
-    // a span touching either end of the track to infinity.
-    const lo = Math.max((px - 0.5) * end / L, sec * 1000);
-    const hi = Math.min((px + 0.5) * end / L, (sec + 1) * 1000);
-    tick.lo = lo <= 0 ? -Infinity : lo * rate + 1e-3;
-    tick.hi = hi > end ? Infinity : hi * rate - 1e-3;
+    // px holds for t in [px − ½, px + ½)·span/L, the second for [sec, sec + 1)·1000·rate; clamping
+    // extends a span touching either end of the track to infinity.
+    let lo = (px - 0.5) * span / L, hi = (px + 0.5) * span / L;
+    if (graph.fromClock) {
+      const sec = Math.floor(clock.elapsed(live) / 1000);
+      const ms = 1000 * clock.rate;
+      head.sec = sec;
+      if (sec * ms > lo) lo = sec * ms;
+      if ((sec + 1) * ms < hi) hi = (sec + 1) * ms;
+    } else head.sec = -1;
+    tick.lo = lo <= 0 ? -Infinity : start + lo + 1e-3;
+    tick.hi = hi > span ? Infinity : start + hi - 1e-3;
   } else {
     head.px = head.sec = -1;
     tick.lo = tick.hi = null;
@@ -225,7 +288,7 @@ function placed(live) {
   return tick.lo !== null && typeof live === 'number' && live >= tick.lo && live < tick.hi;
 }
 
-/** on | status (tiny connection / no-osu! chip) | off. Gameplay first; song select only previews. */
+/** on | status (tiny connection / no-osu! caption) | off. Gameplay first; song select only previews. */
 function visibility() {
   if (view.status !== 'live' || !view.phase) return 'status';
   if (view.phase === 'play') return 'on';
@@ -234,7 +297,7 @@ function visibility() {
 }
 
 function loadPalette(checksum) {
-  if (opts.accent !== 'map' || !checksum) { palette = null; applyColors(); return; }
+  if (!opts.mapTint || !checksum) { palette = null; applyColors(); return; }
   mapPalette(checksum).then(result => {
     if (checksum !== view.checksum) return;
     palette = result;
@@ -243,37 +306,43 @@ function loadPalette(checksum) {
 }
 
 function applyColors() {
-  applyPalette(widget, opts.accent === 'map' ? palette : null);
-  setData(widget, 'accent', opts.accent === 'map' ? 'map' : '18-lab');
-  const tint = opts.accent === 'map' && palette?.accent ? palette.accent : C.accent;
-  if (setTint(tint)) { rasterDirty = legendDirty = frameDirty = true; request(); }
+  applyPalette(widget, opts.mapTint ? palette : null);
+  const tint = opts.mapTint && palette?.accent ? palette.accent : C.neutral;
+  if (setTint(tint)) { rasterDirty = legendDirty = frameDirty = true; lifted.u0 = -1; request(); }
 }
 
 function onData(values, changed) {
   let want = false;
   const phase = phaseOf(values[P.state]);
   if (phase !== view.phase) { view.phase = phase; metaDirty = frameDirty = want = true; }
-  const rate = positive(values[P.rate]) || positive(values[P.trackRate]) || 1;
-  if (rate !== tick.rate) { tick.rate = rate; modelDirty = true; }
-  if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.mp3) || changed.has(P.checksum)) {
+  const live = values[P.live];
+  // pageNow 0: this overlay steps the playhead per device pixel on data and never extrapolates.
+  clock.sample(live, values[P.trackRate], values[P.first], values[P.last], values[P.mp3], 0);
+  if (clock.rate !== tick.rate) { tick.rate = clock.rate; tick.lo = tick.hi = null; frameDirty = want = true; }
+  if (!same(clock.start, graph.clockStart) || !same(clock.end, graph.clockEnd)) {
+    graph.clockStart = clock.start;
+    graph.clockEnd = clock.end;
+    modelDirty = true;
+  }
+  const modRate = positive(values[P.rate]) || positive(values[P.trackRate]) || 1;
+  if (modRate !== tick.modRate) { tick.modRate = modRate; modelDirty = true; }
+  if (changed.has(P.series) || changed.has(P.xaxis) || changed.has(P.checksum)) {
     source.series = values[P.series];
     source.xaxis = values[P.xaxis];
-    source.mp3 = values[P.mp3];
     modelDirty = true;
   }
   if (modelDirty) want = true;
   const checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : '';
   if (checksum !== view.checksum) { view.checksum = checksum; loadPalette(checksum); }
-  const live = values[P.live];
   tick.live = typeof live === 'number' ? live : null;
   const kiai = values[P.kiai] === true;
   const brk = values[P.brk] === true;
-  if (kiai !== view.kiai || brk !== view.brk) { view.kiai = kiai; view.brk = brk; metaDirty = want = true; }
+  if (kiai !== view.kiai || brk !== view.brk) { view.kiai = kiai; view.brk = brk; metaDirty = frameDirty = want = true; }
   if (phase && checksum && typeof live === 'number' && Number.isFinite(live) && (changed.has(P.live) || changed.has(P.kiai) || changed.has(P.brk))) {
     observe(checksum, live, kiai, brk);
   }
   // Inside the span the last locate measured, the playhead cannot have moved.
-  if (!want && graph.end && view.show === 'on' && !(placed(live) && head.px === drawn.px && head.sec === drawn.sec)) {
+  if (!want && graph.span && view.show === 'on' && !(placed(live) && head.px === drawn.px && head.sec === drawn.sec)) {
     locate();
     want = head.px !== drawn.px || head.sec !== drawn.sec;
   }
@@ -289,20 +358,22 @@ function onStatus(state) {
 
 // ---------------------------------------------------------------- box layout
 // The host decides the page size; the layout re-flows to it. Tall boxes go vertical unless the
-// orientation setting pins one; type and chrome scale with the box's thickness (--s).
+// orientation setting pins one. --u is 1 across the placement boxes (96–128 px thick) and
+// scales outside them, so type keeps the kit's sizes on every ruleset's slot.
 function layoutBox() {
   const W = innerWidth, H = innerHeight;
   const vertical = opts.orientation === 'vertical' || (opts.orientation === 'auto' && H > W * 1.25);
   const thickness = vertical ? W : H;
-  widget.style.setProperty('--s', clamp(thickness / BASE, 0.6, 1.6).toFixed(3));
+  const u = thickness < 96 ? Math.max(0.75, thickness / 96) : thickness > 128 ? Math.min(1.6, thickness / 128) : 1;
+  widget.style.setProperty('--u', u.toFixed(3));
   setData(widget, 'orient', vertical ? 'v' : 'h');
   setData(widget, 'align', opts.align);
-  // Below ~3/4 of the default thickness the time axis and legend give their room to the graph.
-  setData(widget, 'compact', thickness < BASE * 0.75 ? 'on' : 'off');
+  // A thin vertical strip gives the time axis' room to the graph.
+  setData(widget, 'compact', thickness < 84 ? 'on' : 'off');
   if (geo.vertical !== vertical || geo.align !== opts.align) {
     geo.vertical = vertical;
     geo.align = opts.align;
-    hatch = null;
+    reveal.effect.setKeyframes(vertical ? REVEAL_V : REVEAL_H);
     resize(size.cssW, size.cssH, true);
   }
 }
@@ -323,45 +394,54 @@ function buildModel() {
   rasterDirty = legendDirty = frameDirty = metaDirty = true;
   const previous = graph.key;
   graph.skills = [];
-  graph.end = 0;
-  tick.lo = tick.hi = null;
   graph.key = view.checksum;
-  const mp3 = source.mp3;
-  const audioEnd = typeof mp3 === 'number' && mp3 > 0 ? mp3 / tick.rate : 0;
+  tick.lo = tick.hi = null;
+  lifted.u0 = -1;
+  const fromClock = isKnown(clock.end) && clock.end > clock.start;
+  graph.fromClock = fromClock;
+  graph.start = fromClock ? clock.start : 0;
+  graph.span = fromClock ? clock.end - clock.start : 0;
+  const modRate = tick.modRate || 1;
   const series = source.series;
   const xaxis = source.xaxis;
-  if (!Array.isArray(series) || !Array.isArray(xaxis) || !xaxis.length) { graph.end = audioEnd; return; }
-  let section = Infinity;
-  let lastX = 0;
-  for (let i = 0; i < xaxis.length; i++) {
-    const x = xaxis[i];
-    if (!Number.isFinite(x)) continue;
-    if (x > lastX) lastX = x;
-    const step = i ? x - xaxis[i - 1] : 0;
-    if (step > 0 && step < section) section = step;
-  }
-  if (!Number.isFinite(section)) section = 400;
-  // vosu pads the series with negative sentinels (-100 audio padding, -50 object gaps) and its
-  // padded x-axis may revisit times; keep real samples only, ordered by section centre.
-  let any = false;
-  for (const skill of pickSkills(series)) {
-    const n = Math.min(skill.data.length, xaxis.length);
-    const order = [];
-    for (let i = 0; i < n; i++) {
-      const v = skill.data[i];
-      if (typeof v === 'number' && v >= 0 && Number.isFinite(xaxis[i])) order.push(i);
+  if (Array.isArray(series) && Array.isArray(xaxis) && xaxis.length) {
+    let section = Infinity;
+    let lastX = 0;
+    for (let i = 0; i < xaxis.length; i++) {
+      const x = xaxis[i];
+      if (!Number.isFinite(x)) continue;
+      if (x > lastX) lastX = x;
+      const step = i ? x - xaxis[i - 1] : 0;
+      if (step > 0 && step < section) section = step;
     }
-    order.sort((a, b) => xaxis[a] - xaxis[b]);
-    skill.xs = Float64Array.from(order, i => xaxis[i] + section / 2);
-    skill.vs = Float64Array.from(order, i => skill.data[i]);
-    skill.data = null;
-    if (order.length) any = true;
-    graph.skills.push(skill);
+    if (!Number.isFinite(section)) section = 400;
+    // Graph x is map ms ÷ the mod rate; samples go to map ms relative to the span start.
+    if (!fromClock) graph.span = (lastX + section) * modRate;
+    const offset = section * modRate / 2 - graph.start;
+    // vosu pads the series with negative sentinels (-100 audio padding, -50 object gaps) and its
+    // padded x-axis may revisit times; keep real samples only, ordered by section centre.
+    let any = false;
+    for (const skill of pickSkills(series)) {
+      const n = Math.min(skill.data.length, xaxis.length);
+      const order = [];
+      for (let i = 0; i < n; i++) {
+        const v = skill.data[i];
+        if (typeof v === 'number' && v >= 0 && Number.isFinite(xaxis[i])) order.push(i);
+      }
+      order.sort((a, b) => xaxis[a] - xaxis[b]);
+      skill.xs = Float64Array.from(order, i => xaxis[i] * modRate + offset);
+      skill.vs = Float64Array.from(order, i => skill.data[i]);
+      skill.data = null;
+      if (order.length) any = true;
+      graph.skills.push(skill);
+    }
+    if (!any) graph.skills = [];
+    graph.section = section * modRate;
+    if (!any && !fromClock) graph.span = 0;
   }
-  if (!any) { graph.skills = []; graph.end = audioEnd; return; }
-  graph.end = Math.max(lastX + section, audioEnd);
-  graph.section = section;
-  if (previous !== graph.key) fadeIn = true;
+  // No strain data (the replay renderer): the page becomes a clock over a progress track.
+  setData(widget, 'track', graph.span > 0 && !graph.skills.length ? 'on' : 'off');
+  if (graph.span > 0 && previous !== graph.key) revealPending = true;
 }
 
 // ---------------------------------------------------------------- raster (once per map/size/view)
@@ -404,44 +484,30 @@ function tickStep(cssPerMs) {
   return 1800e3;
 }
 
+/** Elapsed-time ticks (real ms from the first object), vertical form only: there the axis is the
+ *  only time scale along the strip. The horizontal form has the clock and no axis. */
 function computeTicks() {
   ticks = [];
   axisDirty = true;
-  if (!graph.end || !size.cssL) return;
-  const cssPerMs = size.cssL / graph.end;
+  if (!geo.vertical || !graph.span || !size.cssL) return;
+  const real = graph.span / (graph.fromClock ? clock.rate : tick.modRate || 1);
+  const cssPerMs = size.cssL / real;
   const step = tickStep(cssPerMs);
-  for (let t = 0; t * cssPerMs <= size.cssL - 30; t += step) ticks.push(t);
+  for (let t = 0; t * cssPerMs <= size.cssL - 24; t += step) ticks.push(t / real);
 }
 
 function writeAxis() {
   axisDirty = false;
   ticksRow.replaceChildren();
-  if (!graph.end || !size.cssL) return;
-  // Labels stop short of the far end, and of the legend when it shares the row.
-  const limit = size.cssL - (legendW && !geo.vertical ? legendW + 36 : 30);
-  const flip = !geo.vertical && opts.align === 'right' && legendW;
-  for (const t of ticks) {
-    const at = (t / graph.end) * size.cssL;
-    if (flip ? at < legendW + 36 || (t && at > size.cssL - 30) : t && at > limit) continue;
+  if (!ticks.length) return;
+  const real = graph.span / (graph.fromClock ? clock.rate : tick.modRate || 1);
+  for (const f of ticks) {
     const label = document.createElement('span');
-    label.textContent = formatDuration(t);
-    if (!t) label.className = 'zero';
-    label.style[geo.vertical ? 'bottom' : 'left'] = `${(t / graph.end) * 100}%`;
+    label.textContent = formatDuration(f * real);
+    label.className = f ? 'kit-tick' : 'kit-tick zero';
+    label.style.bottom = `${f * 100}%`;
     ticksRow.append(label);
   }
-}
-
-function makeHatch() {
-  const s = Math.max(4, Math.round(6 * size.ratio));
-  const tile = document.createElement('canvas');
-  tile.width = tile.height = s;
-  const c = tile.getContext('2d');
-  c.strokeStyle = rgba(C.fg, 0.16);
-  c.lineWidth = size.lw;
-  c.beginPath();
-  c.moveTo(-1, s + 1); c.lineTo(s + 1, -1);
-  c.stroke();
-  hatch = ctx.createPattern(tile, 'repeat');
 }
 
 /** The i-th stacked level buffer, sized L (contents are whatever the last raster left). */
@@ -452,31 +518,27 @@ function level(i) {
 function raster() {
   rasterDirty = false;
   frameDirty = true;
-  const { w, h, lw, L, T } = size;
+  const { w, h, lw, L, T, ratio } = size;
   if (lit.width !== w || lit.height !== h) { lit.width = dim.width = w; lit.height = dim.height = h; }
-  for (const c of [litCtx, dimCtx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, w, h); }
+  litCtx.setTransform(1, 0, 0, 1, 0, 0); litCtx.clearRect(0, 0, w, h);
+  dimCtx.setTransform(1, 0, 0, 1, 0, 0); dimCtx.clearRect(0, 0, w, h);
   computeTicks();
-  // Map ms → device px along time for the kiai/break sections (rate changes rebuild the model).
-  tick.scale = graph.end && L ? L / (graph.end * tick.rate) : null;
-  if (!graph.end || !L || !T) { surface = rawLevel = NONE; return; }
+  // Map ms → device px along time for the playhead and the kiai/break sections.
+  graph.k = graph.span && L ? L / graph.span : 0;
+  if (!graph.span || !L || !T) { surface = rawLevel = NONE; return; }
 
-  const k = L / graph.end;
-  const floor = T - lw;
-  const shade = (c, on) => {
-    c.shadowColor = on ? SHADOW : 'transparent';
-    c.shadowBlur = on ? 3 * size.ratio : 0;
-    c.shadowOffsetX = 0;
-    c.shadowOffsetY = on ? size.ratio : 0;
-  };
-  const [a, b, cc, d, e, f] = geo.m;
+  const k = graph.k;
+  const floor = T - lw; // the baseline is the last device row
+  const edgeW = Math.max(1.5, 1.5 * ratio), underW = edgeW + 2 * lw;
   // Column buffers persist across rasters and are replaced only when L changes.
   if (rawLevel.length !== L) { rawLevel = new Float32Array(L); surface = new Float32Array(L); levelPool.length = 0; }
   const levels = [level(0)];
   levels[0].fill(0);
   let scale = 0;
-  const ceiling = Math.round(7 * size.ratio);
+  // Headroom for the needle (radius + ring) above the highest peak.
+  const ceiling = Math.round(needleR + 2 * lw);
   if (graph.skills.length) {
-    const sigma = Math.max(0.9 * size.ratio, 0.7 * graph.section * k);
+    const sigma = Math.max(0.9 * ratio, 0.7 * graph.section * k);
     for (const skill of graph.skills) {
       resample(skill.xs, skill.vs, k, rawLevel);
       const stacked = level(levels.length);
@@ -506,63 +568,83 @@ function raster() {
     c.lineTo(0, V(lower[0]));
     c.closePath();
   };
-  // Edges carry a contact shadow so the silhouette reads over bright map backgrounds too.
-  const edge = (c, upper, style) => {
+  // Outer edges get a dark under-stroke so the silhouette reads over bright maps too.
+  const edge = (c, upper, style, under) => {
     c.beginPath();
     outline(c, upper);
-    c.strokeStyle = style;
-    c.lineWidth = lw;
     c.lineJoin = 'round';
-    shade(c, true);
+    if (under) { c.strokeStyle = UNDER; c.lineWidth = underW; c.stroke(); }
+    c.strokeStyle = style;
+    c.lineWidth = edgeW;
     c.stroke();
-    shade(c, false);
   };
+  const [a, b, cc, d, e, f] = geo.m;
 
-  for (const [c, isLit] of [[litCtx, true], [dimCtx, false]]) {
+  const paint = (c, isLit) => {
     c.setTransform(a, b, cc, d, e, f);
     c.fillStyle = INK.grid;
-    for (const t of ticks) if (t > 0) c.fillRect(Math.round(t * k), graph.skills.length ? 0 : floor - 6 * lw, lw, graph.skills.length ? floor : 6 * lw);
+    for (const t of ticks) if (t > 0) c.fillRect(Math.round(t * L), 0, lw, floor);
     if (!graph.skills.length) {
-      // No strain data: a progress track only (lit part a touch heavier).
-      shade(c, true);
-      c.fillStyle = isLit ? INK.tint : rgba(C.fg, 0.45);
-      c.fillRect(0, isLit ? floor - lw : floor, L, isLit ? 2 * lw : lw);
-      shade(c, false);
-      continue;
+      // No strain data: a progress track only (the kit's track: hairline, map fill).
+      const th = trackThickness();
+      c.fillStyle = UNDER;
+      c.fillRect(0, T - th - lw, L, th + lw);
+      c.fillStyle = isLit ? INK.map : INK.hair;
+      c.fillRect(0, T - th, L, th);
+      return;
     }
     if (opts.view === 'per-skill' && graph.skills.length > 1) {
-      graph.skills.forEach((skill, i) => {
+      for (let i = 0; i < graph.skills.length; i++) {
         area(c, levels[i], levels[i + 1]);
-        c.fillStyle = rgba(skillColor(skill.slot), isLit ? 0.66 : 0.18);
+        c.fillStyle = rgba(skillColor(graph.skills[i].slot), isLit ? 0.7 : 0.16);
         c.fill();
-      });
-      graph.skills.forEach((skill, i) => edge(c, levels[i + 1], isLit ? skillColor(skill.slot) : rgba(skillColor(skill.slot), 0.6)));
+      }
+      for (let i = 0; i < graph.skills.length; i++) {
+        const outer = i === graph.skills.length - 1;
+        const color = skillColor(graph.skills[i].slot);
+        edge(c, levels[i + 1], isLit ? color : outer ? INK.dimEdge : rgba(color, 0.45), outer);
+      }
     } else {
       area(c, levels[0], top);
       if (isLit) {
         const fill = c.createLinearGradient(0, ceiling, 0, floor);
-        fill.addColorStop(0, rgba(INK.tint, 0.85));
-        fill.addColorStop(1, rgba(INK.tint, 0.3));
+        fill.addColorStop(0, rgba(INK.map, 0.85));
+        fill.addColorStop(1, rgba(INK.map, 0.3));
         c.fillStyle = fill;
       } else c.fillStyle = INK.dimFill;
       c.fill();
-      edge(c, top, isLit ? INK.litEdge : INK.dimEdge);
+      edge(c, top, isLit ? INK.litEdge : INK.dimEdge, true);
     }
-    c.fillStyle = isLit ? rgba(INK.tint, 0.9) : rgba(C.fg, 0.45);
-    shade(c, true);
+    // The baseline stays quieter than the kiai band that sits on it.
+    c.fillStyle = isLit ? INK.base : INK.dimEdge;
     c.fillRect(0, floor, L, lw);
-    shade(c, false);
-  }
+  };
+  paint(litCtx, true);
+  paint(dimCtx, false);
 }
 
 // ---------------------------------------------------------------- frame
-/** Fills sections (map ms) along time. */
-function runs(list, v, thickness) {
-  const k = tick.scale;
+/** The progress track's thickness (device px) when there is no strain data. */
+function trackThickness() {
+  return Math.max(2 * size.lw, Math.round(3 * size.ratio));
+}
+
+/** Where the 2 px kiai band starts across time: on the baseline, or just above a bare track. */
+function kiaiBand() {
+  return graph.skills.length ? size.T - 2 * size.lw : size.T - trackThickness() - 3 * size.lw;
+}
+
+/** Fills (or clears) sections (map ms) along time between device px uMin and uMax. */
+function runs(c, list, v, thickness, uMin, uMax, clear) {
+  const k = graph.k, s = graph.start;
   for (let i = 0; i < list.length; i++) {
     const run = list[i];
-    const u0 = Math.round(run[0] * k), u1 = Math.round(run[1] * k);
-    if (u1 > u0) ctx.fillRect(u0, v, u1 - u0, thickness);
+    let u0 = Math.round((run[0] - s) * k), u1 = Math.round((run[1] - s) * k);
+    if (u0 < uMin) u0 = uMin;
+    if (u1 > uMax) u1 = uMax;
+    if (u1 <= u0) continue;
+    if (clear) c.clearRect(u0, v, u1 - u0, thickness);
+    else c.fillRect(u0, v, u1 - u0, thickness);
   }
 }
 
@@ -574,34 +656,59 @@ function blit(layer, u0, u1) {
   else ctx.drawImage(layer, u0, 0, u1 - u0, T, u0, 0, u1 - u0, T);
 }
 
+/** The active kiai section, lifted: a map wash over the silhouette and a brighter, thicker band
+ *  on the baseline. Its layer fades in and out with the section (CSS), so it is redrawn only when
+ *  the section's extent moves by a device pixel. */
+function drawLift(u0, u1) {
+  lifted.u0 = u0;
+  lifted.u1 = u1;
+  const { w, h, lw, T } = size;
+  const m = geo.m;
+  liftCtx.setTransform(1, 0, 0, 1, 0, 0);
+  liftCtx.clearRect(0, 0, w, h);
+  if (u1 <= u0) return;
+  liftCtx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  liftCtx.fillStyle = INK.wash;
+  liftCtx.fillRect(u0, 0, u1 - u0, T - lw);
+  liftCtx.fillStyle = C.text1;
+  liftCtx.fillRect(u0, kiaiBand() - lw, u1 - u0, 3 * lw);
+}
+
+function updateSlot() {
+  const chip = !opts.showMarks || view.show !== 'on' ? '' : view.kiai ? 'kiai' : view.brk ? 'break' : '';
+  setOut(kiaiChip, chip !== 'kiai');
+  setOut(breakChip, chip !== 'break');
+  setOut(titleText, chip !== '' || view.legend);
+  setOut(legend, chip !== '' || !view.legend);
+}
+
 function writeMeta() {
   metaDirty = false;
   const show = visibility();
   if (show !== view.show) { view.show = show; frameDirty = true; }
   setData(widget, 'show', show);
   setData(widget, 'phase', view.phase || 'none');
-  setText($('phase'), view.phase === 'select' ? 'Preview' : '');
-  $('kiai').classList.toggle('on', view.kiai);
-  $('break').classList.toggle('on', view.brk && !view.kiai);
-  const status = $('status');
-  status.hidden = show !== 'status';
-  setData(status, 'state', view.status === 'live' ? 'idle' : view.status);
-  setText($('statusText'), view.status === 'offline' ? 'vosu offline' : view.status === 'live' ? 'osu! not running' : 'Connecting…');
+  setText(titleText, view.phase === 'select' ? 'Strain preview' : 'Strain');
+  updateSlot();
+  liftCanvas.classList.toggle('on', view.kiai && opts.showMarks && show === 'on');
+  statusText.hidden = show !== 'status';
+  setText(statusText, view.status === 'offline' ? 'vosu offline' : view.status === 'live' ? 'osu! not running' : 'Connecting…');
 }
 
 function writeLegend() {
   legendDirty = false;
   legend.replaceChildren();
-  const show = opts.view === 'per-skill' && graph.skills.length > 1;
-  setData(widget, 'legend', show ? 'on' : 'off');
-  if (!show) return;
-  for (const skill of graph.skills) {
-    const item = document.createElement('span');
-    const swatch = document.createElement('i');
-    swatch.style.setProperty('--c', skillColor(skill.slot));
-    item.append(swatch, skill.label);
-    legend.append(item);
+  view.legend = opts.view === 'per-skill' && graph.skills.length > 1;
+  if (view.legend) {
+    for (const skill of graph.skills) {
+      const item = document.createElement('span');
+      const swatch = document.createElement('i');
+      swatch.style.setProperty('--c', skillColor(skill.slot));
+      item.append(swatch, skill.label);
+      legend.append(item);
+    }
   }
+  updateSlot();
 }
 
 function frame() {
@@ -609,20 +716,23 @@ function frame() {
   if (modelDirty) buildModel();
   if (metaDirty) writeMeta();
   if (view.show !== 'on') return;
-  if (!hatch && size.lw) makeHatch();
   if (rasterDirty) raster();
   if (legendDirty) writeLegend();
   if (axisDirty) writeAxis();
 
-  const { w, h, lw, L } = size;
-  const hasTrack = graph.end > 0 && L > 0;
+  const { w, h, lw, L, T } = size;
+  const hasTrack = graph.span > 0 && L > 0;
   if (empty.hidden !== hasTrack) empty.hidden = hasTrack;
   if (!placed(tick.live)) locate();
   const px = head.px, sec = head.sec;
-  // Readouts format only when their value moves: the clock once a second, the total per model/size.
-  if (sec !== drawn.sec || frameDirty) setText(nowText, sec >= 0 ? formatDuration(sec * 1000) : '—');
-  if (frameDirty) setText(totalText, hasTrack ? `/ ${formatDuration(graph.end)}` : '');
+  // Readouts format only when their value moves: the clock once a second, the total per model.
+  if (sec !== drawn.sec || frameDirty) setText(nowText, sec >= 0 ? formatDuration(sec * 1000) : DASH);
   drawn.sec = sec;
+  if (frameDirty) {
+    const total = graph.fromClock ? clock.total() : NaN;
+    const shown = isKnown(total) ? Math.floor(total / 1000) : -1;
+    if (shown !== drawn.total) { drawn.total = shown; setText(totalText, shown >= 0 ? 'of ' + formatDuration(total) : ''); }
+  }
   if (px === drawn.px && !frameDirty) return;
   drawn.px = px;
   frameDirty = false;
@@ -631,41 +741,49 @@ function frame() {
   ctx.clearRect(0, 0, w, h);
   if (!hasTrack) return;
   const play = view.phase === 'play';
-  const floor = size.T - lw;
   const marksOn = marks.key === graph.key && opts.showMarks;
   const m = geo.m;
-  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
-  if (marksOn) {
-    ctx.fillStyle = hatch;
-    runs(marks.brk, 0, floor);
-    ctx.fillStyle = INK.kiaiWash;
-    runs(marks.kiai, 0, floor);
-  }
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (play && px >= 0) {
     blit(lit, 0, px);
     blit(dim, px, L);
   } else ctx.drawImage(lit, 0, 0);
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  const split = play && px >= 0 ? px : L;
   if (marksOn) {
-    ctx.fillStyle = INK.tint;
-    runs(marks.kiai, 0, 2 * lw);
+    // Breaks are gaps in the fill; kiai is a 2 px map band on the baseline, lighter where played.
+    runs(ctx, marks.brk, 0, graph.skills.length ? T - lw : T, 0, L, true);
+    const bandV = kiaiBand();
+    ctx.fillStyle = INK.litEdge;
+    runs(ctx, marks.kiai, bandV, 2 * lw, 0, split, false);
+    ctx.fillStyle = INK.bandDim;
+    runs(ctx, marks.kiai, bandV, 2 * lw, split, L, false);
+  }
+  if (view.kiai && marksOn && view.motion === 'full') {
+    const found = activeKiai(tick.live);
+    const k = graph.k, s = graph.start;
+    const u0 = found ? clamp(Math.round((active.a - s) * k), 0, L) : 0;
+    const u1 = found ? clamp(Math.round((active.b - s) * k), 0, L) : 0;
+    if (u0 !== lifted.u0 || u1 !== lifted.u1) drawLift(u0, u1);
   }
   if (px >= 0) {
     const u = Math.min(px, L - lw);
-    ctx.fillStyle = play ? C.fg : INK.preview;
-    ctx.fillRect(u, 0, lw, floor);
+    ctx.fillStyle = UNDER;
+    ctx.fillRect(u - lw, 0, 3 * lw, T);
+    ctx.fillStyle = play ? INK.litEdge : INK.preview;
+    ctx.fillRect(u, 0, lw, T);
     // Needle: where the playhead meets the strain silhouette.
-    ctx.beginPath();
-    ctx.arc(u + needleX, surface[Math.min(px, L - 1)], needleR, 0, TAU);
-    ctx.fill();
-    ctx.lineWidth = lw;
-    ctx.strokeStyle = INK.ring;
-    ctx.stroke();
+    if (graph.skills.length) {
+      ctx.beginPath();
+      ctx.arc(u + needleX, surface[Math.min(px, L - 1)], needleR, 0, TAU);
+      ctx.fill();
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = UNDER;
+      ctx.stroke();
+    }
   }
-  if (fadeIn) {
-    fadeIn = false;
-    canvas.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' });
+  if (revealPending) {
+    revealPending = false;
+    if (view.motion !== 'off') { reveal.currentTime = 0; reveal.play(); }
   }
 }
 
@@ -676,17 +794,17 @@ function resize(cssW, cssH, force = false) {
   const h = Math.max(0, Math.round(cssH * ratio));
   if (!force && w === size.w && h === size.h && cssW === size.cssW && cssH === size.cssH && ratio === size.ratio) return;
   const lw = Math.max(1, Math.round(ratio));
-  if (lw !== size.lw || ratio !== size.ratio) hatch = null;
   const L = geo.vertical ? h : w;
   const T = geo.vertical ? w : h;
   Object.assign(size, { w, h, cssW, cssH, cssL: geo.vertical ? cssH : cssW, ratio, lw, L, T });
   tick.lo = tick.hi = null;
+  lifted.u0 = -1;
   needleX = lw / 2;
-  needleR = 2.5 * ratio;
+  needleR = 3 * ratio;
   // u along time, v across (v = T is the baseline: left for align left, right for align right).
   geo.m = !geo.vertical ? [1, 0, 0, 1, 0, 0] : geo.align === 'right' ? [0, -1, 1, 0, 0, L] : [0, -1, -1, 0, T, L];
-  if (canvas.width !== w) canvas.width = w;
-  if (canvas.height !== h) canvas.height = h;
+  if (canvas.width !== w) canvas.width = liftCanvas.width = w;
+  if (canvas.height !== h) canvas.height = liftCanvas.height = h;
   rasterDirty = frameDirty = true;
   request();
 }
@@ -695,13 +813,6 @@ new ResizeObserver(entries => {
   const box = entries[entries.length - 1].contentRect;
   resize(box.width, box.height);
 }).observe(plot);
-new ResizeObserver(entries => {
-  const width = Math.ceil(entries[entries.length - 1].contentRect.width);
-  if (width === legendW) return;
-  legendW = width;
-  axisDirty = true;
-  request();
-}).observe(legend);
 addEventListener('resize', layoutBox);
 
 // ---------------------------------------------------------------- settings + subscription
@@ -710,20 +821,20 @@ settings({ ...opts }, s => {
   opts.align = s.align === 'right' ? 'right' : 'left';
   const viewMode = s.view === 'per-skill' ? 'per-skill' : 'combined';
   if (viewMode !== opts.view) { opts.view = viewMode; rasterDirty = legendDirty = true; }
-  opts.showTime = !!s.showTime;
-  opts.showMarks = !!s.showMarks;
-  opts.showInSelect = !!s.showInSelect;
-  opts.backing = ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
-  const accent = s.accent === '18-lab' ? '18-lab' : 'map';
-  const accentChanged = accent !== opts.accent;
-  opts.accent = accent;
+  opts.showTime = s.showTime !== false;
+  opts.showMarks = s.showMarks !== false;
+  opts.showInSelect = s.showInSelect !== false;
+  const motion = applyKitSettings(widget, s);
+  if (motion !== view.motion) { view.motion = motion; lifted.u0 = -1; }
+  const tint = s.mapTint !== false;
+  const tintChanged = tint !== opts.mapTint;
+  opts.mapTint = tint;
   setData(widget, 'time', opts.showTime ? 'on' : 'off');
   setData(widget, 'marks', opts.showMarks ? 'on' : 'off');
-  setData(widget, 'backing', opts.backing);
   layoutBox();
-  if (accentChanged) loadPalette(view.checksum);
+  if (tintChanged) loadPalette(view.checksum);
   else applyColors();
-  metaDirty = frameDirty = axisDirty = true;
+  metaDirty = frameDirty = true;
   request();
 });
 

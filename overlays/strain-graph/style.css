@@ -1,136 +1,100 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-
 *, *::before, *::after { box-sizing: border-box; }
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 
-/* The page is the overlay's box; hosts position and size it. overlay.js sets --s from the box's
-   thickness (1 at the default 112 px) and data-orient from its shape. No backing by default:
-   legibility comes from weight, size and a contact shadow. */
+/* The page is the overlay's box; hosts position and size it. overlay.js sets --u from the box's
+   thickness (1 at the placement boxes: 96–128 px across the time axis) and data-orient from its
+   shape. Type, colour roles, backing and the signature come from kit.css. */
 .w {
-  --s: 1;
-  --tint: var(--map-accent, var(--accent));
-  --pad-y: calc(6px * var(--s));
-  --pad-x: calc(8px * var(--s));
-  --axis: calc(20px * var(--s));
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
-  padding: var(--pad-y) var(--pad-x);
-  color: var(--fg);
-  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
   contain: layout paint;
-  user-select: none;
-  transition: opacity 200ms var(--ease-draft);
+  transition: opacity var(--dur-base) var(--ease-out);
 }
-.w[data-accent="18-lab"] { --tint: var(--accent); }
-.w[data-show="off"] { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms; }
-
-.scrim { display: none; }
-.w[data-backing="scrim"] .scrim {
-  display: block; position: absolute; inset: 0; z-index: -1;
-  background: rgb(11 12 13 / .62);
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--pad-x), #000 calc(100% - var(--pad-x)), transparent), linear-gradient(to bottom, transparent, #000 var(--pad-y), #000 calc(100% - var(--pad-y)), transparent);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to right, transparent, #000 var(--pad-x), #000 calc(100% - var(--pad-x)), transparent), linear-gradient(to bottom, transparent, #000 var(--pad-y), #000 calc(100% - var(--pad-y)), transparent);
-  mask-composite: intersect;
-}
-.w[data-backing="panel"] {
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong); border-top: 2px solid var(--tint); border-radius: var(--radius);
-  text-shadow: none;
-}
+.w[data-show="off"] { opacity: 0; visibility: hidden; transition: opacity var(--dur-base) var(--ease-in), visibility 0s linear var(--dur-base); }
 
 /* ---------------------------------------------------------------- header */
 .head {
-  flex: 0 0 auto; display: flex; align-items: center; gap: calc(10px * var(--s));
-  height: calc(30px * var(--s)); white-space: nowrap;
-  font: 500 calc(12px * var(--s))/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
+  flex: 0 0 auto; display: flex; align-items: baseline; gap: var(--s-2);
+  height: calc(var(--u, 1) * 24px); white-space: nowrap;
 }
 .head > * { flex: 0 0 auto; }
 
-.status { display: inline-flex; align-items: center; gap: calc(6px * var(--s)); letter-spacing: .02em; text-transform: none; }
-.status i { width: calc(6px * var(--s)); height: calc(6px * var(--s)); border-radius: 50%; background: var(--caution); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
-.status[data-state="offline"] i { background: var(--danger); }
-.status[data-state="idle"] i { background: var(--muted); }
+/* One slot, one state: the title (or the per-skill legend) gives way to Kiai / Break while the
+   map is in one, at the same place. Children share the grid cell and swap (kit-enter) in
+   sequence, never superimposed: the outgoing state leaves fast, the incoming one enters after it. */
+.slot { display: grid; align-items: baseline; }
+.slot > * { grid-area: 1 / 1; }
+.slot > [data-out] { transition-duration: var(--dur-fast); transition-timing-function: var(--ease-in); }
+.slot > :not([data-out]) { transition-delay: var(--dur-fast); }
+.chip--kiai { color: var(--map); }
+.chip--break { color: var(--text-2); }
+.w[data-marks="off"] .chip { display: none; }
+
+.legend { display: inline-flex; align-items: center; gap: var(--s-3); }
+.legend span { display: inline-flex; align-items: center; gap: var(--s-1); }
+.legend i { width: calc(var(--u, 1) * 8px); height: calc(var(--u, 1) * 8px); border-radius: 1px; background: var(--c); }
+
 .status[hidden] { display: none; }
-.w[data-orient="v"] .status { white-space: normal; align-items: baseline; }
 
-/* One slot for both chips: kiai and breaks never overlap. */
-.chips { position: relative; margin-left: auto; width: calc(58px * var(--s)); height: calc(20px * var(--s)); }
-.chip {
-  position: absolute; right: 0; top: 0;
-  padding: calc(4px * var(--s)) calc(6px * var(--s)) calc(3px * var(--s));
-  border: 1px solid currentColor; border-radius: var(--radius);
-  line-height: 1; opacity: 0; background: rgb(11 12 13 / .45);
-  transition: opacity 160ms var(--ease-draft);
-}
-.chip--kiai { color: var(--tint); }
-.chip--break { color: var(--fg-dim); }
-.chip.on { opacity: 1; }
-.w[data-marks="off"] .chips { visibility: hidden; }
-
-.clock { display: inline-flex; align-items: baseline; gap: calc(6px * var(--s)); }
-.clock b { font: 600 calc(24px * var(--s))/1 var(--font-display); letter-spacing: .01em; color: var(--fg); font-variant-numeric: tabular-nums; }
-.clock .total { font-size: calc(13px * var(--s)); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-.phase:empty { display: none; }
+.clock { margin-left: auto; display: inline-flex; align-items: baseline; gap: var(--s-1); }
+.clock .now { font-size: calc(var(--u, 1) * 24px); }
+.clock .total:empty { display: none; }
 .w[data-time="off"] .clock { display: none; }
 
-/* ---------------------------------------------------------------- plot + axis */
-.body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.plot { position: relative; order: 0; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* ---------------------------------------------------------------- plot */
+.body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-top: var(--s-1); }
+/* transform-origin is the baseline: the map-change reveal grows the silhouette out of it. */
+.plot { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; transform-origin: 50% 100%; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.empty {
-  position: absolute; inset: 0; margin: 0;
-  display: flex; align-items: center; justify-content: center;
-  font: 400 calc(12px * var(--s))/1 var(--font-mono); letter-spacing: .08em; color: var(--fg-dim);
-}
+/* The active kiai section's lift (wash + brighter band), eased in and out with the section. An
+   ambient effect: reduced and off drop it. */
+.lift { opacity: 0; transition: opacity var(--dur-base) var(--ease-draft); }
+.lift.on { opacity: 1; }
+.w:is([data-motion="reduced"], [data-motion="off"]) .lift { display: none; }
+.empty { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; font: 600 calc(var(--u, 1) * 20px)/1 var(--font-display); }
 .empty[hidden] { display: none; }
 
-.axis {
-  position: relative; order: 1; flex: 0 0 auto; height: var(--axis);
-  font: 400 calc(12px * var(--s))/1 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); font-variant-numeric: tabular-nums;
-}
-.ticks { position: absolute; inset: 0; }
-.ticks span { position: absolute; top: calc(6px * var(--s)); transform: translateX(-50%); white-space: nowrap; }
-.ticks span.zero { transform: none; }
-.w[data-time="off"] .ticks, .w[data-compact="on"] .ticks { display: none; }
-.w[data-time="off"]:not([data-legend="on"]) .axis, .w[data-compact="on"] .axis { height: calc(4px * var(--s)); }
+/* The horizontal form has no time axis: the clock says the time, the playhead says where. */
+.axis { display: none; }
 
-.legend {
-  position: absolute; right: var(--pad-x); bottom: var(--pad-y); height: var(--axis); padding-top: calc(6px * var(--s));
-  display: flex; gap: calc(12px * var(--s));
-  font: 400 calc(12px * var(--s))/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--fg-dim);
-}
-.legend:empty, .w[data-compact="on"] .legend { display: none; }
-.legend span { display: inline-flex; align-items: center; gap: calc(6px * var(--s)); }
-.legend i { width: calc(9px * var(--s)); height: calc(9px * var(--s)); border-radius: 1px; background: var(--c); box-shadow: 0 0 0 1px rgb(0 0 0 / .35); }
-
-/* Horizontal, aligned right: label and clock trade sides. */
+/* Horizontal, aligned right: title and clock trade sides. */
 .w[data-orient="h"][data-align="right"] .head { flex-direction: row-reverse; }
-.w[data-orient="h"][data-align="right"] .chips { margin-left: 0; margin-right: auto; }
-.w[data-orient="h"][data-align="right"] .chip { right: auto; left: 0; }
-.w[data-orient="h"][data-align="right"] .legend { right: auto; left: var(--pad-x); }
+.w[data-orient="h"][data-align="right"] .clock { margin-left: 0; margin-right: auto; }
 
 /* ---------------------------------------------------------------- vertical: time runs up */
-.w[data-orient="v"] .head { flex-direction: column; align-items: flex-start; gap: calc(6px * var(--s)); height: auto; padding-bottom: calc(10px * var(--s)); }
-.w[data-orient="v"] .chips { margin-left: 0; }
-.w[data-orient="v"] .chip { left: 0; right: auto; }
-.w[data-orient="v"] .clock { flex-wrap: wrap; row-gap: calc(4px * var(--s)); }
+.w[data-orient="v"] .head { flex-direction: column; align-items: flex-start; gap: var(--s-1); height: auto; white-space: normal; }
+.w[data-orient="v"] .slot { justify-items: start; }
+.w[data-orient="v"] .legend { flex-direction: column; align-items: flex-start; gap: var(--s-1); }
+.w[data-orient="v"] .clock { margin-left: 0; flex-wrap: wrap; row-gap: var(--s-1); }
 .w[data-orient="v"] .clock .total { flex-basis: 100%; }
-.w[data-orient="v"] .body { flex-direction: row; }
-.w[data-orient="v"] .axis { order: 0; width: calc(40px * var(--s)); height: auto; }
-.w[data-orient="v"] .plot { order: 1; }
-.w[data-orient="v"][data-time="off"] .axis, .w[data-orient="v"][data-compact="on"] .axis { width: calc(4px * var(--s)); height: auto; }
-.w[data-orient="v"] .ticks span { top: auto; left: auto; right: calc(8px * var(--s)); transform: translateY(50%); }
-.w[data-orient="v"] .ticks span.zero { transform: none; }
-.w[data-orient="v"] .legend { position: static; flex-direction: column; gap: calc(6px * var(--s)); height: auto; padding-top: calc(10px * var(--s)); }
+.w[data-orient="v"] .body { flex-direction: row; margin-top: var(--s-3); }
+.w[data-orient="v"] .plot { transform-origin: 0 50%; }
+/* The axis sits on the baseline side (towards the stage); there it is the only time scale. */
+.w[data-orient="v"] .axis { display: block; position: relative; flex: 0 0 auto; width: calc(var(--u, 1) * 30px); }
+.ticks { position: absolute; inset: 0; }
+.ticks span { position: absolute; right: var(--s-1); transform: translateY(50%); white-space: nowrap; }
+.ticks span.zero { transform: none; }
+.w[data-orient="v"][data-time="off"] .axis, .w[data-compact="on"] .axis { display: none; }
 .w[data-orient="v"][data-align="right"] .body { flex-direction: row-reverse; }
-.w[data-orient="v"][data-align="right"] .head, .w[data-orient="v"][data-align="right"] .legend { align-items: flex-end; }
-.w[data-orient="v"][data-align="right"] .chip { left: auto; right: 0; }
-.w[data-orient="v"][data-align="right"] .ticks span { right: auto; left: calc(8px * var(--s)); }
-
+.w[data-orient="v"][data-align="right"] .plot { transform-origin: 100% 50%; }
+.w[data-orient="v"][data-align="right"] .head { align-items: flex-end; }
+.w[data-orient="v"][data-align="right"] .slot { justify-items: end; }
+.w[data-orient="v"][data-align="right"] .legend { align-items: flex-end; }
 .w[data-orient="v"][data-align="right"] .clock { justify-content: flex-end; text-align: right; }
+.w[data-orient="v"][data-align="right"] .ticks span { right: auto; left: var(--s-1); }
 
-/* Status-only: connection / no-osu! chip, nothing else. */
-.w[data-show="status"] .body, .w[data-show="status"] .chips, .w[data-show="status"] .clock, .w[data-show="status"] .legend { display: none; }
+/* Status only (connecting / vosu offline / osu! not running): the caption, nothing else, and the
+   box (backing and marks) shrinks to it on the alignment side. */
+.w[data-show="status"] { right: auto; bottom: auto; }
+.w[data-show="status"][data-align="right"] { left: auto; right: 0; }
+.w[data-show="status"] :is(.body, .slot, .clock) { display: none; }
+
+/* No strain data (the replay renderer): a clock over a progress track, and the box (backing and
+   marks) hugs them instead of framing an empty graph. */
+.w[data-track="on"] { bottom: auto; }
+.w[data-track="on"] .body { flex: 0 0 auto; }
+.w[data-track="on"] .plot { flex: 0 0 calc(var(--u, 1) * 12px); }
+.w[data-orient="v"][data-track="on"] { bottom: 0; right: auto; }
+.w[data-orient="v"][data-track="on"] .body { flex: 1 1 auto; }
+.w[data-orient="v"][data-track="on"][data-align="right"] { left: auto; right: 0; }

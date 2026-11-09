@@ -5,28 +5,33 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Leaderboard</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="root" class="root vertical">
-  <p id="chip" class="chip" role="status" hidden><i></i><span id="chip-text">Connecting to vosu</span></p>
+<p id="chip" class="chip kit" role="status" hidden><span id="chip-text" class="kit-label">Connecting to vosu</span></p>
+<div id="root" class="lb kit">
   <section id="board" class="board" aria-label="Leaderboard">
     <header class="head">
-      <span class="rank"><b id="board-pos">—</b><span id="board-total"></span></span>
-      <span id="board-gap" class="hgap"><b></b><span></span></span>
+      <span class="hero kit-hero" data-a="hero"><span class="hash">#</span><span id="board-pos">—</span></span>
+      <span class="side">
+        <span class="line"><span class="kit-caption">of <span id="board-total"></span></span><span class="delta kit-label" data-a="delta"></span></span>
+        <span id="board-gap" class="hgap kit-label"></span>
+      </span>
     </header>
-    <div id="board-rows" class="rows"><div id="skip" class="skip out"><span></span></div></div>
+    <div id="board-rows" class="rows"><div id="skip" class="skip out" aria-hidden="true"><span class="kit-label">···</span></div></div>
   </section>
   <section id="rival" class="rival" aria-label="Leaderboard rivals">
-    <div class="rlabel"><i></i>Leaderboard</div>
-    <div class="ladder">
-      <div id="rival-rows" class="rrows"></div>
-      <div class="you"><b id="rival-pos" class="rpos"></b><span id="rival-total" class="rtotal"></span><span id="rival-delta" class="delta"></span></div>
+    <div id="rival-rows" class="rrows"></div>
+    <div class="you kit-own">
+      <i class="flash" data-a="flash"></i>
+      <span class="hero kit-hero" data-a="hero"><span class="hash">#</span><span id="rival-pos"></span></span>
+      <span class="side"><span class="line"><span class="kit-caption">of <span id="rival-total"></span></span><span class="delta kit-label" data-a="delta"></span></span></span>
     </div>
   </section>
 </div>
-<template id="rival-template"><div class="rrow out"><span class="rk" data-r="pos"></span><span class="rn" data-r="name"></span><span class="rg" data-r="gap"></span></div></template>
-<template id="board-template"><div class="row out"><div class="tint"></div><div class="flash" data-r="flash"></div><span class="pos" data-r="pos"></span><span class="who"><span class="name" data-r="name"></span><span class="delta" data-r="delta"></span></span><span class="score" data-r="score"></span><span class="meta"><span class="fail">Failed</span><span class="acc" data-r="acc"></span><span class="combo" data-r="combo"></span><span class="mods" data-r="mods"></span></span></div></template>
+<template id="rival-template"><div class="rrow out"><span class="pos kit-label" data-r="pos"></span><span class="who"><span class="name kit-text" data-r="name"></span></span><span class="rgap kit-value" data-r="gap"></span><span class="fail kit-code">Fail</span></div></template>
+<template id="board-template"><div class="row out"><i class="flash" data-r="flash"></i><span class="pos kit-label" data-r="pos"></span><span class="who"><span class="name kit-text" data-r="name"></span></span><span class="score kit-value" data-r="score"></span><span class="fail kit-code">Fail</span><span class="sub kit-label"><span class="facts"><span class="acc"><span data-r="acc"></span><span class="kit-unit tight">%</span></span><span class="combo"><span data-r="combo"></span><span class="kit-unit tight">×</span></span><span class="mods kit-code" data-r="mods"></span></span><span class="gap"><b data-r="gap"></b> <span data-r="target"></span></span></span></div></template>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

@@ -1,54 +1,73 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Live in-game leaderboard. The page is sized by its host (OBS, vosulay, the replay renderer) and
-// lays itself out for that box: a vertical board in tall boxes, a horizontal strip in wide ones.
-// Styles: board (the in-game list) or rival (the player above, you, the player below, gaps).
-// Rows sit absolutely positioned and move between slots on a transform transition, so an
-// overtake slides the passed player past you without layout work.
-import { subscribe, settings, mapPalette, applyPalette } from './vosu-overlay.js';
+// Live in-game leaderboard on the 18-LAB overlay kit (docs/overlay-system.md). The page is sized
+// by its host (OBS, vosulay, the replay renderer) and lays itself out for that box: a vertical
+// board in tall boxes, a horizontal strip in wide ones. Styles: board (the in-game list) or rival
+// (the player above, you, the player below, with the score gaps).
+// Rows sit absolutely positioned and move between slots on a transform transition, so an overtake
+// slides the passed player past you without layout work; one-shot Web Animations (created once
+// per element, then restarted) mark the overtake itself.
+import { subscribe, settings, applyKitSettings, numberFormatter, known, MOTION_MS } from './vosu-overlay.js';
 
 const PLAY = 2;
 const MAX_ROWS = 16;
 const PRUNE_MS = 800;
-const DELTA_MS = 2400;
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 1.5;
-// Design geometry in CSS px before scaling to the box; style.css carries the same numbers.
-const BOARD_V = { width: 280, head: 32, row: 48, skip: 16 };
-const BOARD_VC = { width: 336, head: 32, row: 34, skip: 12 };
-const BOARD_H = { height: 76, head: 156, entry: 188, skip: 28 };
-const BOARD_HC = { height: 56, head: 156, entry: 188, skip: 28 };
-const RIVAL_V = { width: 272, height: 130, above: 0, below: 80 };
-const RIVAL_H = { width: 392, height: 56, above: 0, below: 28 };
-// Panel backing: 8 px side padding plus 1 px borders; 4 + 6 px vertical padding, 2 + 1 px borders.
-const PANEL_X = 18;
-const PANEL_Y = 13;
+const MIN_U = 0.5;
+const MAX_U = 3;
+// Design geometry in px at --u = 1 (the default 256×400 / 480×72 boxes); style.css carries the
+// same numbers. PAD is the kit's backing padding (none: 0).
+const PAD = 16;
+const V = { width: 256, head: 60, one: 28, two: 44, skip: 20 };
+const H = { height: 72, head: 136, cell: 94, skip: 22 };
+const RV = { height: 116 };
+const RH = { width: 344, below: 20 };
+const RV_BELOW = 88;
+const CHIP_MS = 2400;
 const P = { state: '/state/number', checksum: '/beatmap/checksum', board: '/leaderboard', name: '/play/playerName', score: '/play/score' };
+// Row flags: your row, a direct neighbour of yours, a row with a second line, a second line that
+// shows accuracy and combo (your neighbours'; yours only with hudFields).
+const ME = 1;
+const NEAR = 2;
+const TWO = 4;
+const FACTS = 8;
 const DEFAULTS = {
-  style: 'board', orientation: 'auto', align: 'left', backing: 'none', accent: 'map',
-  rows: 8, showAcc: true, showCombo: true, showMods: true, compact: false, showGap: true,
+  style: 'board', orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim',
+  rows: 8, showAcc: true, showCombo: true, showMods: true, compact: false, showGap: true, hudFields: false,
 };
 
 const $ = id => document.getElementById(id);
+const body = document.body;
 const root = $('root');
 const chip = $('chip');
 const chipText = $('chip-text');
 const rivalEl = $('rival');
 const rivalPos = $('rival-pos');
 const rivalTotal = $('rival-total');
-const rivalDelta = $('rival-delta');
 const boardEl = $('board');
 const boardPos = $('board-pos');
 const boardTotal = $('board-total');
 const boardGap = $('board-gap');
 const skipEl = $('skip');
-const skipLabel = skipEl.firstElementChild;
 
-const INT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-const MINUS = '\u2212';
-const FLASH_KEYS = [{ opacity: 0.4 }, { opacity: 0 }];
-const FLASH_OPTS = { duration: 720, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
-const ROLL_KEYS = [{ transform: 'translate3d(0,40%,0)', opacity: 0 }, { transform: 'translate3d(0,0,0)', opacity: 1 }];
-const ROLL_OPTS = { duration: 240, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
+// Motion (docs/overlay-system.md "Motion"): keyframes and options hoisted, Animations created
+// once per element and restarted, so an event allocates nothing but its chip text.
+const KF_ROLL_UP = [{ transform: 'translate3d(0,30%,0)', opacity: 0 }, { transform: 'translate3d(0,0,0)', opacity: 1 }];
+const KF_ROLL_DOWN = [{ transform: 'translate3d(0,-30%,0)', opacity: 0 }, { transform: 'translate3d(0,0,0)', opacity: 1 }];
+const ROLL_OPTS = { duration: MOTION_MS.base, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
+const KF_CHIP = [
+  { opacity: 0, transform: 'translate3d(0,25%,0)' },
+  { opacity: 1, transform: 'translate3d(0,0,0)', offset: MOTION_MS.fast / CHIP_MS },
+  { opacity: 1, transform: 'translate3d(0,0,0)', offset: 1 - MOTION_MS.base / CHIP_MS },
+  { opacity: 0, transform: 'translate3d(0,0,0)' },
+];
+// motion=off: the chip still shows for its 2.4 s, without easing in or out.
+const KF_CHIP_OFF = [{ opacity: 1 }, { opacity: 1 }];
+const CHIP_OPTS = { duration: CHIP_MS, easing: 'linear' };
+const KF_FLASH = [{ opacity: 0.32 }, { opacity: 0 }];
+const FLASH_OPTS = { duration: MOTION_MS.slow, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
+// A row passing yours dims while it slides behind it, so the pass reads as "under you". The
+// slide is expo-out (most of the travel in the first third), so the dip peaks early.
+const KF_DIP = [{ opacity: 1 }, { opacity: 0.15, offset: 0.3 }, { opacity: 1 }];
+const DIP_OPTS = { duration: MOTION_MS.base, easing: 'linear' };
 
 /**
  * Keyed rows placed at slot offsets; entering rows snap into place, then fade in next frame.
@@ -56,16 +75,16 @@ const ROLL_OPTS = { duration: 240, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
  * touches the DOM (and formats text) for values that changed.
  */
 class SlotList {
-  constructor(container, template, fill, hash) {
+  constructor(container, template, fill) {
     this.container = container;
     this.template = template.content.firstElementChild;
     this.fill = fill;
-    this.hash = hash;
     this.pool = new Map();
     this.rows = [];
     this.entering = [];
     this.enteringCount = 0;
     this.serial = 0;
+    this.moved = false;
   }
 
   begin() {
@@ -75,12 +94,13 @@ class SlotList {
     }
     this.enteringCount = 0;
     this.serial++;
+    this.moved = false;
   }
 
   put(key, x, y, e, index, extra) {
     let row = this.pool.get(key);
     if (!row) {
-      row = newRow(key, this.template.cloneNode(true), this.hash);
+      row = newRow(key, this.template.cloneNode(true));
       this.container.append(row.el);
       this.pool.set(key, row);
       this.rows.push(row);
@@ -89,17 +109,27 @@ class SlotList {
     this.fill(row, e, index, extra);
     if (!row.on) {
       row.on = true;
+      row.px = NaN;
+      row.py = NaN;
       row.el.classList.add('snap', 'out');
       this.entering[this.enteringCount++] = row;
-    } else if (row.x === x && row.y === y) {
-      return;
+    } else {
+      row.px = row.x;
+      row.py = row.y;
+      if (row.x === x && row.y === y) return;
+      this.moved = true;
     }
     row.x = x;
     row.y = y;
     row.el.style.transform = `translate3d(${x}px,${y}px,0)`;
   }
 
-  end(now) {
+  /**
+   * Rows not placed this frame leave: they fade out while sliding one `step` away from `pivot`
+   * (your row), so a player pushed off the window is pushed, not overdrawn by the one taking
+   * its slot.
+   */
+  end(now, pivot, step, alongX) {
     const rows = this.rows;
     for (let i = rows.length - 1; i >= 0; i--) {
       const row = rows[i];
@@ -108,6 +138,9 @@ class SlotList {
         row.on = false;
         row.hiddenAt = now;
         row.el.classList.add('out');
+        if (alongX) row.x += row.x < pivot ? -step : step;
+        else row.y += row.y < pivot ? -step : step;
+        row.el.style.transform = `translate3d(${row.x}px,${row.y}px,0)`;
       } else if (now - row.hiddenAt > PRUNE_MS) {
         row.el.remove();
         this.pool.delete(row.key);
@@ -127,16 +160,20 @@ class SlotList {
 }
 
 /**
- * One row: its nodes (by `data-r`) and the last value written to each, in one fixed shape.
- * Value caches start as null: they hold the message's own (already boxed) numbers, so reading
- * and comparing them never boxes a double, and null differs from any first value.
+ * One row: its nodes (by `data-r`), one number formatter per displayed field, and the last value
+ * written to each, in one fixed shape. Raw caches start as null and hold the message's own values,
+ * so an unchanged value is skipped before it is converted or formatted.
  */
-function newRow(key, el, hash) {
+function newRow(key, el) {
   const row = {
-    key, el, on: false, x: NaN, y: NaN, serial: 0, hiddenAt: 0, isMe: false, failed: false, hash,
-    pos: null, name: null, score: null, acc: null, combo: null, mods: null, flash: null, delta: null, gap: null,
-    vPos: null, tName: null, vScore: null, vAcc: null, kAcc: -1, tAcc: null, vCombo: null, vDiff: null, vAhead: null,
+    key, el, on: false, x: NaN, y: NaN, px: NaN, py: NaN, serial: 0, hiddenAt: 0, flags: -1, failed: false,
+    pos: null, name: null, score: null, acc: null, combo: null, mods: null, flash: null, gap: null, target: null,
+    vPos: null, tPos: null, tName: null, vScore: null, tScore: null, vAcc: null, tAcc: null, vCombo: null, tCombo: null,
+    vDiff: null, tGap: null, nTarget: null, vAhead: null,
+    fPos: numberFormatter('count'), fScore: numberFormatter('count'), fAcc: numberFormatter('accuracy'),
+    fCombo: numberFormatter('count'), fGap: numberFormatter('delta'),
     modsKind: -1, modsName: undefined, acronyms: [], acronymCount: 0, tMods: null,
+    dip: null, flashAnim: null,
   };
   for (const node of el.querySelectorAll('[data-r]')) row[node.dataset.r] = node;
   return row;
@@ -158,18 +195,18 @@ class Cell {
 }
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
-const signed = diff => `${diff < 0 ? MINUS : '+'}${INT.format(Math.abs(Math.round(diff)))}`;
 const rankOf = e => (Number.isInteger(e.position) && e.position > 0 ? e.position : Infinity);
 const compare = (a, b) => rankOf(a) - rankOf(b) || (Number(b.score) || 0) - (Number(a.score) || 0);
 const displayPos = (e, index) => (Number.isInteger(e.position) && e.position > 0 ? e.position : index + 1);
 
+/** Mods as the game writes them: acronyms run together (HDDT). */
 function modsText(mods) {
   if (!mods || typeof mods !== 'object') return '';
   if (Array.isArray(mods.array)) {
     let out = '';
     for (let i = 0; i < mods.array.length; i++) {
       const acronym = mods.array[i]?.acronym;
-      if (typeof acronym === 'string' && acronym) out += out ? ` ${acronym}` : acronym;
+      if (typeof acronym === 'string' && acronym) out += acronym;
     }
     return out;
   }
@@ -209,7 +246,11 @@ function fillMods(row, mods) {
 
 function fillCommon(row, e, index) {
   const pos = displayPos(e, index);
-  if (row.vPos !== pos) { row.vPos = pos; row.pos.textContent = row.hash ? `#${pos}` : String(pos); }
+  if (row.vPos !== pos) {
+    row.vPos = pos;
+    const text = row.fPos(pos);
+    if (row.tPos !== text) { row.tPos = text; row.pos.textContent = text; }
+  }
   const name = typeof e.name === 'string' && e.name ? e.name : '—';
   if (row.tName !== name) { row.tName = name; row.name.textContent = name; }
   const failed = e.isFailed === true;
@@ -217,90 +258,107 @@ function fillCommon(row, e, index) {
 }
 
 /**
- * Board entry: position, name, score; accuracy, max combo and mods as secondary data.
- * Comparisons are inline and NaN-safe (a non-numeric value writes its dash once): a helper
- * taking the numbers would box them on every call.
+ * Board entry: position, name, score; accuracy, max combo and mods on a second line for your
+ * direct neighbours (and for you with hudFields). Values the message did not carry show a dash.
  */
-function fillBoard(row, e, index, isMe) {
+function fillBoard(row, e, index, flags) {
   fillCommon(row, e, index);
-  const score = Number(e.score);
-  const lastScore = row.vScore;
-  if (score !== lastScore && (score === score || lastScore === lastScore)) {
+  if (row.flags !== flags) {
+    const c = row.el.classList;
+    c.toggle('me', (flags & ME) !== 0);
+    c.toggle('kit-own', (flags & ME) !== 0);
+    c.toggle('near', (flags & NEAR) !== 0);
+    c.toggle('two', (flags & TWO) !== 0);
+    row.flags = flags;
+  }
+  const score = e.score;
+  if (score !== row.vScore) {
     row.vScore = score;
-    row.score.textContent = Number.isFinite(score) ? INT.format(Math.round(score)) : '—';
+    const text = row.fScore(known(score));
+    if (row.tScore !== text) { row.tScore = text; row.score.textContent = text; }
   }
-  const acc = Number(e.accuracy);
-  const lastAcc = row.vAcc;
-  if (acc !== lastAcc && (acc === acc || lastAcc === lastAcc)) {
-    row.vAcc = acc;
-    // The text is the accuracy in hundredths. Away from a rounding tie Math.round decides it
-    // exactly, so a hit that moves the accuracy without changing the shown value formats nothing.
-    const scaled = acc * 100;
-    const decided = acc >= 0 && Math.abs(scaled - Math.floor(scaled) - 0.5) > 1e-6;
-    const hundredths = decided ? Math.round(scaled) : -1;
-    if (hundredths < 0 || hundredths !== row.kAcc) {
-      row.kAcc = hundredths;
-      const value = Number.isFinite(acc) ? `${acc.toFixed(2)}%` : '—';
-      if (row.tAcc !== value) { row.tAcc = value; row.acc.textContent = value; }
-    }
-  }
-  const combo = Number(e.combo?.max);
-  const lastCombo = row.vCombo;
-  if (combo !== lastCombo && (combo === combo || lastCombo === lastCombo)) {
-    row.vCombo = combo;
-    row.combo.textContent = Number.isFinite(combo) ? `${INT.format(combo)}x` : '—';
-  }
+  // Mods ride every second line; accuracy and combo only where they show (FACTS), so your own
+  // per-hit accuracy is not formatted while hudFields hides it.
+  if ((flags & TWO) === 0) return;
   fillMods(row, e.mods);
-  if (row.isMe !== isMe) { row.isMe = isMe; row.el.classList.toggle('me', isMe); }
+  if ((flags & FACTS) === 0) return;
+  const acc = e.accuracy;
+  if (acc !== row.vAcc) {
+    row.vAcc = acc;
+    const text = row.fAcc(known(acc));
+    if (row.tAcc !== text) { row.tAcc = text; row.acc.textContent = text; }
+  }
+  const combo = e.combo?.max;
+  if (combo !== row.vCombo) {
+    row.vCombo = combo;
+    const text = row.fCombo(known(combo));
+    if (row.tCombo !== text) { row.tCombo = text; row.combo.textContent = text; }
+  }
 }
 
 /** Rival rung: their position and name, and your score minus theirs. */
 function fillRival(row, e, index, mine) {
   fillCommon(row, e, index);
   const diff = mine - (Number(e.score) || 0);
-  const last = row.vDiff;
-  if (diff !== last && (diff === diff || last === last)) { row.vDiff = diff; row.gap.textContent = signed(diff); }
+  if (diff !== row.vDiff) {
+    row.vDiff = diff;
+    const text = row.fGap(diff);
+    if (row.tGap !== text) { row.tGap = text; row.gap.textContent = text; }
+  }
   const ahead = diff >= 0;
   if (row.vAhead !== ahead) { row.vAhead = ahead; row.el.classList.toggle('ahead', ahead); }
 }
 
-const rivals = new SlotList($('rival-rows'), $('rival-template'), fillRival, true);
-const board = new SlotList($('board-rows'), $('board-template'), fillBoard, false);
+const rivals = new SlotList($('rival-rows'), $('rival-template'), fillRival);
+const board = new SlotList($('board-rows'), $('board-template'), fillBoard);
+
+/** Hero and rank-change chip of one view (board header, rival "you" line). */
+function heroView(section) {
+  return {
+    hero: section.querySelector('[data-a="hero"]'), delta: section.querySelector('[data-a="delta"]'),
+    flashEl: section.querySelector('[data-a="flash"]'), roll: null, chip: null, flash: null,
+  };
+}
+const boardView = heroView(boardEl);
+const rivalView = heroView(rivalEl);
 
 const chipCell = new Cell(chipText);
 const rivalPosCell = new Cell(rivalPos);
 const rivalTotalCell = new Cell(rivalTotal);
 const boardPosCell = new Cell(boardPos);
 const boardTotalCell = new Cell(boardTotal);
-const gapCell = new Cell(boardGap.firstElementChild);
-const labelCell = new Cell(boardGap.lastElementChild);
-const skipCell = new Cell(skipLabel);
+const headGapCell = new Cell(boardGap);
+const fHeroPos = numberFormatter('count');
+const fRivalPos = numberFormatter('count');
+const fTotal = numberFormatter('count');
+const fRivalTotal = numberFormatter('count');
+const fOwnGap = numberFormatter('delta');
 
 let cfg = DEFAULTS;
+let motion = 'full';
 let style = 'board';
 let horizontal = false;
-let designW = 0;
-let padX = 0;
+let unit = 1;
+let pad = PAD;
 let rowLimit = DEFAULTS.rows;
-let geo = BOARD_V;
+let ownTwo = true;
+let nearTwo = true;
 let laidOut = false;
 
 let status = 'connecting';
 let wasOffline = false;
-let checksum;
 // The subscribed values, copied out of the client's reused frame object.
 let state;
 let entries;
 let playerName;
 let playerScore;
+let checksum;
 
 let shown = '';
 let frame = 0;
 let lastExtent = -1;
-let lastShift = NaN;
 let lastPos = 0;
 let lastScore = 0;
-let deltaTimer = 0;
 let chipHidden = null;
 let chipOffline = null;
 let skipOut = true;
@@ -317,22 +375,24 @@ let usedCount = 0;
 const idKeys = new Map();
 const nameKeys = new Map();
 // renderBoard's slot state, shared with putEntry.
-let slotStep = 0;
+let slotOffset = 0;
 let slotSkipAt = -1;
+let slotSkipPos = 0;
 let slotCount = 0;
 let slotPlayer = -1;
 
 settings(DEFAULTS, next => {
   cfg = next;
   style = next.style === 'rival' ? 'rival' : 'board';
-  const c = root.classList;
+  motion = applyKitSettings(root, next);
+  applyKitSettings(chip, next);
+  const c = body.classList;
   c.toggle('compact', next.compact);
   c.toggle('no-acc', !next.showAcc);
   c.toggle('no-combo', !next.showCombo);
   c.toggle('no-mods', !next.showMods);
   c.toggle('no-gap', !next.showGap);
-  c.toggle('lab', next.accent === '18-lab');
-  for (const backing of ['scrim', 'panel']) c.toggle(`backing-${backing}`, next.backing === backing);
+  c.toggle('hud', next.hudFields);
   relayout();
 });
 
@@ -347,7 +407,6 @@ subscribe(Object.values(P), next => {
     checksum = next[P.checksum];
     idKeys.clear();
     nameKeys.clear();
-    loadPalette(checksum);
   }
   schedule();
 }, {
@@ -358,20 +417,18 @@ subscribe(Object.values(P), next => {
   },
 });
 
-/** Map tint, off the hot path; a stale result for a previous map is dropped. */
-async function loadPalette(sum) {
-  const result = typeof sum === 'string' && sum ? await mapPalette(sum) : null;
-  if (sum !== checksum) return;
-  applyPalette(root, result);
-}
-
 function relayout() {
   laidOut = false;
   board.clear();
   rivals.clear();
+  boardView.roll?.cancel();
+  boardView.chip?.cancel();
+  rivalView.roll?.cancel();
+  rivalView.chip?.cancel();
+  rivalView.flash?.cancel();
   shown = '';
+  root.classList.remove('on');
   lastExtent = -1;
-  lastShift = NaN;
   schedule();
 }
 
@@ -380,8 +437,8 @@ function schedule() {
 }
 
 /**
- * Fits the design to the host's box: orientation from the box's aspect (or the setting), a
- * uniform scale so type stays proportional, and as many rows/entries as the box holds.
+ * Fits the design to the host's box: orientation from the box's aspect (or the setting), --u so
+ * type stays proportional (1 in the default boxes), and as many entries as the box holds.
  * Runs on resize and settings changes only.
  */
 function layout() {
@@ -389,33 +446,28 @@ function layout() {
   const w = innerWidth || 1;
   const h = innerHeight || 1;
   horizontal = cfg.orientation === 'horizontal' || (cfg.orientation !== 'vertical' && w > h * 1.6);
-  // The panel backing adds padding and borders inside the box.
-  padX = cfg.backing === 'panel' ? PANEL_X : 0;
-  const padY = cfg.backing === 'panel' ? PANEL_Y : 0;
-  let scale;
-  if (style === 'rival') {
-    const g = horizontal ? RIVAL_H : RIVAL_V;
-    scale = Math.min(w / (g.width + padX), h / (g.height + padY));
-  } else if (horizontal) {
-    geo = cfg.compact ? BOARD_HC : BOARD_H;
-    scale = h / (geo.height + padY);
-  } else {
-    geo = cfg.compact ? BOARD_VC : BOARD_V;
-    // As wide as the box, but never so large that fewer than three rows fit.
-    scale = Math.min(w / geo.width, h / (geo.head + 3 * geo.row + padY));
+  pad = cfg.backing === 'none' ? 0 : PAD;
+  let u;
+  if (style === 'rival') u = horizontal ? Math.min(h / H.height, w / (RH.width + 2 * PAD)) : Math.min(w / V.width, h / (RV.height + 2 * PAD));
+  else u = horizontal ? h / H.height : w / V.width;
+  unit = clamp(u, MIN_U, MAX_U);
+  // Second lines: yours carries the gap (and, with hudFields, your accuracy and combo); your
+  // neighbours' carry accuracy, combo and mods. The strip and compact boards have none.
+  ownTwo = !horizontal && (cfg.showGap || cfg.hudFields);
+  nearTwo = !horizontal && !cfg.compact && (cfg.showAcc || cfg.showCombo || cfg.showMods);
+  let room = 0;
+  if (style === 'board' && horizontal) {
+    room = Math.floor((w / unit - 2 * pad - H.head - H.skip) / H.cell);
+  } else if (style === 'board') {
+    const avail = h / unit - 2 * pad - V.head;
+    // Worst case: you and both neighbours on two lines, the skip marker, then one-line entries.
+    const fixed = 3 * V.two + V.skip;
+    room = avail >= fixed ? 3 + Math.floor((avail - fixed) / V.one) : Math.floor(avail / V.two);
   }
-  scale = clamp(scale, MIN_SCALE, MAX_SCALE);
-  designW = w / scale;
-  const designH = h / scale;
-  const room = style === 'board'
-    ? Math.floor(horizontal ? (designW - padX - geo.head - geo.skip) / geo.entry : (designH - padY - geo.head - geo.skip) / geo.row)
-    : 0;
   rowLimit = clamp(Math.min(Math.round(cfg.rows) || DEFAULTS.rows, room), 1, MAX_ROWS);
-  const s = root.style;
-  s.width = `${designW}px`;
-  s.height = `${designH}px`;
-  s.transform = `scale(${scale})`;
-  const c = root.classList;
+  root.style.setProperty('--u', String(Math.round(unit * 1000) / 1000));
+  chip.style.setProperty('--u', String(Math.round(unit * 1000) / 1000));
+  const c = body.classList;
   c.toggle('horizontal', horizontal);
   c.toggle('vertical', !horizontal);
   c.toggle('align-right', cfg.align === 'right');
@@ -491,15 +543,6 @@ function keyOf(e, index, player) {
   return key;
 }
 
-/** Horizontal strips hug the left, centre or right of the box; vertical ones mirror in CSS. */
-function shift(el, extent) {
-  const offset = !horizontal || cfg.align === 'left' ? 0
-    : cfg.align === 'right' ? Math.max(0, designW - extent) : Math.max(0, (designW - extent) / 2);
-  if (offset === lastShift) return;
-  lastShift = offset;
-  el.style.transform = offset ? `translate3d(${offset}px,0,0)` : '';
-}
-
 function render(now) {
   frame = 0;
   if (!laidOut) layout();
@@ -520,18 +563,18 @@ function render(now) {
   if (!playing) { lastPos = 0; lastScore = 0; }
   collect(playing ? entries : null);
   const player = findPlayer(playerName, playerScore);
-  // An idle leaderboard (empty, as in the replay renderer) renders nothing; the rival ladder
-  // also needs you on it.
+  // An idle leaderboard (empty, as in the replay renderer and lazer) renders nothing; the rival
+  // ladder also needs you on it.
   const want = !orderCount ? '' : style === 'board' ? 'board' : player >= 0 ? 'rival' : '';
 
   if (want !== shown) {
     // Rows left over from a previous attempt must not flash in with the cluster.
     if (want === 'rival') rivals.clear();
     if (want === 'board') { board.clear(); lastExtent = -1; }
-    lastShift = NaN;
     shown = want;
-    rivalEl.classList.toggle('on', want === 'rival');
-    boardEl.classList.toggle('on', want === 'board');
+    // The leaving view stays drawn while the root fades out.
+    if (want) { boardEl.hidden = want !== 'board'; rivalEl.hidden = want !== 'rival'; }
+    root.classList.toggle('on', want !== '');
   }
   if (!want) return;
 
@@ -541,27 +584,35 @@ function render(now) {
   if (want === 'rival') renderRival(player, now);
   else renderBoard(player, now);
 
-  if (player >= 0) signalMove(displayPos(order[player], player), Number(order[player].score) || 0, want);
+  if (player >= 0) signalMove(displayPos(order[player], player), Number(order[player].score) || 0, want === 'rival' ? rivalView : boardView);
   if (rivals.enteringCount || board.enteringCount || skipSnap) schedule();
 }
 
 function renderRival(player, now) {
-  const g = horizontal ? RIVAL_H : RIVAL_V;
   const pos = displayPos(order[player], player);
-  if (rivalPosCell.n !== pos) { rivalPosCell.n = pos; rivalPosCell.set(String(pos)); }
-  if (rivalTotalCell.n !== orderCount) { rivalTotalCell.n = orderCount; rivalTotalCell.set(`/ ${orderCount}`); }
+  if (rivalPosCell.n !== pos) { rivalPosCell.n = pos; rivalPosCell.set(fRivalPos(pos)); }
+  if (rivalTotalCell.n !== orderCount) { rivalTotalCell.n = orderCount; rivalTotalCell.set(fRivalTotal(orderCount)); }
   const mine = Number(order[player].score) || 0;
-  if (player > 0) rivals.put(keyOf(order[player - 1], player - 1, player), 0, g.above, order[player - 1], player - 1, mine);
-  if (player + 1 < orderCount) rivals.put(keyOf(order[player + 1], player + 1, player), 0, g.below, order[player + 1], player + 1, mine);
-  rivals.end(now);
-  shift(rivalEl, g.width + padX);
+  const below = (horizontal ? RH.below : RV_BELOW) * unit;
+  if (player > 0) rivals.put(keyOf(order[player - 1], player - 1, player), 0, 0, order[player - 1], player - 1, mine);
+  if (player + 1 < orderCount) rivals.put(keyOf(order[player + 1], player + 1, player), 0, below, order[player + 1], player + 1, mine);
+  rivals.end(now, below / 2, (horizontal ? RH.below : V.one) * unit, false);
+  if (rivals.moved && motion === 'full') dipPassers(rivals, below / 2, below / 2, false);
 }
 
-/** Puts entry `i` in the next board slot, past the skip marker once it is placed. */
-function putEntry(i, isMe) {
-  const slot = slotCount++;
-  const offset = slot * slotStep + (slotSkipAt >= 0 && slot >= slotSkipAt ? geo.skip : 0);
-  board.put(keyOf(order[i], i, slotPlayer), horizontal ? offset : 0, horizontal ? 0 : offset, order[i], i, isMe);
+function flagsOf(i, player) {
+  if (i === player) return ownTwo ? (cfg.hudFields ? ME | TWO | FACTS : ME | TWO) : ME;
+  if (player >= 0 && (i === player - 1 || i === player + 1)) return nearTwo ? NEAR | TWO | FACTS : NEAR;
+  return 0;
+}
+
+/** Puts entry `i` in the next board slot, after the skip marker when this is its slot. */
+function putEntry(i) {
+  if (slotCount++ === slotSkipAt) { slotSkipPos = slotOffset; slotOffset += horizontal ? H.skip : V.skip; }
+  const flags = flagsOf(i, slotPlayer);
+  const at = slotOffset * unit;
+  board.put(keyOf(order[i], i, slotPlayer), horizontal ? at : 0, horizontal ? 0 : at, order[i], i, flags);
+  slotOffset += horizontal ? H.cell : flags & TWO ? V.two : V.one;
 }
 
 function renderBoard(player, now) {
@@ -569,28 +620,29 @@ function renderBoard(player, now) {
   // Window: the top entries, and when you are below them, a skip marker, then the player you are
   // chasing, you and the player behind you, so a pass slides that player under you. The limit
   // counts entries, not the marker.
-  let skipped = 0;
   slotSkipAt = -1;
   slotCount = 0;
+  slotOffset = 0;
   slotPlayer = player;
-  slotStep = horizontal ? geo.entry : geo.row;
   if (n <= rowLimit || player < rowLimit) {
-    for (let i = 0; i < Math.min(n, rowLimit); i++) putEntry(i, i === player);
+    for (let i = 0; i < Math.min(n, rowLimit); i++) putEntry(i);
   } else {
     const before = rowLimit >= 2 ? 1 : 0;
     const after = rowLimit >= 3 && player + 1 < n ? 1 : 0;
     const top = rowLimit - 1 - before - after;
     slotSkipAt = top;
-    for (let i = 0; i < top; i++) putEntry(i, false);
-    skipped = player - before - top;
-    for (let i = player - before; i <= player + after; i++) putEntry(i, i === player);
+    for (let i = 0; i < top; i++) putEntry(i);
+    for (let i = player - before; i <= player + after; i++) putEntry(i);
   }
-  board.end(now);
+  const me = player >= 0 ? board.pool.get('me') : undefined;
+  const pivot = me === undefined ? -Infinity : horizontal ? me.x : me.y;
+  board.end(now, pivot, (horizontal ? H.cell / 2 : V.one) * unit, horizontal);
+  if (board.moved && motion === 'full' && me !== undefined && me.py === me.py) {
+    dipPassers(board, horizontal ? me.px : me.py, horizontal ? me.x : me.y, horizontal);
+  }
 
-  const skipAt = slotSkipAt;
-  if (skipAt >= 0) {
-    if (skipCell.n !== skipped) { skipCell.n = skipped; skipCell.set(`+${skipped}`); }
-    const offset = skipAt * slotStep;
+  if (slotSkipAt >= 0) {
+    const offset = slotSkipPos * unit;
     if (offset !== skipOffset || horizontal !== skipHorizontal) {
       skipOffset = offset;
       skipHorizontal = horizontal;
@@ -601,48 +653,89 @@ function renderBoard(player, now) {
     skipEl.classList.add('out');
     skipOut = true;
   }
-  const extent = slotCount * slotStep + (skipAt >= 0 ? geo.skip : 0);
+  const extent = slotOffset * unit;
   if (extent !== lastExtent) {
     lastExtent = extent;
     const s = board.container.style;
     s.width = horizontal ? `${extent}px` : '';
     s.height = horizontal ? '' : `${extent}px`;
   }
-  shift(boardEl, geo.head + extent + padX);
 
-  // Position (0 when you are not on the board), total, and the gap with its label: the player
-  // above you, your lead when first (-1), nothing without a rival (-2).
+  // Your position (dash when you are not on the board), the total, and the gap: to the player
+  // above you, or your lead over the second when first.
   const pos = player >= 0 ? displayPos(order[player], player) : 0;
-  if (boardPosCell.n !== pos) { boardPosCell.n = pos; boardPosCell.set(pos ? String(pos) : '—'); }
-  if (boardTotalCell.n !== n) { boardTotalCell.n = n; boardTotalCell.set(`/ ${n}`); }
-  let diff = 0;
-  let target = -2;
-  if (player >= 0 && n > 1) {
-    const other = player > 0 ? player - 1 : 1;
-    diff = (Number(order[player].score) || 0) - (Number(order[other].score) || 0);
-    target = player > 0 ? displayPos(order[other], other) : -1;
+  if (boardPosCell.n !== pos) {
+    boardPosCell.n = pos;
+    boardPosCell.set(pos ? fHeroPos(pos) : '—');
+    boardEl.classList.toggle('unplaced', !pos);
   }
-  const lastDiff = gapCell.n;
-  if (target === -2) { gapCell.n = null; gapCell.set(''); }
-  else if (diff !== lastDiff && (diff === diff || lastDiff === lastDiff)) { gapCell.n = diff; gapCell.set(signed(diff)); }
-  if (labelCell.n !== target) { labelCell.n = target; labelCell.set(target === -2 ? '' : target === -1 ? 'lead' : `to #${target}`); }
+  if (boardTotalCell.n !== n) { boardTotalCell.n = n; boardTotalCell.set(fTotal(n)); }
+  if (player < 0 || n < 2) { headGapCell.set(''); return; }
+  const other = player > 0 ? player - 1 : 1;
+  const diff = (Number(order[player].score) || 0) - (Number(order[other].score) || 0);
+  const gap = fOwnGap(diff);
+  // The strip carries the gap in its header; the list in your row.
+  if (horizontal) { headGapCell.set(gap); return; }
+  if (!me || (me.flags & TWO) === 0) return;
+  if (me.tGap !== gap) { me.tGap = gap; me.gap.textContent = gap; }
+  const target = player > 0 ? displayPos(order[other], other) : -1;
+  if (me.nTarget !== target) { me.nTarget = target; me.target.textContent = target < 0 ? 'lead' : `to #${target}`; }
 }
 
-/** One-shot cue when your position changes; a retry (score drops) resets it silently. */
+/**
+ * Rows of `list` that slid past yours this frame (from before `was` to after `is`, or back) dim
+ * while they pass behind it.
+ */
+function dipPassers(list, was, is, alongX) {
+  const rows = list.rows;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.key === 'me' || !row.on || row.serial !== list.serial || row.py !== row.py) continue;
+    if ((alongX ? row.px < was : row.py < was) === (alongX ? row.x < is : row.y < is)) continue;
+    if (row.dip) restart(row.dip);
+    else row.dip = row.el.animate(KF_DIP, DIP_OPTS);
+  }
+}
+
+function restart(animation) {
+  animation.currentTime = 0;
+  animation.play();
+}
+
+/**
+ * One-shot cue when your position changes: the hero rolls to the new number (from below when you
+ * climb), a ▲n / ▼n chip shows for 2.4 s, and your row (the rival's "you" line) flashes amber
+ * when you climb. A retry (the score drops) resets it silently.
+ */
 function signalMove(pos, score, view) {
   const restarted = score < lastScore;
   lastScore = score;
   if (restarted || !lastPos || pos === lastPos) { lastPos = pos; return; }
   const up = pos < lastPos;
-  const delta = view === 'rival' ? rivalDelta : board.pool.get('me')?.delta;
-  if (delta) {
-    delta.textContent = `${up ? '▲' : '▼'}${Math.abs(lastPos - pos)}`;
-    delta.classList.toggle('down', !up);
-    delta.classList.add('on');
-    clearTimeout(deltaTimer);
-    deltaTimer = setTimeout(() => delta.classList.remove('on'), DELTA_MS);
-  }
-  if (view === 'rival') rivalPos.animate(ROLL_KEYS, ROLL_OPTS);
-  else if (up) board.pool.get('me')?.flash.animate(FLASH_KEYS, FLASH_OPTS);
+  view.delta.textContent = `${up ? '▲' : '▼'}${up ? lastPos - pos : pos - lastPos}`;
+  view.delta.classList.toggle('down', !up);
   lastPos = pos;
+  if (view.chip) {
+    view.chip.effect.setKeyframes(motion === 'off' ? KF_CHIP_OFF : KF_CHIP);
+    restart(view.chip);
+  } else {
+    view.chip = view.delta.animate(motion === 'off' ? KF_CHIP_OFF : KF_CHIP, CHIP_OPTS);
+  }
+  if (motion === 'off') return;
+  if (view.roll) {
+    view.roll.effect.setKeyframes(up ? KF_ROLL_UP : KF_ROLL_DOWN);
+    restart(view.roll);
+  } else {
+    view.roll = view.hero.animate(up ? KF_ROLL_UP : KF_ROLL_DOWN, ROLL_OPTS);
+  }
+  if (motion !== 'full' || !up) return;
+  if (view === rivalView) {
+    if (view.flash) restart(view.flash);
+    else view.flash = view.flashEl.animate(KF_FLASH, FLASH_OPTS);
+    return;
+  }
+  const me = board.pool.get('me');
+  if (!me) return;
+  if (me.flashAnim) restart(me.flashAnim);
+  else me.flashAnim = me.flash.animate(KF_FLASH, FLASH_OPTS);
 }

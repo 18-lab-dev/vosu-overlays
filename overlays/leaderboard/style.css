@@ -1,239 +1,166 @@
-/* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Copyright (c) 2026 18-LAB. MIT.
+ * Leaderboard on the 18-LAB overlay kit (kit.css, docs/overlay-system.md). Sizes are px × --u,
+ * --u = 1 in the default boxes (256×400 board, 480×72 strip); overlay.js uses the same numbers. */
 
 * { box-sizing: border-box; }
-/* tokens.css sets color-scheme: dark; a differing embedder scheme would paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
-
-/* #root is the design box (the page box divided by the scale overlay.js picks), scaled to fit. */
-.root {
-  --hl: var(--map-accent, var(--accent));
-  --line: rgb(235 232 225 / .16);
-  position: absolute; left: 0; top: 0; transform-origin: 0 0;
-  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
-  font-variant-numeric: tabular-nums;
-}
-.root.lab { --hl: var(--accent); }
+[hidden] { display: none !important; }
 
 /* ---------------------------------------------------------------- connection chip */
-.chip {
-  position: absolute; left: 0; top: 0; margin: 0;
-  display: flex; align-items: center; gap: 8px; height: 20px; white-space: nowrap;
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-}
+.chip { position: absolute; left: 0; top: 0; margin: 0; }
 .align-right .chip { left: auto; right: 0; }
-.chip[hidden] { display: none; }
-.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-.chip.offline i { background: var(--danger); }
 
-/* ---------------------------------------------------------------- clusters */
-.board, .rival {
-  position: absolute; left: 0; top: 0; isolation: isolate;
+/* ---------------------------------------------------------------- root
+   The kit root wraps the content (the backing and registration marks hug it): the full box width
+   for the vertical board, the content's width for the strip, which hugs the left, right or centre. */
+.lb {
+  position: absolute; left: 0; top: 0;
   opacity: 0; visibility: hidden;
-  transition: opacity 200ms var(--ease-draft), visibility 0s 200ms;
+  transition: opacity var(--dur-base) var(--ease-in), visibility 0s var(--dur-base);
 }
-.board.on, .rival.on { opacity: 1; visibility: visible; transition: opacity 200ms var(--ease-draft), visibility 0s; }
+.lb.on { opacity: 1; visibility: visible; transition: opacity var(--dur-base) var(--ease-out), visibility 0s; }
+.vertical .lb { width: 100%; }
+.horizontal .lb { bottom: 0; height: fit-content; margin-block: auto; }
+.horizontal.align-right .lb { left: auto; right: 0; }
+.horizontal.align-center .lb { right: 0; width: fit-content; margin-inline: auto; }
 
-/* Optional backings: a soft fading scrim, or a graphite panel. */
-.backing-scrim .board::before, .backing-scrim .rival::before {
-  content: ""; position: absolute; inset: -24px -32px; z-index: -1; pointer-events: none;
-  background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .34) 62%, transparent);
-}
-.backing-panel .board, .backing-panel .rival {
-  padding: 4px 8px 6px;
-  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius);
-}
-.backing-panel { text-shadow: none; }
-/* Fixed-size clusters keep their design size and grow by the padding (overlay.js scales for it);
-   the full-width vertical list keeps the padding inside. */
-.backing-panel.horizontal .board, .backing-panel .rival { box-sizing: content-box; }
+/* ---------------------------------------------------------------- header: your position (the hero) */
+.head { display: flex; align-items: baseline; white-space: nowrap; }
+.hero { display: inline-block; color: var(--you); }
+.hash { margin-right: .04em; }
+.unplaced .hero { color: var(--text-3); }
+.unplaced .hash { display: none; }
+.side { display: flex; flex-direction: column; min-width: 0; }
+.line { display: flex; align-items: baseline; gap: var(--s-2); }
+.delta { color: var(--you); opacity: 0; }
+.delta.down { color: var(--text-2); }
+.hgap { display: none; color: var(--text-1); }
+.no-gap .hgap { display: none !important; }
 
-/* Entries move between slots on transform; entering ones snap into place, then fade in. */
+.vertical .head { height: calc(var(--u) * 52px); margin-bottom: var(--s-2); padding: 0 var(--s-2); gap: var(--s-2); }
+
+/* ---------------------------------------------------------------- rows
+   Entries move between slots on transform (the overtake), enter by fading in at their slot and
+   leave by fading out. Your row sits above the others so a passing row slides under it. */
+.rows, .rrows { position: relative; }
 .row, .rrow, .skip {
   position: absolute; left: 0; top: 0;
   will-change: transform, opacity;
-  transition: transform 240ms var(--ease-draft), opacity 160ms linear, visibility 0s;
+  transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out), visibility 0s;
 }
+/* Exits fade on --ease-out (not --ease-in) and slide one slot away from your row: the leaving row
+   must clear before the one taking its slot lands there. */
 .row.out, .rrow.out, .skip.out {
   opacity: 0; visibility: hidden;
-  transition: transform 240ms var(--ease-draft), opacity 160ms linear, visibility 0s 160ms;
+  transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility 0s var(--dur-fast);
 }
 .row.snap, .rrow.snap, .skip.snap { transition: none; }
+.row.me { z-index: 2; }
+.row:not(.me) { z-index: 1; }
 
-.delta {
-  flex: none; font: 500 12px/1 var(--font-mono); color: var(--hl);
-  opacity: 0; transition: opacity 240ms var(--ease-draft);
+.row, .rrow {
+  display: grid; align-items: baseline; align-content: start;
+  grid-template-columns: calc(var(--u) * 24px) minmax(0, 1fr) auto;
+  column-gap: var(--s-2);
+  contain: layout style;
 }
-.delta.down { color: var(--fg-dim); }
-.delta.on { opacity: 1; }
+.pos { justify-self: end; line-height: calc(var(--u) * 24px); }
+.who { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; line-height: calc(var(--u) * 24px); }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score, .rgap { font-size: calc(var(--u) * 22px); line-height: calc(var(--u) * 24px); }
+/* A failed player's score gives way to the game's FAIL token, in the same slot in every form. */
+.fail { display: none; grid-column: 3; grid-row: 1; justify-self: end; color: var(--j-miss); line-height: calc(var(--u) * 24px); }
+.failed .fail { display: block; }
+.failed :is(.score, .rgap) { display: none; }
+.failed .name { color: var(--text-3); }
+.flash { position: absolute; inset: 0; z-index: -1; background: var(--you); opacity: 0; pointer-events: none; }
 
-/* ---------------------------------------------------------------- board: shared parts */
-.head {
-  display: flex; align-items: center; gap: 12px;
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-  white-space: nowrap; user-select: none;
+/* Your row: raised graphite and the amber leading rule (kit-own), amber position, name in 600. */
+.me .pos { color: var(--you); font-weight: 600; }
+.me .name { color: var(--text-1); font-weight: 600; }
+
+/* Second line: accuracy, combo and mods for your neighbours; the gap (and, with hudFields, your
+   accuracy and combo) for you. It fades in after the rows have moved apart. */
+.sub {
+  grid-column: 2 / 4; grid-row: 2;
+  display: flex; align-items: baseline; gap: var(--s-2); min-width: 0;
+  line-height: calc(var(--u) * 16px); white-space: nowrap;
+  opacity: 0; transition: opacity var(--dur-fast) var(--ease-in);
 }
-.rank b { font-weight: 500; color: var(--hl); margin-right: 4px; }
-.hgap b { font-weight: 500; color: var(--fg); margin-right: 6px; }
-.no-gap .hgap { display: none; }
-.rows { position: relative; }
+.two .sub { opacity: 1; transition: opacity var(--dur-base) var(--ease-out) var(--dur-fast); }
+.facts { display: flex; align-items: baseline; gap: var(--s-2); flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.mods { margin-left: auto; line-height: inherit; }
+.gap { display: none; flex: none; }
+.gap b { font-weight: 600; color: var(--text-1); }
+.me .gap { display: inline; }
+.me .mods { margin-left: 0; }
+.me .acc, .me .combo { display: none; }
+.hud .me .acc, .hud .me .combo { display: inline; }
+.no-acc .acc, .no-combo .combo, .no-mods .mods, .no-gap .gap { display: none !important; }
 
-.row { display: grid; contain: layout style; }
-.row::after { content: ""; position: absolute; background: var(--line); }
-.pos { font: 600 22px/1 var(--font-display); color: var(--fg-dim); }
-.who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 16px/24px var(--font-body); color: var(--fg); }
-.score { font: 600 22px/24px var(--font-display); color: var(--fg); letter-spacing: .01em; }
-.meta { display: flex; align-items: center; gap: 12px; min-width: 0; font: 400 12px/16px var(--font-mono); color: var(--fg-dim); white-space: nowrap; }
-.fail { display: none; color: var(--danger); text-transform: uppercase; letter-spacing: .08em; }
-.failed .fail { display: inline; }
-.acc, .combo { width: 7ch; }
-.mods { letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; }
-.no-acc .acc, .no-combo .combo, .no-mods .mods { display: none; }
-.failed .pos, .failed .name, .failed .score { color: var(--muted); }
+.skip span { position: absolute; letter-spacing: .12em; color: var(--text-2); }
 
-.tint, .flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
-.tint { background: linear-gradient(90deg, var(--hl), transparent 85%); }
-.flash { background: var(--hl); }
-.me .tint { opacity: .18; }
-.row.me::before { content: ""; position: absolute; background: var(--hl); }
-.me .pos { color: var(--hl); }
-.me .name { font-weight: 600; }
-
-.skip span { position: absolute; font: 500 12px/16px var(--font-mono); color: var(--fg-dim); }
-.skip::before { content: ""; position: absolute; }
-
-/* ---------------------------------------------------------------- board: vertical (in-game list) */
-.vertical .board { width: 100%; }
-.vertical .head { height: 32px; padding: 0 8px 0 10px; }
-.vertical .rank { margin-right: auto; }
-.vertical .rows { height: 0; }
+/* ---------------------------------------------------------------- vertical board */
+.vertical .rows { width: 100%; height: 0; }
 .vertical .row {
-  width: 100%; height: 48px; padding: 0 8px 0 10px;
-  grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-rows: 24px 16px;
-  align-content: center; column-gap: 10px;
+  width: 100%; height: calc(var(--u) * 28px);
+  grid-template-rows: calc(var(--u) * 24px) calc(var(--u) * 16px);
+  padding: calc(var(--u) * 2px) var(--s-2) 0;
 }
-.vertical .row::after { left: 10px; right: 8px; top: 0; height: 1px; }
-.vertical .row.me::before { left: 0; top: 0; bottom: 0; width: 2px; }
-.vertical .pos { grid-row: 1 / 3; align-self: center; justify-self: end; }
+.vertical .row.two { height: calc(var(--u) * 44px); }
 .vertical .score { justify-self: end; }
-.vertical .meta { grid-column: 2 / 4; grid-row: 2; }
-.vertical .skip { width: 100%; height: 16px; }
-.vertical .skip::before { left: 48px; right: 8px; top: 50%; height: 1px; background: repeating-linear-gradient(90deg, rgb(235 232 225 / .3) 0 2px, transparent 2px 5px); }
-.vertical .skip span { left: 10px; top: 0; width: 28px; text-align: right; }
+.vertical .skip { width: 100%; height: calc(var(--u) * 20px); }
+.vertical .skip span { left: var(--s-2); top: 0; width: calc(var(--u) * 24px); text-align: right; line-height: calc(var(--u) * 20px); }
 
-/* Compact list: one line per entry — position, name, accuracy, score. */
-.vertical.compact .row { height: 34px; grid-template-columns: 24px minmax(0, 1fr) auto 96px; grid-template-rows: 34px; }
-.vertical.compact .pos { grid-row: 1; font-size: 18px; }
-.vertical.compact .name { line-height: 34px; }
-.vertical.compact .score { grid-column: 4; line-height: 34px; }
-.vertical.compact .meta { grid-column: 3; grid-row: 1; }
-.compact .combo, .compact .mods { display: none; }
-.vertical.compact .acc { text-align: right; }
-.vertical.compact .fail { font-size: 0; }
-.vertical.compact .fail::after { content: "F"; font-size: 12px; }
-.vertical.compact .skip { height: 12px; }
-.vertical.compact .skip span { line-height: 12px; }
+/* Right alignment mirrors the vertical list: positions on the outer right edge, scores on the inner
+   side. The strip only moves to the right of its box. */
+.vertical.align-right :is(.head, .row, .rrow, .you) { direction: rtl; }
+.vertical.align-right :is(.head, .row, .rrow, .you) > * { direction: ltr; }
+.vertical.align-right .name { text-align: right; }
+.vertical.align-right .who { flex-direction: row-reverse; }
+.vertical.align-right .sub { flex-direction: row-reverse; }
+.vertical.align-right .facts { justify-content: flex-end; }
+.vertical.align-right .mods { order: -1; margin-left: 0; margin-right: auto; }
+.vertical.align-right .kit-own { box-shadow: inset calc(var(--u) * -2px) 0 0 var(--you); }
+.vertical.align-right .skip span { left: auto; right: var(--s-2); text-align: left; }
 
-/* Right alignment mirrors the list: position on the outer right edge, values on the inner side. */
-.vertical.align-right .head { flex-direction: row-reverse; padding: 0 10px 0 8px; }
-.vertical.align-right .rank { margin-right: 0; margin-left: auto; }
-.vertical.align-right .row { padding: 0 10px 0 8px; grid-template-columns: auto minmax(0, 1fr) 28px; }
-.vertical.align-right .row::after { left: 8px; right: 10px; }
-.vertical.align-right .row.me::before { left: auto; right: 0; }
-.vertical.align-right .tint { background: linear-gradient(270deg, var(--hl), transparent 85%); }
-.vertical.align-right .pos { grid-column: 3; justify-self: start; }
-.vertical.align-right .who { grid-column: 2; grid-row: 1; flex-direction: row-reverse; }
-.vertical.align-right .score { grid-column: 1; grid-row: 1; justify-self: start; }
-.vertical.align-right .meta { grid-column: 1 / 3; flex-direction: row-reverse; }
-.vertical.align-right .acc, .vertical.align-right .combo { text-align: right; }
-.vertical.align-right .skip::before { left: 8px; right: 48px; }
-.vertical.align-right .skip span { left: auto; right: 10px; text-align: left; }
-.vertical.compact.align-right .row { grid-template-columns: 96px auto minmax(0, 1fr) 24px; }
-.vertical.compact.align-right .score { grid-column: 1; }
-.vertical.compact.align-right .meta { grid-column: 2; grid-row: 1; }
-.vertical.compact.align-right .who { grid-column: 3; }
-.vertical.compact.align-right .pos { grid-column: 4; }
-
-/* ---------------------------------------------------------------- board: horizontal strip */
-.horizontal .board { display: flex; height: 76px; }
-.horizontal .head {
-  flex: none; width: 156px; height: 100%; padding: 0 12px;
-  flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px;
-}
-.horizontal .rank b { font: 600 28px/1 var(--font-display); letter-spacing: 0; }
+/* ---------------------------------------------------------------- horizontal strip */
+.horizontal .board { display: flex; height: calc(var(--u) * 40px); }
+.horizontal .head { flex: none; width: calc(var(--u) * 128px); height: 100%; margin-right: var(--s-2); padding-left: var(--s-2); gap: var(--s-2); align-items: center; }
+.horizontal .hero { font-size: calc(var(--u) * 40px); line-height: calc(var(--u) * 40px); }
+.horizontal .side .line, .horizontal .hgap { line-height: calc(var(--u) * 20px); }
+.horizontal .hgap { display: block; }
 .horizontal .rows { flex: none; height: 100%; }
 .horizontal .row {
-  width: 188px; height: 76px; padding: 0 12px;
-  grid-template-columns: 24px minmax(0, 1fr); grid-template-rows: 24px 24px 16px;
-  align-content: center; column-gap: 6px;
+  width: calc(var(--u) * 94px); height: calc(var(--u) * 40px);
+  grid-template-columns: auto minmax(0, 1fr); grid-template-rows: calc(var(--u) * 20px) calc(var(--u) * 20px);
+  column-gap: var(--s-1); padding: 0 var(--s-2);
 }
-.horizontal .row::after { left: 0; top: 12px; bottom: 12px; width: 1px; }
-.horizontal .row.me::before { left: 0; right: 0; top: 0; height: 2px; }
-.horizontal .tint { background: linear-gradient(180deg, var(--hl), transparent 85%); }
-.horizontal .pos { font-size: 18px; line-height: 24px; }
-.horizontal .score { grid-column: 1 / 3; grid-row: 2; }
-.horizontal .meta { grid-column: 1 / 3; grid-row: 3; gap: 10px; overflow: hidden; }
-.horizontal .fail { font-size: 0; }
-.horizontal .fail::after { content: "F"; font-size: 12px; }
-.horizontal .skip { width: 28px; height: 76px; }
-.horizontal .skip::before { left: 50%; top: 30px; bottom: 12px; width: 1px; background: repeating-linear-gradient(180deg, rgb(235 232 225 / .3) 0 2px, transparent 2px 5px); }
-.horizontal .skip span { left: 0; top: 10px; width: 100%; text-align: center; }
-.horizontal.compact .board, .horizontal.compact .row, .horizontal.compact .skip { height: 56px; }
-.horizontal.compact .row { grid-template-rows: 24px 24px; }
-.horizontal.compact .meta { display: none; }
+.horizontal .pos, .horizontal .who { line-height: calc(var(--u) * 20px); }
+.horizontal .score { grid-column: 1 / 3; grid-row: 2; font-size: calc(var(--u) * 20px); line-height: calc(var(--u) * 20px); }
+.horizontal .row .fail { grid-column: 1 / 3; grid-row: 2; justify-self: start; line-height: calc(var(--u) * 20px); }
+.horizontal .sub { display: none; }
+.horizontal .skip { width: calc(var(--u) * 22px); height: 100%; }
+.horizontal .skip span { left: 0; top: 0; width: 100%; text-align: center; line-height: calc(var(--u) * 40px); letter-spacing: 0; }
 
-/* ---------------------------------------------------------------- rival ladder */
-.rlabel {
-  display: flex; align-items: center; gap: 6px; height: 22px; padding-left: 14px;
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); white-space: nowrap;
-}
-.rlabel i { width: 6px; height: 6px; border-radius: 50%; background: var(--hl); }
-.ladder { position: relative; }
-.rrows { position: absolute; top: 0; }
-.rrow, .you { display: grid; column-gap: 12px; align-items: baseline; }
-.rrow { height: 28px; width: 100%; }
-.rk { font: 500 12px/28px var(--font-mono); color: var(--fg-dim); }
-.rn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 16px/28px var(--font-body); color: var(--fg); }
-.rg { font: 600 22px/28px var(--font-display); color: var(--fg); letter-spacing: .01em; }
-.rrow.ahead .rn, .rrow.ahead .rg { color: var(--fg-dim); }
-.rrow.failed .rn { color: var(--muted); }
-.you { position: absolute; }
-.you::before { content: ""; position: absolute; top: 10px; bottom: 10px; width: 2px; background: var(--hl); }
-.rpos { font: 600 48px/52px var(--font-display); color: var(--hl); }
-.rtotal { font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); white-space: nowrap; }
+/* ---------------------------------------------------------------- rival ladder
+   Vertical: the player above (0–28), you (28–88), the player below (88–116).
+   Horizontal: you on the left, the players above and below stacked beside you. */
+.rival { position: relative; }
+.you { position: absolute; z-index: 2; isolation: isolate; left: 0; display: flex; align-items: baseline; gap: var(--s-2); padding: 0 var(--s-2); white-space: nowrap; }
+.rrow { width: 100%; height: calc(var(--u) * 28px); padding: calc(var(--u) * 2px) var(--s-2) 0; }
+.rgap { justify-self: end; }
+.rrow.ahead .name, .rrow.ahead .rgap { color: var(--text-2); }
 
-/* Vertical: player above at 0, you at 28–80, player below at 80. */
-.vertical .rival { width: 272px; }
-.vertical .ladder { height: 108px; }
-.vertical .ladder::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: var(--line); }
-.vertical .rrows { left: 0; width: 100%; }
-.vertical .rrow { grid-template-columns: 52px minmax(0, 1fr) auto; }
-.vertical .rk { justify-self: end; }
-.vertical .you { left: 0; top: 28px; width: 100%; height: 52px; grid-template-columns: 52px auto auto; justify-content: start; }
-.vertical .you::before { left: 0; }
-.vertical .rpos { justify-self: end; }
-.vertical.align-right .rival { left: auto; right: 0; }
-.vertical.align-right .rlabel { flex-direction: row-reverse; padding: 0 14px 0 0; }
-.vertical.align-right .ladder::before { left: auto; right: 0; }
-.vertical.align-right .rrow { grid-template-columns: auto minmax(0, 1fr) 52px; }
-.vertical.align-right .rk { grid-column: 3; grid-row: 1; justify-self: start; }
-.vertical.align-right .rn { grid-column: 2; grid-row: 1; text-align: right; }
-.vertical.align-right .rg { grid-column: 1; grid-row: 1; }
-.vertical.align-right .you { grid-template-columns: auto auto 52px; justify-content: end; }
-.vertical.align-right .you::before { left: auto; right: 0; }
-.vertical.align-right .rpos { grid-column: 3; grid-row: 1; justify-self: start; }
-.vertical.align-right .rtotal { grid-column: 2; grid-row: 1; }
-.vertical.align-right .you .delta { grid-column: 1; grid-row: 1; }
+.vertical .rival { height: calc(var(--u) * 116px); }
+.vertical .rrows { left: 0; top: 0; width: 100%; }
+.vertical .you { top: calc(var(--u) * 28px); width: 100%; height: calc(var(--u) * 60px); padding-top: calc(var(--u) * 4px); }
+.vertical.align-right .you { box-shadow: inset calc(var(--u) * -2px) 0 0 var(--you); }
 
-/* Horizontal: you on the left, the players above and below stacked beside you. */
-.horizontal .rival { width: 392px; }
-.horizontal .rlabel { display: none; }
-.horizontal .ladder { height: 56px; }
-.horizontal .you { left: 0; top: 0; width: 128px; height: 56px; grid-template-columns: auto auto auto; justify-content: start; column-gap: 8px; padding-left: 12px; }
-.horizontal .you::before { left: 0; }
-.horizontal .rpos { font-size: 44px; line-height: 56px; }
-.horizontal .rrows { left: 128px; width: 264px; }
-.horizontal .rrow { grid-template-columns: 36px minmax(0, 1fr) auto; }
+.horizontal .rival { width: calc(var(--u) * 344px); height: calc(var(--u) * 40px); }
+.horizontal .you { top: 0; width: calc(var(--u) * 120px); height: 100%; align-items: center; }
+.horizontal .rrows { position: absolute; left: calc(var(--u) * 128px); top: 0; width: calc(var(--u) * 216px); }
+.horizontal .rrow { height: calc(var(--u) * 20px); padding-top: 0; }
+.horizontal .rrow :is(.pos, .who) { line-height: calc(var(--u) * 20px); }
+.horizontal .rgap { font-size: calc(var(--u) * 20px); line-height: calc(var(--u) * 20px); }
+.horizontal .rrow .fail { line-height: calc(var(--u) * 20px); }

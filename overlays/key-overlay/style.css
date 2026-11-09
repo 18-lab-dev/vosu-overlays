@@ -1,117 +1,86 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-
 *, *::before, *::after { box-sizing: border-box; }
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 body { position: relative; }
 
-/* Shadow for contrast over any map background; not a glow. */
-:root { --lift: 0 1px 2px rgb(0 0 0 / .65); }
+/* ------------------------------------------------------------------ root
+   overlay.js lays the block out in px for the page's box and sets --u (1 at the default box); every
+   part inside is positioned absolutely from that layout. Backing and signature come from kit.css. */
+.ko { position: absolute; left: 0; top: 0; contain: layout; }
+/* Exits accelerate away; arrivals settle (kit-enter supplies the transition and the 4 px drop). */
+.ko.kit-enter[data-out] { transition-timing-function: var(--ease-in); }
+.ko[data-instant] { transition: none; }
+.ko > * { position: absolute; }
 
-/* ------------------------------------------------------------------ block
-   Laid out in design px for the page's box (overlay.js), then scaled uniformly to it. */
-.block {
-  --k-accent: var(--map-accent, var(--accent));
-  position: absolute; left: 0; top: 0; transform-origin: 0 0;
-  display: grid; gap: var(--space-1) var(--space-2);
-  color: var(--fg); user-select: none;
-  contain: layout;
-  opacity: 1;
-  transition: opacity 180ms var(--ease-draft);
+/* ------------------------------------------------------------------ keys per second (off by default) */
+.read { display: flex; align-items: baseline; gap: var(--s-4); white-space: nowrap; }
+.read[hidden] { display: none; }
+.ko[data-orient="h"] .read { flex-direction: column; align-items: flex-start; justify-content: center; gap: var(--s-2); }
+.ko[data-orient="h"][data-caps="end"] .read { align-items: flex-end; }
+.peak { position: relative; display: inline-flex; align-items: baseline; gap: var(--s-1); }
+.peak .kit-value { font-size: calc(var(--u, 1) * 24px); }
+.read[data-empty] .kit-value { color: var(--text-3); }
+.read [data-dash] { color: var(--text-3); }
+/* A new peak: an amber underline that fades (overlay.js restarts one Animation). */
+.peak-mark {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--u, 1) * -5px);
+  height: max(2px, calc(var(--u, 1) * 2px)); background: var(--you); opacity: 0; pointer-events: none;
 }
-.block[data-show="0"] { opacity: 0; }
-.block[data-instant] { transition: none; }
-/* Vertical: caps at the bottom (end) and presses rise, or at the top (start) and presses fall. */
-.block[data-orient="v"][data-caps="end"] { grid-template-areas: "read" "tape" "caps"; }
-.block[data-orient="v"][data-caps="start"] { grid-template-areas: "caps" "tape" "read"; }
-/* Horizontal: caps on the left (start) and presses travel right, or mirrored. */
-.block[data-orient="h"][data-caps="start"] { grid-template-areas: "read read" "caps tape"; grid-template-columns: 64px auto; }
-.block[data-orient="h"][data-caps="end"] { grid-template-areas: "read read" "tape caps"; grid-template-columns: auto 64px; }
-
-/* Backing: none (default) floats on the game; scrim a soft shade that fades out; panel the classic panel. */
-.block[data-backing="scrim"]::before {
-  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background: radial-gradient(closest-side, rgb(11 12 13 / .62), rgb(11 12 13 / .44) 70%, transparent);
-}
-.block[data-backing="panel"] {
-  padding: var(--space-2);
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong); border-top: 2px solid var(--k-accent); border-radius: var(--radius);
-}
-
-/* ------------------------------------------------------------------ readout */
-.read {
-  grid-area: read; position: relative; height: 36px;
-  display: flex; align-items: baseline; gap: var(--space-2); padding: 6px 2px 0;
-  white-space: nowrap; text-shadow: var(--lift);
-}
-.block[data-orient="h"][data-caps="end"] .read { justify-content: flex-end; }
-/* A soft local shade under the numbers so they read over bright maps; no hard edges. */
-.block[data-backing="none"] .read::before {
-  content: ""; position: absolute; z-index: -1; inset: -2px 0 -4px; pointer-events: none;
-  background: linear-gradient(to right, transparent, rgb(11 12 13 / .56) 18px, rgb(11 12 13 / .5) 72%, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 72%, transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 72%, transparent);
-}
-.label { font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
-.num { font: 600 28px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); min-width: 1ch; }
-.num.small { font-size: 22px; color: var(--fg-dim); }
-.peak-label { margin-left: var(--space-2); }
-.read[data-empty="1"] .num { color: var(--fg-dim); }
-.block[data-kps="0"] .read { display: none; }
 
 /* ------------------------------------------------------------------ tape */
-.tape { grid-area: tape; position: relative; }
-#tape { display: block; }
-/* Presses dissolve at the far end of the tape. */
-.block[data-orient="v"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to top, #000 62%, transparent); mask-image: linear-gradient(to top, #000 62%, transparent); }
-.block[data-orient="v"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent); mask-image: linear-gradient(to bottom, #000 62%, transparent); }
-.block[data-orient="h"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to right, #000 62%, transparent); mask-image: linear-gradient(to right, #000 62%, transparent); }
-.block[data-orient="h"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to left, #000 62%, transparent); mask-image: linear-gradient(to left, #000 62%, transparent); }
+#tape { display: block; width: 100%; height: 100%; }
+.tape[hidden] { display: none; }
+/* Presses dissolve over the far fifth of the tape (the mask, not the bar colour, does the fading). */
+.ko[data-orient="v"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to top, #000 80%, transparent); mask-image: linear-gradient(to top, #000 80%, transparent); }
+.ko[data-orient="v"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent); mask-image: linear-gradient(to bottom, #000 80%, transparent); }
+.ko[data-orient="h"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to right, #000 80%, transparent); mask-image: linear-gradient(to right, #000 80%, transparent); }
+.ko[data-orient="h"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to left, #000 80%, transparent); mask-image: linear-gradient(to left, #000 80%, transparent); }
 .note {
-  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); margin: 0; padding: 0 var(--space-2);
-  font: 400 12px/1.4 var(--font-mono); color: var(--fg); text-shadow: var(--lift); text-align: center; white-space: normal;
+  position: absolute; inset: 0; margin: 0; padding: 0 var(--s-2);
+  display: flex; align-items: center; justify-content: center; text-align: center;
 }
 .note[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ caps */
-.caps { grid-area: caps; position: relative; }
 .cap {
-  --k: var(--accent);
   position: absolute; contain: strict;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  background: rgb(17 18 20 / .84);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
-  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-1);
+  background: rgb(239 236 229 / .06);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  border-radius: 2px;
 }
-/* The stripe faces the tape: presses leave the cap there. */
-.cap::before { content: ""; position: absolute; z-index: 1; background: var(--k); }
-.block[data-orient="v"][data-caps="end"] .cap::before { left: -1px; right: -1px; top: -1px; height: 2px; }
-.block[data-orient="v"][data-caps="start"] .cap::before { left: -1px; right: -1px; bottom: -1px; height: 2px; }
-.block[data-orient="h"][data-caps="start"] .cap::before { top: -1px; bottom: -1px; right: -1px; width: 2px; }
-.block[data-orient="h"][data-caps="end"] .cap::before { top: -1px; bottom: -1px; left: -1px; width: 2px; }
-/* Pressed: an opacity-only layer, so a keypress never costs layout. */
-.cap .lit {
-  position: absolute; inset: -1px; border-radius: inherit; opacity: 0; will-change: opacity;
-  background: color-mix(in srgb, var(--k) 42%, rgb(17 18 20 / .5));
-  box-shadow: inset 0 0 0 1px var(--k);
+.ko[data-backing="none"] .cap { background: rgb(var(--backing-rgb) / .72); }
+/* Rows (horizontal): key code and count on one line. */
+.ko[data-orient="h"] .cap { flex-direction: row; justify-content: space-between; gap: var(--s-2); padding: 0 var(--s-2); }
+.cap b { position: relative; font-weight: 500; white-space: nowrap; }
+.cap .n {
+  position: relative;
+  font: 600 calc(var(--u, 1) * var(--count, 24) * 1px)/1 var(--font-display);
+  color: var(--text-1); white-space: nowrap;
 }
-.cap b, .cap span { position: relative; }
-.cap b { font-size: 13px; font-weight: 500; line-height: 1; color: var(--fg); letter-spacing: .02em; white-space: nowrap; }
-.cap span { font-size: 12px; line-height: 1; color: var(--fg-dim); white-space: nowrap; }
-.cap.small b { font-size: 11px; letter-spacing: 0; }
-.cap.tight span { display: none; }
-.block[data-counts="0"] .cap span { display: none; }
+.cap .n[data-dash] { color: var(--text-3); }
+.ko[data-counts="0"] .cap .n, .caps[data-tight] .cap .n { display: none; }
+/* osu!taiko: the zone (don / kat) as a 2 px stripe on the edge the presses leave from. */
+.cap[data-zone]::before { content: ""; position: absolute; background: var(--k); }
+.ko[data-orient="v"][data-caps="end"] .cap[data-zone]::before { left: 0; right: 0; top: 0; height: max(2px, calc(var(--u, 1) * 2px)); }
+.ko[data-orient="v"][data-caps="start"] .cap[data-zone]::before { left: 0; right: 0; bottom: 0; height: max(2px, calc(var(--u, 1) * 2px)); }
+.ko[data-orient="h"][data-caps="start"] .cap[data-zone]::before { top: 0; bottom: 0; right: 0; width: max(2px, calc(var(--u, 1) * 2px)); }
+.ko[data-orient="h"][data-caps="end"] .cap[data-zone]::before { top: 0; bottom: 0; left: 0; width: max(2px, calc(var(--u, 1) * 2px)); }
 
-/* ------------------------------------------------------------------ connection / no-data chip */
-.chip {
-  position: absolute; left: 0; bottom: 0; height: 24px; padding: 0 var(--space-2);
-  display: inline-flex; align-items: center; gap: 6px;
-  background: rgb(17 18 20 / .78); border-radius: var(--radius);
-  font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
+/* Down: the kit's lit language (amber underline, amber key code; the body stays graphite). The press
+   snaps on; the underline lets go over --dur-fast, except under reduced motion and at high KPS. */
+.cap > .lit {
+  position: absolute; left: 0; right: 0; bottom: 0; height: max(2px, calc(var(--u, 1) * 2px));
+  background: var(--you); opacity: 0; will-change: opacity;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
-.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-.chip[data-state="offline"] i { background: var(--danger); }
+.cap[data-down] > .lit { opacity: 1; transition: none; }
+.cap[data-down] > b { color: var(--you); }
+.ko:is([data-motion="reduced"], [data-fast]) .cap > .lit { transition: none; }
+
+/* ------------------------------------------------------------------ connection chip */
+.chip {
+  position: absolute; left: 0; bottom: 0; margin: 0; padding: 4px 8px;
+  background: rgb(var(--backing-rgb) / .8); border-radius: 2px; white-space: nowrap;
+}
 .chip[hidden] { display: none; }

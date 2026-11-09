@@ -5,21 +5,22 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Key overlay</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<section id="block" class="block" data-orient="v" data-caps="end" data-show="0" data-instant aria-label="Key overlay">
-  <div class="read" id="read">
-    <b class="num" id="kps">—</b><span class="label">KPS</span>
-    <span class="label peak-label">Peak</span><b class="num small" id="peak">—</b>
+<section id="block" class="kit kit-enter ko" data-out data-instant data-orient="v" data-caps="end" aria-label="Key overlay">
+  <div class="read" id="read" hidden>
+    <span class="kit-value live"><span id="kps">—</span><span class="kit-unit">kps</span></span>
+    <span class="peak"><span class="kit-label">Peak</span><span class="kit-value" id="peak">—</span><i class="peak-mark" id="peak-mark"></i></span>
   </div>
-  <div class="tape">
+  <div class="tape" id="tape-box">
     <canvas id="tape" aria-label="Key presses scrolling away from the key caps"></canvas>
-    <p class="note" id="note" hidden></p>
+    <p class="note kit-caption" id="note" hidden></p>
   </div>
   <div class="caps" id="caps"></div>
 </section>
-<div class="chip" id="chip" data-state="connecting"><i></i><span id="chip-text">Connecting</span></div>
+<p class="chip kit-caption" id="chip" role="status" hidden>Connecting to vosu</p>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

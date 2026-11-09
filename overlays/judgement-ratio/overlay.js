@@ -1,26 +1,35 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!mania judgement counter: MAX…MISS counts, proportional bar, MAX:300 ratio, accuracy,
-// combo and key presses per second from /keys/all count deltas. The page is content-sized: a
-// tall box gets the data column, a wide one the compact focus row (for over the stage, just above
-// the receptors). Results keep only what osu!'s ranking screen lacks (ratio and peak KPS).
+// osu!mania judgement ratio: the MAX : 300 ratio as the hero and the judgement mix as one
+// proportional bar, on the 18-LAB kit (docs/overlay-system.md). The MAX…Miss counts, accuracy and
+// combo are osu!'s HUD's and appear only with `hudFields`; keys per second (the shared createKps()
+// number) only with `showKps`, from a second subscription that exists only while it is on. Results
+// keep what osu!'s ranking screen lacks: the ratio, the bar and the attempt's peak.
 //
-// Render path: every buffer is allocated at load or on resize. A frame formats a string only
-// for a displayed number that changed (shares come from a table built once), writes the DOM
-// only when that string differs, and redraws the bar only when a count changed.
-import { subscribe, settings, activeMode, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
+// Motion (setting `motion`): the panel enters and leaves with the kit's fade; a 50 or a miss marks
+// its place on the bar (and flashes its count when counts are shown); on results the bar grows in
+// once. Counts and the ratio snap. Idle is free: a frame is requested only for new data or while a
+// mark is fading.
+//
+// Render path: every buffer and formatter is created at load or on resize. A frame formats text
+// only for a displayed number that changed (numberFormatter returns one string per shown value),
+// writes the DOM only when that string differs, and redraws the bar only when a count changed or
+// a mark is fading.
+import {
+  subscribe, settings, activeMode, MODES, UNKNOWN, isKnown, known,
+  numberFormatter, createKps, applyKitSettings, MOTION_MS,
+} from './vosu-overlay.js';
 
-// Base metrics (CSS px) each layout is designed at; the page scales them to its box.
-const BASE = { vertical: { w: 260, h: 384 }, horizontal: { w: 600, h: 82 } };
+const BASE_WIDTH = 256; // the column's design width at --u = 1 (the default box)
 const HORIZONTAL_ASPECT = 2; // auto orientation: boxes at least this wide per unit of height
 const STATE_PLAY = 2;
 const STATE_RESULTS = 7;
-const KPS_WINDOW = 1000; // ms of wall clock
-const KPS_JUMP = 64; // larger count jumps are attach/rewind baselines, not presses
 
 // Row order: MAX, 300, 200, 100, 50, MISS.
 const KEYS = ['geki', '300', 'katu', '100', '50', '0'];
 const PLAY_HITS = KEYS.map(key => `/play/hits/${key}`);
 const RESULT_HITS = KEYS.map(key => `/resultsScreen/hits/${key}`);
+const MEH = 4;
+const MISS = 5;
 const P = {
   state: '/state/number',
   playMode: '/play/mode/number',
@@ -28,119 +37,77 @@ const P = {
   resultsMode: '/resultsScreen/mode/number',
   accuracy: '/play/accuracy',
   combo: '/play/combo/current',
-  keys: '/keys/all',
-  keyCount: '/beatmap/stats/cs/converted',
-  checksum: '/beatmap/checksum',
 };
+// Keys per second: its own subscription, open only while showKps is on (the live clock changes
+// every vosu tick; without it the main subscription only wakes on judgements).
+const K = { keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate' };
 
 const $ = id => document.getElementById(id);
 const hud = $('hud');
 const chip = $('chip');
 const canvas = $('bar');
 const ctx = canvas.getContext('2d', { alpha: true });
-const rows = [...hud.querySelectorAll('.row')].map(row => ({
-  row,
-  count: row.querySelector('.count'),
-  share: row.querySelector('.share'),
-  flash: null,
-  flashTarget: row.querySelector('.flash'),
-}));
-const text = {
-  keys: $('keys'), ratio: $('ratio'), acc: $('acc'), combo: $('combo'),
-  kps: $('kps'), peak: $('peak'), peakLabel: $('peak-label'), chip: $('chip-text'),
-};
+const ratioBox = hud.querySelector('.ratio');
 const note = $('note');
+const text = { ratio: $('ratio'), acc: $('acc'), combo: $('combo'), kps: $('kps'), peak: $('peak') };
+const cells = [...hud.querySelectorAll('.cell')].map(cell => ({
+  count: cell.querySelector('.count > b'),
+  flash: cell.querySelector('.flash'),
+  anim: null,
+}));
 
 // ------------------------------------------------------------------ state
 let socketStatus = 'connecting';
 let feed = null; // subscribe()'s handle; its `values` object is the client's, updated in place
+let kpsFeed = null; // the keys-per-second subscription while showKps is on
 let previousState;
-let peakValid = false; // results reached straight from our own play → its peak KPS applies
+let peakValid = false; // results reached straight from our own play → its peak applies
 let options = null;
-
-// Key presses: wall-clock timestamps of each counted down-edge in a ring buffer.
-const RING = 1024;
-const ring = new Float64Array(RING);
-let ringHead = 0;
-let ringSize = 0;
-let keyBase = -1;
-let peak = 0;
-let decayTimer = 0;
-// Ring time of the press the pending decay wake was armed for (NaN = none). A typed slot: a
-// module `let` would box a fresh number on every store of a fractional time.
-const decayFor = new Float64Array(1).fill(NaN);
-
-// Last attempt, held so the results screen can show its ratio and peak.
-const held = { has: false, counts: new Int32Array(6), peak: NaN };
-
-const counts = new Int32Array(6);
-const drawn = new Int32Array(6).fill(-1);
-let drawnPhase = '';
-let lastPhase = '';
-let barDirty = true;
+let motion = 'full';
 let pending = 0;
+let shown = false;
+let phase = ''; // 'live' | 'results' | '' (hidden)
+let orientation = 'vertical';
+let mirrored = false; // the column aligned right: the bar fills from the right
 
-// Numbers behind the displayed text (NaN = '—', undefined = nothing shown yet).
-const UNSET = -2147483648;
-const shownCount = new Int32Array(6).fill(UNSET);
-const shownShare = new Int32Array(6).fill(UNSET); // SHARE index, -1 = blank (no judgements)
-let shownAcc;
-let shownCombo;
-let shownKps;
-let shownPeak;
-let shownKeyCount;
-let shownMax = UNSET;
-let shownGreat = UNSET;
-let shownSum = UNSET; // the sum the shown shares were computed from
+const kps = createKps();
+// Last attempt, held so the results screen can show its ratio, bar and peak.
+const held = { has: false, counts: new Int32Array(6), total: 0, peak: UNKNOWN };
+const counts = new Int32Array(6);
+const drawn = new Int32Array(6).fill(-1); // counts the bar was last drawn with; -1 = none
+let barDirty = true;
 
-let paletteFor = '';
-let unit = 1; // page px per base px
-let orientation = 'vertical'; // mirrors hud[data-orient]
+// One formatter per displayed field (docs/overlay-system.md "Numbers").
+const fmt = {
+  ratio: numberFormatter('ratio'),
+  acc: numberFormatter('accuracy'),
+  combo: numberFormatter('count'),
+  kps: numberFormatter('kps'),
+  peak: numberFormatter('kps'),
+  counts: KEYS.map(() => numberFormatter('count')),
+};
 
-function resetKps() {
-  ringHead = 0;
-  ringSize = 0;
-  keyBase = -1;
-  peak = 0;
-}
-
-function evict(now) {
-  const edge = now - KPS_WINDOW;
-  while (ringSize && ring[ringHead] <= edge) {
-    ringHead = (ringHead + 1) % RING;
-    ringSize--;
-  }
-}
-
-/** Counts new down-edges from the summed per-key counts; reads the parsed array in place. */
-function countPresses(keys, now) {
-  if (!Array.isArray(keys)) return;
-  let total = 0;
-  for (let i = 0; i < keys.length; i++) total += keys[i]?.count || 0;
-  if (keyBase < 0 || total < keyBase || total - keyBase > KPS_JUMP) {
-    // First frame, retry/rewind, or a gap we cannot attribute: take it as the new baseline.
-    if (keyBase >= 0 && total < keyBase) { ringHead = 0; ringSize = 0; peak = 0; }
-    keyBase = total;
-    return;
-  }
-  for (let n = total - keyBase; n > 0; n--) {
-    ring[(ringHead + ringSize) % RING] = now;
-    if (ringSize < RING) ringSize++;
-    else ringHead = (ringHead + 1) % RING;
-  }
-  keyBase = total;
-  evict(now);
-  if (ringSize > peak) peak = ringSize;
-}
-
-function onFrame(next, changed) {
+// ------------------------------------------------------------------ data
+function onFrame(next) {
   const state = next[P.state];
-  if (state === STATE_PLAY && previousState !== STATE_PLAY) { resetKps(); peakValid = true; }
+  if (state === STATE_PLAY && previousState !== STATE_PLAY) {
+    kps.reset();
+    peakValid = true;
+    held.total = 0;
+    held.peak = UNKNOWN;
+  }
   if (state === STATE_RESULTS && previousState !== STATE_RESULTS && previousState !== STATE_PLAY) peakValid = false;
-  if (state === STATE_PLAY && changed.has(P.keys)) countPresses(next[P.keys], performance.now());
-  if (changed.has(P.checksum)) loadPalette();
   previousState = state;
   schedule();
+}
+
+function onKpsFrame(next, changed) {
+  if (feed?.values[P.state] !== STATE_PLAY) return;
+  const live = known(next[K.live]);
+  if (changed.has(K.keys)) {
+    kps.ingest(next[K.keys], live, next[K.rate]);
+    schedule();
+  } else if (live >= kps.expiresAt) schedule(); // a press just left the window
 }
 
 function onStatus(state) {
@@ -154,55 +121,49 @@ function schedule() {
   if (!pending) pending = requestAnimationFrame(render);
 }
 
-// Live KPS decays without new frames: one wake when the oldest press leaves the window.
-function onDecay() {
-  decayTimer = 0;
-  decayFor[0] = NaN;
-  schedule();
-}
-function cancelDecay() {
-  if (!decayTimer) return;
-  clearTimeout(decayTimer);
-  decayTimer = 0;
-  decayFor[0] = NaN;
+function setKpsFeed(on) {
+  if (on && !kpsFeed) {
+    kps.reset();
+    kpsFeed = subscribe([K.keys, K.live, K.rate], onKpsFrame);
+  } else if (!on && kpsFeed) {
+    kpsFeed.close();
+    kpsFeed = null;
+  }
 }
 
-// ------------------------------------------------------------------ box layout + tint
+// ------------------------------------------------------------------ box layout
 /**
- * Lays the cluster out for the page's box: orientation from the box's aspect (or the setting),
- * scale so the base design fits, and the cluster spans the box width in base units. Runs on
- * resize and settings changes only (it reads the window size, never inside a frame).
+ * Orientation from the box's aspect (or the setting), then the scale: the live layout is measured
+ * at --u = 1 and fitted into the box. Runs on resize, settings and font load only (it reads layout).
  */
 function layout() {
   if (!options) return;
-  const width = innerWidth || BASE.vertical.w;
-  const height = innerHeight || BASE.vertical.h;
+  const width = innerWidth || BASE_WIDTH;
+  const height = innerHeight || BASE_WIDTH;
   const orient = options.orientation === 'horizontal' || options.orientation === 'vertical'
     ? options.orientation
     : width >= height * HORIZONTAL_ASPECT ? 'horizontal' : 'vertical';
-  const base = BASE[orient];
-  unit = Math.max(0.25, Math.min(width / base.w, height / base.h));
-  const align = ['left', 'right', 'center'].includes(options.align) ? options.align : orient === 'horizontal' ? 'center' : 'left';
+  const align = options.align === 'left' || options.align === 'right' || options.align === 'center'
+    ? options.align
+    : orient === 'horizontal' ? 'center' : 'left';
   orientation = orient;
+  mirrored = orient === 'vertical' && align === 'right';
   setAttr(hud, 'orient', orient);
   setAttr(hud, 'align', align);
-  setAttr(chip, 'align', align);
+  setAttr(document.body, 'align', align);
+  const shownPhase = hud.dataset.phase;
+  hud.dataset.phase = 'live';
+  hud.style.setProperty('--u', '1');
+  const naturalWidth = hud.offsetWidth || BASE_WIDTH;
+  const naturalHeight = hud.offsetHeight || BASE_WIDTH;
+  hud.dataset.phase = shownPhase;
+  const unit = Math.max(0.25, Math.min(width / naturalWidth, height / naturalHeight));
   hud.style.setProperty('--u', String(unit));
-  hud.style.setProperty('--w', `${width / unit}px`);
-  hud.style.setProperty('--justify', align === 'left' ? 'start' : align === 'right' ? 'end' : 'center');
-  // A new unit with an unchanged CSS box would not wake the ResizeObserver: size it here too.
-  sizeCanvas(canvas.clientWidth, canvas.clientHeight);
+  barDirty = true;
+  schedule();
 }
 
-function loadPalette() {
-  const checksum = options?.accent === 'map' ? feed?.values[P.checksum] || '' : '';
-  if (checksum === paletteFor) return;
-  paletteFor = checksum;
-  if (!checksum) { applyPalette(hud, null); return; }
-  mapPalette(checksum).then(palette => { if (paletteFor === checksum) applyPalette(hud, palette); });
-}
-
-// ------------------------------------------------------------------ formatting
+// ------------------------------------------------------------------ DOM writes
 // Rewrites the existing text node in place (no node churn); only the first write creates one.
 function setText(element, value) {
   if (element._text === value) return;
@@ -218,92 +179,32 @@ function setAttr(element, name, value) {
   mirror[name] = value;
   if (element.dataset[name] !== value) element.dataset[name] = value;
 }
-const same = (a, b) => a === b || (a !== a && b !== b); // NaN-aware
-const DASH = '—';
-const NNBSP = '\u202f';
-// "0"…"999" and "\u202f000"…"\u202f999": every integer below a thousand, and every thousands
-// group, formatted once at load.
-const SMALL = new Array(1000);
-const GROUP3 = new Array(1000);
-for (let n = 0; n < 1000; n++) {
-  SMALL[n] = String(n);
-  GROUP3[n] = NNBSP + String(n).padStart(3, '0');
-}
-const intText = n => (n >= 0 && n < 1000 && n === (n | 0) ? SMALL[n] : String(n));
-/** Thousands grouped with narrow no-break spaces ("12 345"). */
-function group(n) {
-  if (n < 1000) return intText(n);
-  if (Number.isInteger(n) && n < 1e12) { // n / 1000 floors exactly in this range
-    const high = Math.floor(n / 1000);
-    return group(high) + GROUP3[n - high * 1000];
-  }
-  const s = String(n);
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
-    if (i && (s.length - i) % 3 === 0) out += NNBSP;
-    out += s[i];
-  }
-  return out;
-}
-const num = value => typeof value === 'number' && Number.isFinite(value);
-const ratioText = (max, great) => (!max && !great ? DASH : great ? (max / great).toFixed(2) : '∞');
-
-// Every row share is c/sum to one decimal: "0.0%"…"100.0%", formatted once. The index is the
-// exact round-half-up of 1000·c/sum; at an exact tie the double c·100/sum lands on one side of
-// it, which toFixed follows, so TIE_UP records that side per tie.
-const SHARE = new Array(1001);
-for (let n = 0; n <= 1000; n++) SHARE[n] = `${(n / 10).toFixed(1)}%`;
-const TIE_UP = new Uint8Array(1000);
-for (let k = 0; k < 1000; k++) TIE_UP[k] = ((2 * k + 1) / 20).toFixed(1) === ((k + 1) / 10).toFixed(1) ? 1 : 0;
-const SHARE_BLANK = -1;
-const SHARE_DIRECT = -2; // outside 0…sum: format directly (never seen in practice)
-/** SHARE index for c of sum, in integers only, stepping from `from` (the row's last index). */
-function shareIndex(c, sum, from) {
-  if (!sum) return SHARE_BLANK;
-  if (c < 0 || c > sum) return SHARE_DIRECT;
-  // n = floor((2000·c + sum) / (2·sum)); a hit moves it by a few steps at most.
-  const twice = 2 * sum;
-  const q = c * 2000 + sum;
-  let n = from >= 0 && from <= 1000 ? from : 0;
-  while (n * twice > q) n--;
-  while ((n + 1) * twice <= q) n++;
-  if (n * twice === q && !TIE_UP[n - 1]) n--;
-  return n;
-}
-
-const KEY_TEXT = [];
-for (let k = 0; k <= 18; k++) KEY_TEXT[k] = `${k}K`;
-function showKeyCount(keyCount) {
-  if (keyCount === shownKeyCount) return;
-  shownKeyCount = keyCount;
-  setText(text.keys, KEY_TEXT[keyCount] ?? `${keyCount}K`);
-}
-function showPeak(value) {
-  if (same(value, shownPeak)) return;
-  shownPeak = value;
-  setText(text.peak, value === value ? intText(value) : DASH);
+function setShown(on) {
+  if (on === shown) return;
+  shown = on;
+  hud.toggleAttribute('data-out', !on);
 }
 
 function hide() {
-  setAttr(hud, 'visible', 'false');
-  lastPhase = 'hidden';
-  cancelDecay();
+  setShown(false);
+  phase = '';
+  markAt.fill(NaN);
 }
 
+const num = value => typeof value === 'number' && Number.isFinite(value);
+
 // ------------------------------------------------------------------ render
-function render() {
+function render(now) {
   pending = 0;
   if (!options) return;
-  let now = 0; // read only while presses are in the KPS window
   const v = feed?.values;
   const state = v?.[P.state];
 
-  // Connection and no-game states: one small chip in the box, nothing else.
+  // Connection and no-game states: one caption in the box, nothing else.
   if (socketStatus !== 'live' || !v || state === undefined) {
     hide();
     setAttr(chip, 'shown', 'true');
-    setAttr(chip, 'state', socketStatus === 'live' ? 'idle' : socketStatus);
-    setText(text.chip, socketStatus === 'offline' ? 'vosu offline' : socketStatus === 'live' ? 'osu! not running' : 'Connecting to vosu');
+    setText(chip, socketStatus === 'offline' ? 'vosu offline' : socketStatus === 'live' ? 'osu! not running' : 'Connecting to vosu');
     return;
   }
   setAttr(chip, 'shown', 'false');
@@ -313,136 +214,160 @@ function render() {
     : activeMode(state, v[P.playMode], v[P.settingsMode]);
   if (mode !== 'mania' || (state !== STATE_PLAY && state !== STATE_RESULTS)) { hide(); return; }
 
-  const keys = v[P.keys];
-  const cs = v[P.keyCount];
-  const keyCount = state === STATE_PLAY && Array.isArray(keys) && keys.length
-    ? keys.length
-    : Number.isInteger(cs) && cs > 0 && cs <= 18 ? cs : 4;
-
-  counts.fill(0);
-  let phase;
   let total = 0;
+  let known6 = false;
+  const pointers = state === STATE_PLAY ? PLAY_HITS : RESULT_HITS;
+  for (let i = 0; i < 6; i++) {
+    const value = v[pointers[i]];
+    if (num(value)) { counts[i] = value; known6 = true; } else counts[i] = 0;
+    total += counts[i];
+  }
+
+  let next;
   if (state === STATE_PLAY) {
-    for (let i = 0; i < 6; i++) {
-      const value = v[PLAY_HITS[i]];
-      if (num(value)) counts[i] = value;
-      total += counts[i];
+    next = 'live';
+    if (options.hudFields) {
+      setText(text.acc, fmt.acc(known(v[P.accuracy])));
+      setText(text.combo, fmt.combo(known(v[P.combo])));
     }
-    phase = 'live';
-    showKeyCount(keyCount);
-    setText(text.peakLabel, 'Peak');
-    const accuracy = num(v[P.accuracy]) ? v[P.accuracy] : NaN;
-    if (!same(accuracy, shownAcc)) { shownAcc = accuracy; setText(text.acc, accuracy === accuracy ? accuracy.toFixed(2) : DASH); }
-    const combo = num(v[P.combo]) ? v[P.combo] : NaN;
-    if (!same(combo, shownCombo)) { shownCombo = combo; setText(text.combo, combo === combo ? group(combo) : DASH); }
-    const hasKeys = Array.isArray(keys);
-    if (ringSize) now = performance.now();
-    if (hasKeys) evict(now);
-    const kps = hasKeys ? ringSize : NaN;
-    if (!same(kps, shownKps)) { shownKps = kps; setText(text.kps, kps === kps ? intText(kps) : DASH); }
-    showPeak(hasKeys ? peak : NaN);
+    // A falling judgement total is a retry: the held attempt (and its peak) starts over.
+    if (total < held.total) held.peak = UNKNOWN;
+    held.total = total;
+    if (options.showKps) {
+      const live = known(kpsFeed?.values[K.live]);
+      const current = isKnown(live) ? kps.at(live) : kps.available ? kps.current : UNKNOWN;
+      // The attempt's peak is held here, not read back from the meter: the keys arrive on their own
+      // socket, and a key reset there (a retry, the results screen) can land before this one's state.
+      if (kps.available && !(held.peak >= kps.peak)) held.peak = kps.peak;
+      setText(text.kps, fmt.kps(current));
+      setText(text.peak, fmt.peak(held.peak));
+      // Without keys.all (tosu, vosu without the key overlay) the cells hide; once the attempt is
+      // clearly running without it, a caption says why.
+      setAttr(hud, 'keys', kps.available ? 'ok' : 'missing');
+      const explain = !kps.available && total > 16;
+      if (note.hidden === explain) note.hidden = !explain;
+    }
     if (total > 0) {
       held.has = true;
       held.counts.set(counts);
-      held.peak = hasKeys ? peak : NaN;
     }
-    // Only claim the extension is missing once the attempt is clearly running without it.
-    const missingKeys = !hasKeys && total > 16;
-    if (note.hidden === missingKeys) note.hidden = !missingKeys;
+    setAttr(hud, 'kps', options.showKps ? 'true' : 'false');
   } else {
-    for (let i = 0; i < 6; i++) {
-      const value = v[RESULT_HITS[i]];
-      if (num(value)) counts[i] = value;
-      total += counts[i];
+    if (!total && held.has) {
+      counts.set(held.counts);
+      for (let i = 0; i < 6; i++) total += counts[i];
+      known6 = true;
     }
-    if (!total && held.has) { counts.set(held.counts); total = 1; }
-    const resultPeak = peakValid && held.has ? held.peak : NaN;
     // Nothing osu!'s ranking screen lacks to add: stay off its screen.
-    if (!total || (!options.showRatio && !(options.showKps && num(resultPeak)))) { hide(); return; }
-    phase = 'results';
-    showKeyCount(keyCount);
-    setText(text.peakLabel, 'Peak KPS');
-    showPeak(num(resultPeak) ? resultPeak : NaN);
-    setAttr(hud, 'kps', options.showKps && num(resultPeak) ? 'true' : 'false');
+    if (!total) { hide(); return; }
+    next = 'results';
+    const peak = peakValid && held.has ? held.peak : UNKNOWN;
+    setText(text.peak, fmt.peak(peak));
+    setAttr(hud, 'kps', options.showKps && isKnown(peak) ? 'true' : 'false');
   }
-  if (phase === 'live') setAttr(hud, 'kps', options.showKps ? 'true' : 'false');
-  setAttr(hud, 'phase', phase);
-  setAttr(hud, 'visible', 'true');
 
-  if (counts[0] !== shownMax || counts[1] !== shownGreat) {
-    shownMax = counts[0];
-    shownGreat = counts[1];
-    setText(text.ratio, ratioText(shownMax, shownGreat));
+  const entering = next !== phase;
+  if (entering) {
+    drawn.fill(-1);
+    markAt.fill(NaN);
+    barDirty = true;
   }
-  let sum = 0;
-  for (let i = 0; i < 6; i++) sum += counts[i];
-  const flashing = phase === 'live' && lastPhase === 'live';
+  setAttr(hud, 'phase', next);
+  setShown(true);
+
+  // MAX : 300; ∞ before the first 300, a dash before the first judgement.
+  const max = counts[0];
+  const great = counts[1];
+  const ratio = !known6 || (!max && !great) ? UNKNOWN : great ? max / great : Infinity;
+  setText(text.ratio, fmt.ratio(ratio));
+  setAttr(ratioBox, 'known', isKnown(ratio) || ratio === Infinity ? 'true' : 'false');
+
+  const events = next === 'live' && !entering && motion === 'full';
   for (let i = 0; i < 6; i++) {
     const c = counts[i];
-    const row = rows[i];
-    const countChanged = c !== shownCount[i];
-    if (countChanged) { shownCount[i] = c; setText(row.count, group(c)); }
-    if (countChanged || sum !== shownSum) {
-      const share = shareIndex(c, sum, shownShare[i]);
-      if (share === SHARE_DIRECT) { shownShare[i] = share; setText(row.share, `${(c * 100 / sum).toFixed(1)}%`); }
-      else if (share !== shownShare[i]) { shownShare[i] = share; setText(row.share, share === SHARE_BLANK ? '' : SHARE[share]); }
+    if (options.hudFields && next === 'live') {
+      const value = fmt.counts[i](known6 ? c : UNKNOWN);
+      const cell = cells[i];
+      if (cell.count._text !== value) {
+        setText(cell.count, value);
+        if (cell.flash) setText(cell.flash, value);
+      }
     }
-    if (flashing && i >= 2 && drawn[i] >= 0 && c > drawn[i]) flash(row);
-    if (c !== drawn[i]) { drawn[i] = c; barDirty = true; }
+    if (c === drawn[i]) continue;
+    if (events && (i === MEH || i === MISS) && drawn[i] >= 0 && c > drawn[i]) {
+      markAt[i] = now;
+      if (options.hudFields) {
+        const anim = cells[i].anim;
+        anim.currentTime = 0;
+        anim.play();
+      }
+    }
+    drawn[i] = c;
+    barDirty = true;
   }
-  shownSum = sum;
-  setAttr(rows[5].row, 'hot', counts[5] > 0 ? 'true' : 'false');
 
-  if (phase !== drawnPhase) { drawnPhase = phase; barDirty = true; }
-  if (barDirty && phase === 'live') drawBar(sum);
-  lastPhase = phase;
+  if (entering && next === 'results' && motion !== 'off') {
+    reveal.currentTime = 0;
+    reveal.play();
+  }
+  phase = next;
 
-  // Re-arm the decay wake only when the oldest press (and so its due time) changed.
-  if (phase === 'live' && ringSize) {
-    if (ring[ringHead] !== decayFor[0]) {
-      clearTimeout(decayTimer);
-      decayFor[0] = ring[ringHead];
-      decayTimer = setTimeout(onDecay, ring[ringHead] + KPS_WINDOW - now + 1);
-    }
-  } else cancelDecay();
+  if (barDirty || marking) marking = drawBar(now);
+  if (marking) schedule();
 }
 
-// Rows 200…MISS flash on a new judgement. Each keeps one Animation, created idle at load.
-const FLASH_KEYFRAMES = [{ opacity: 0.28 }, { opacity: 0 }];
-const FLASH_TIMING = { duration: 240, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' };
-for (let i = 2; i < 6; i++) {
-  rows[i].flash = rows[i].flashTarget.animate(FLASH_KEYFRAMES, FLASH_TIMING);
-  rows[i].flash.cancel();
+// The 50 and Miss counts flash their judgement colour: a coloured copy of the numeral on top fades
+// out (opacity only). One Animation per cell, created idle at load and restarted.
+const FLASH_KEYFRAMES = [{ opacity: 1 }, { opacity: 1, offset: 1 / 3, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }, { opacity: 0 }];
+const FLASH_TIMING = { duration: MOTION_MS.fast + MOTION_MS.base };
+for (const cell of cells) {
+  if (!cell.flash) continue;
+  cell.anim = cell.flash.animate(FLASH_KEYFRAMES, FLASH_TIMING);
+  cell.anim.cancel();
 }
-function flash(row) {
-  row.flash.currentTime = 0;
-  row.flash.play();
-}
+// The bar grows in once when results open.
+const reveal = canvas.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: MOTION_MS.slow, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+reveal.cancel();
 
 // ------------------------------------------------------------------ bar
+// The canvas holds the bar (its bottom 6 of 16 px) and the headroom above it, where a 50 or a miss
+// raises a mark over its segment: full for --dur-fast, then fading over --dur-base.
 const tokens = getComputedStyle(document.documentElement);
 const COLORS = ['--j-max', '--j-great', '--j-good', '--j-ok', '--j-meh', '--j-miss'].map(name => tokens.getPropertyValue(name).trim());
-const TRACK = 'rgb(8 9 10 / .55)';
-const TICK = 'rgb(235 232 225 / .34)';
-const TICK_MAJOR = 'rgb(235 232 225 / .7)';
-let scale = 1; // device px per canvas CSS px (DPR × page unit)
-// Device-pixel geometry, recomputed in sizeCanvas only.
+const TRACK = tokens.getPropertyValue('--hair').trim();
+const BAR_SHARE = 6 / 16;
+const MARK_HOLD = MOTION_MS.fast;
+const MARK_FADE = MOTION_MS.base;
+const markAt = new Float64Array(6).fill(NaN); // rAF time each judgement's mark was raised
+const segStart = new Int32Array(6);
+const segEnd = new Int32Array(6);
+let marking = false;
+// Device-pixel geometry, recomputed on resize only.
 let barHeight = 0;
-let gap = 1; // between segments; also the tick line width
-let tickTop = 0;
-const tickX = new Int32Array(11);
-const tickH = new Int32Array(11);
+let gap = 1; // between segments
+let markWidth = 4;
+let markGap = 2;
 
-function drawBar(total) {
+function fill(x, y, width, height) {
+  ctx.fillRect(mirrored ? canvas.width - x - width : x, y, width, height);
+}
+
+/** Draws the bar for `counts`; returns whether a mark is still fading at rAF time `now`. */
+function drawBar(now) {
   barDirty = false;
   const w = canvas.width;
   const h = canvas.height;
-  if (!w || !h) return;
+  if (!w || !h) return false;
+  const top = h - barHeight;
   ctx.clearRect(0, 0, w, h);
+  ctx.globalAlpha = 1;
   ctx.fillStyle = TRACK;
-  ctx.fillRect(0, 0, w, barHeight);
+  ctx.fillRect(0, top, w, barHeight);
+  let total = 0;
+  for (let i = 0; i < 6; i++) total += counts[i];
+  segStart.fill(0);
+  segEnd.fill(0);
   if (total > 0) {
-    const den = 2 * total;
     let x = 0;
     let sum = 0;
     let last = 5;
@@ -450,42 +375,46 @@ function drawBar(total) {
     for (let i = 0; i <= last; i++) {
       if (!counts[i]) continue;
       sum += counts[i];
-      // round(sum / total · w) in integers, stepping up from x (ends only grow); an exact .5
-      // follows the double rounding the bar has always used.
-      const q = 2 * sum * w + total;
-      let end = x;
-      while ((end + 1) * den <= q) end++;
-      if (end * den === q) end = Math.round((sum / total) * w);
+      let end = Math.round((sum / total) * w);
       if (end <= x) end = x + 1; // a non-zero share always shows
       if (end > w) end = w;
-      const width = end - x - (i < last && end - x > gap + 1 ? gap : 0);
+      segStart[i] = x;
+      segEnd[i] = end;
       ctx.fillStyle = COLORS[i];
-      ctx.fillRect(x, 0, width, barHeight);
+      fill(x, top, end - x - (i < last && end - x > gap + 1 ? gap : 0), barHeight);
       x = end;
     }
   }
-  if (orientation !== 'vertical') return;
-  for (let k = 0; k <= 10; k++) {
-    ctx.fillStyle = k % 5 === 0 ? TICK_MAJOR : TICK;
-    ctx.fillRect(tickX[k], tickTop, gap, tickH[k]);
+  let active = false;
+  for (let i = MEH; i <= MISS; i++) {
+    const age = now - markAt[i];
+    if (!(age >= 0 && age < MARK_HOLD + MARK_FADE)) { markAt[i] = NaN; continue; }
+    active = true;
+    const fade = age <= MARK_HOLD ? 0 : (age - MARK_HOLD) / MARK_FADE;
+    const width = segEnd[i] - segStart[i] > markWidth ? segEnd[i] - segStart[i] : markWidth;
+    let x = Math.round((segStart[i] + segEnd[i] - width) / 2);
+    if (x < 0) x = 0;
+    if (x > w - width) x = w - width;
+    ctx.globalAlpha = (1 - fade) * (1 - fade);
+    ctx.fillStyle = COLORS[i];
+    fill(x, 0, width, top - markGap);
   }
+  ctx.globalAlpha = 1;
+  return active;
 }
 
-/** Sizes the canvas backing store to its CSS box × DPR × page unit (the cluster is scaled by unit). */
+/** Sizes the canvas backing store to its CSS box × DPR. */
 function sizeCanvas(width, height) {
-  scale = (devicePixelRatio || 1) * unit;
-  const w = Math.round(width * scale);
-  const h = Math.round(height * scale);
+  const dpr = devicePixelRatio || 1;
+  const w = Math.round(width * dpr);
+  const h = Math.round(height * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  barHeight = Math.min(h, Math.round(6 * scale));
-  gap = Math.max(1, Math.round(scale));
-  tickTop = barHeight + Math.round(3 * scale);
-  for (let k = 0; k <= 10; k++) {
-    tickX[k] = Math.min(w - gap, Math.round((k / 10) * w));
-    tickH[k] = Math.round((k % 5 === 0 ? 5 : 3) * scale);
-  }
+  barHeight = Math.max(2, Math.round(h * BAR_SHARE));
+  const px = h / 16; // device px per base px
+  gap = Math.max(1, Math.round(px));
+  markWidth = Math.max(4, Math.round(8 * px));
+  markGap = Math.max(1, Math.round(2 * px));
   barDirty = true;
-  drawnPhase = '';
   schedule();
 }
 new ResizeObserver(entries => {
@@ -494,19 +423,24 @@ new ResizeObserver(entries => {
 }).observe(canvas);
 
 // ------------------------------------------------------------------ settings + data
-settings({ orientation: 'auto', align: 'auto', backing: 'none', accent: 'map', showRatio: true, showKps: true }, s => {
+settings({ motion: 'full', backing: 'scrim', hudFields: false, showKps: false, orientation: 'auto', align: 'auto' }, s => {
   options = s;
-  setAttr(hud, 'backing', ['scrim', 'panel'].includes(s.backing) ? s.backing : 'none');
-  setAttr(hud, 'accent', s.accent === '18-lab' ? '18-lab' : 'map');
-  setAttr(hud, 'ratio', String(s.showRatio));
-  setAttr(hud, 'kps', String(s.showKps));
-  loadPalette();
+  motion = applyKitSettings(hud, s);
+  setAttr(hud, 'hud', s.hudFields ? 'true' : 'false');
+  setAttr(hud, 'kps', s.showKps ? 'true' : 'false');
+  setKpsFeed(s.showKps);
+  if (motion !== 'full') {
+    markAt.fill(NaN);
+    for (const cell of cells) cell.anim?.cancel();
+  }
+  if (motion === 'off') reveal.cancel();
   layout();
 });
 addEventListener('resize', layout);
+document.fonts.ready.then(layout);
 
 feed = subscribe([
   P.state, P.playMode, P.settingsMode, P.resultsMode,
-  ...PLAY_HITS, P.accuracy, P.combo, P.keys,
-  ...RESULT_HITS, P.keyCount, P.checksum,
+  ...PLAY_HITS, P.accuracy, P.combo,
+  ...RESULT_HITS,
 ], onFrame, { onStatus });

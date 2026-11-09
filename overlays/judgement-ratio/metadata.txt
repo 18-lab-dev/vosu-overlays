@@ -1,6 +1,6 @@
 name = Judgement ratio
 author = 18-LAB
-version = 0.3.0
-description = osu!mania judgement counter: MAX to MISS with a proportional bar, the MAX:300 ratio, accuracy, combo, and live and peak keys per second. Tall boxes get a data column, wide boxes a compact row for over the stage. On results it adds only the ratio and peak KPS.
+version = 0.4.0
+description = osu!mania MAX : 300 ratio with the judgement mix as one proportional bar; a 50 or a miss marks its place on the bar. Optionally the MAX…Miss counts, accuracy and combo (off by default: osu!'s HUD shows them) and live and peak keys per second. On results it keeps the ratio, the bar and the attempt's peak.
 resolution = [256,352]
 placement = {"mania":["right-24","top+312",256,352]}

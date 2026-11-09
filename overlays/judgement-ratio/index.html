@@ -5,40 +5,33 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Judgement ratio · 18-LAB</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
-<section id="hud" class="hud" aria-label="osu!mania judgements" data-orient="vertical" data-align="left" data-phase="none" data-visible="false" data-backing="none">
-  <header class="head">
-    <span class="keys" id="keys"></span>
-  </header>
+<body data-align="left">
+<section id="hud" class="kit jr kit-enter" aria-label="osu!mania judgements" data-out data-orient="vertical" data-align="left" data-phase="live" data-hud="false" data-kps="false" data-backing="scrim" data-motion="full">
   <div class="hero">
-    <div class="readout ratio">
-      <span class="label"><span class="j-max">MAX</span><span class="colon">:</span><span class="j-great">300</span></span>
-      <span class="big"><b id="ratio">—</b><span class="unit tint">:1</span></span>
-    </div>
-    <div class="readout acc">
-      <span class="label">Acc</span>
-      <span class="big"><b id="acc">—</b><span class="unit">%</span></span>
-    </div>
+    <span class="kit-label"><span class="j-max">MAX</span> : <span class="j-great">300</span></span>
+    <span class="kit-hero ratio"><span id="ratio">—</span><span class="kit-unit">: 1</span></span>
   </div>
   <canvas id="bar" class="bar" aria-hidden="true"></canvas>
-  <ol class="rows">
-    <li class="row" data-j="max"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">MAX</span><b class="count">—</b><span class="share"></span></li>
-    <li class="row" data-j="great"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">300</span><b class="count">—</b><span class="share"></span></li>
-    <li class="row" data-j="good"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">200</span><b class="count">—</b><span class="share"></span></li>
-    <li class="row" data-j="ok"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">100</span><b class="count">—</b><span class="share"></span></li>
-    <li class="row" data-j="meh"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">50</span><b class="count">—</b><span class="share"></span></li>
-    <li class="row" data-j="miss"><i class="flash" aria-hidden="true"></i><i class="tick" aria-hidden="true"></i><span class="name">Miss</span><b class="count">—</b><span class="share"></span></li>
+  <ol class="counts">
+    <li class="cell" data-j="max"><span class="kit-label">MAX</span><span class="kit-value count"><b>—</b></span></li>
+    <li class="cell" data-j="great"><span class="kit-label">300</span><span class="kit-value count"><b>—</b></span></li>
+    <li class="cell" data-j="good"><span class="kit-label">200</span><span class="kit-value count"><b>—</b></span></li>
+    <li class="cell" data-j="ok"><span class="kit-label">100</span><span class="kit-value count"><b>—</b></span></li>
+    <li class="cell" data-j="meh"><span class="kit-label">50</span><span class="kit-value count"><b>—</b><b class="flash" aria-hidden="true"></b></span></li>
+    <li class="cell" data-j="miss"><span class="kit-label">Miss</span><span class="kit-value count"><b>—</b><b class="flash" aria-hidden="true"></b></span></li>
   </ol>
-  <footer class="stats">
-    <div class="stat combo"><span class="label">Combo</span><span class="big"><b id="combo">—</b><span class="unit">×</span></span></div>
-    <div class="stat kps"><span class="label">KPS</span><span class="big"><b id="kps">—</b></span></div>
-    <div class="stat peak"><span class="label" id="peak-label">Peak</span><span class="big"><b id="peak">—</b></span></div>
-  </footer>
-  <p class="note" id="note" hidden>KPS needs vosu <code>ENABLE_KEY_OVERLAY</code></p>
+  <div class="stats">
+    <div class="stat acc"><span class="kit-label">Accuracy</span><span class="kit-value"><b id="acc">—</b><span class="kit-unit tight">%</span></span></div>
+    <div class="stat combo"><span class="kit-label">Combo</span><span class="kit-value"><b id="combo">—</b><span class="kit-unit tight">×</span></span></div>
+    <div class="stat kps"><span class="kit-label">Keys per second</span><span class="kit-value"><b id="kps">—</b><span class="kit-unit">kps</span></span></div>
+    <div class="stat peak"><span class="kit-label">Peak</span><span class="kit-value"><b id="peak">—</b><span class="kit-unit">kps</span></span></div>
+  </div>
+  <p class="kit-caption note" id="note" hidden>Keys per second needs vosu's <span class="kit-code">ENABLE_KEY_OVERLAY</span></p>
 </section>
-<div id="chip" class="chip" role="status"><i class="dot" aria-hidden="true"></i><span id="chip-text">Connecting to vosu</span></div>
+<p id="chip" class="kit-caption chip" role="status" data-shown="false">Connecting to vosu</p>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

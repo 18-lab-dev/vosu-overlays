@@ -1,25 +1,32 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// KPS graph: osu!mania keys per second. Live KPS is the sum of /keys/all count deltas over a
-// rolling one-second (real time) window, drawn as a chart-recorder strip over the map's strain
-// density. The page is content-sized and re-flows to the box its host gives it: vertical (time
-// runs upward like the mania editor, density falls toward the now line, the trace trails below)
-// or horizontal (time runs left → right). Results add the whole run; song select adds the map's
-// density and note rate, which osu! does not show.
-import { subscribe, settings, activeMode, isPlaying, formatDuration, mapPalette, applyPalette } from './vosu-overlay.js';
+// KPS graph: osu!mania keys per second, the set's owner of KPS in mania. The live count, the peak
+// and the trace all come from the shared createKps() (presses whose gameplay time falls in the
+// last second of real time), so they agree with key-counter. The trace is that count sampled
+// every 50 ms of map time, drawn as a chart-recorder strip over the map's strain density. The page
+// is content-sized and re-flows to the box its host gives it: vertical beside the stage (time runs
+// upward like the mania editor, the zero line on the stage side, the map's upcoming density above
+// the now line when vosu sends it) or horizontal (time runs left → right). Results add the whole
+// run; song select adds the map's density and note rate, which osu! does not show.
+import {
+  subscribe, settings, activeMode, isPlaying, formatDuration, mapPalette, applyPalette,
+  createKps, createMapClock, numberFormatter, UNKNOWN, DASH, applyKitSettings, MOTION_MS,
+} from './vosu-overlay.js';
 
-const BIN = 50;          // map ms per histogram bin
+const BIN = 50;          // map ms per sample of the trace
 const ORIGIN = -10000;   // map time of bin 0, covers lead-in
-const NOW_AT = 0.82;     // share of the strip that is history; the rest previews upcoming density
-const HOLD = 250;        // ms the clock may run past the last vosu time sample (pauses stop it)
-const GUTTER = 22;       // px kept free at the overview's far end for scale labels (style.css --gutter)
+const NOW_AT = 0.82;     // with the density lane: share of the plot that is history, the rest previews the map
+const HEADROOM = 8;      // px kept past the now line without a lane, so the live head is not cut off
+const HOLD = 250;        // ms the frame loop runs on after the last moving time sample (pauses stop it)
+const REVISIT = 8;       // bins (400 ms) re-sampled after a key message: presses arrive after they happen
+const RECORD_MS = 2000;  // a new peak flashes only when the old one stood this long (not on a ramp-up)
 const SELECT = new Set([4, 5, 12, 13]);   // song select (edit, play, match setup, multi)
 const RESULTS = new Set([7, 14, 18]);     // results (solo, vs, team)
 
 const POINTERS = [
-  '/state/number', '/play/mode/number', '/settings/mode/number', '/play/source',
+  '/state/number', '/play/mode/number', '/settings/mode/number',
   '/keys/all', '/beatmap/time/live', '/beatmap/time/rate', '/play/mods/rate',
   '/beatmap/time/firstObject', '/beatmap/time/lastObject', '/beatmap/time/mp3Length',
-  '/beatmap/checksum', '/beatmap/stats/cs/converted', '/beatmap/stats/objects/total',
+  '/beatmap/checksum', '/beatmap/isKiai', '/beatmap/stats/objects/total',
   '/performance/graph/series', '/performance/graph/xaxis',
 ];
 
@@ -28,14 +35,16 @@ const block = $('kps');
 const chip = $('chip');
 const canvas = $('chart');
 const note = $('note');
+const plot = canvas.parentElement;
 const el = {
-  chip: $('chipText'), phase: $('phase'),
-  pLabel: $('pLabel'), pValue: $('pValue'), pUnit: $('pUnit'), aLabel: $('aLabel'), aValue: $('aValue'), bLabel: $('bLabel'), bValue: $('bValue'),
-  axisL: $('axisL'), axisM: $('axisM'), axisN: $('axisN'), axisR: $('axisR'),
+  phase: $('phase'), pLabel: $('pLabel'), pValue: $('pValue'), pUnit: $('pUnit'),
+  aLabel: $('aLabel'), aName: $('aName'), aValue: $('aValue'), aEcho: $('aEcho'),
+  bLabel: $('bLabel'), bName: $('bName'), bValue: $('bValue'),
+  axisL: $('axisL'), axisM: $('axisM'), axisR: $('axisR'),
 };
 const ctx = canvas.getContext('2d', { alpha: true });
 
-/** textContent only when the formatted string changed. */
+/** textContent only when the string changed. */
 function put(node, value) {
   if (node._text !== value) { node._text = value; node.textContent = value; }
 }
@@ -44,63 +53,52 @@ function attr(node, name, value) {
   (node._attrs ??= {})[name] = value;
   if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
 }
-
-// ---------------------------------------------------------------- palette
-function rgb(hex, fallback) {
-  const m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim()) || /^#([0-9a-f]{6})$/i.exec(fallback);
-  const n = parseInt(m[1], 16);
-  return `${n >> 16} ${(n >> 8) & 255} ${n & 255}`;
+/** A readout: the text, with the kit's dash style while it is the unknown dash. */
+function show(node, text) {
+  if (node._text === text) return;
+  put(node, text);
+  const dash = text === DASH;
+  if (node._dash !== dash) { node._dash = dash; node.classList.toggle('kit-dash', dash); }
 }
-const css = getComputedStyle(document.documentElement);
-const tok = (name, fallback) => rgb(css.getPropertyValue(name) || fallback, fallback);
-const FG = tok('--fg', '#ebe8e1');
-const FG_DIM = tok('--fg-dim', '#b8b5ad');
-const ACCENT = '#ff963f';
-const SIGNAL = '#7fa6cf';
+
+// ---------------------------------------------------------------- colour roles (kit.css)
+const kit = getComputedStyle(block);
+const role = (name, fallback) => kit.getPropertyValue(name).trim() || fallback;
+const INK = '239 236 229';                      // --text-1 as channels, for the chart's alphas
+const YOU = role('--you', '#ff963f');           // you: the live head and your peak
 const C = {
-  gridMinor: `rgb(${FG} / .05)`,
-  gridMajor: `rgb(${FG} / .11)`,
-  gridH: `rgb(${FG} / .08)`,
-  base: `rgb(${FG} / .55)`,
-  now: `rgb(${FG} / .7)`,
-  label: `rgb(${FG_DIM})`,
-  under: 'rgb(0 0 0 / .45)',
-  line: `rgb(${FG} / .97)`,
-  ghost: `rgb(${FG} / .7)`,
-  avg: `rgb(${FG} / .62)`,
-  strainFill: '', strainEdge: '', strainFillStrong: '', strainEdgeStrong: '', peak: '', hl: '', halo: '',
+  gridMinor: `rgb(${INK} / .06)`,
+  gridMajor: `rgb(${INK} / .13)`,
+  gridH: `rgb(${INK} / .09)`,
+  base: `rgb(${INK} / .5)`,
+  now: `rgb(${INK} / .7)`,
+  label: role('--text-3', '#ada99f'),
+  under: 'rgb(11 12 13 / .6)',
+  line: role('--text-1', '#efece5'),
+  ghost: `rgb(${INK} / .7)`,
+  avg: `rgb(${INK} / .7)`,
+  you: YOU,
+  halo: 'rgb(255 150 63 / .28)',
+  map: '#c9c4ba',                               // --map, read again when the palette or mapTint changes
 };
-let palette = null;
-/** Highlight (peak, live head) follows the map's tonal spot; density takes its secondary role. */
+/** The density lane takes the map's identity colour (--map: map tone or neutral with mapTint off). */
 function recolor() {
-  const hl = rgb(palette?.accent ?? ACCENT, ACCENT);
-  const soft = rgb(palette?.secondary ?? SIGNAL, SIGNAL);
-  C.strainFill = `rgb(${soft} / .2)`;
-  C.strainEdge = `rgb(${soft} / .62)`;
-  C.strainFillStrong = `rgb(${soft} / .34)`;
-  C.strainEdgeStrong = `rgb(${soft} / .95)`;
-  C.peak = `rgb(${hl} / .9)`;
-  C.hl = `rgb(${hl})`;
-  C.halo = `rgb(${hl} / .25)`;
+  C.map = getComputedStyle(block).getPropertyValue('--map').trim() || '#c9c4ba';
   dirty = true;
 }
-const DASH_AVG = [4, 3];
-const DASH_PEAK = [1, 3];
-const DASH_NONE = [];
-let monoFont = '500 12px "IBM Plex Mono", ui-monospace, monospace';
 
 // ---------------------------------------------------------------- settings (applied at the end of the module)
-const DEFAULTS = { window: 20, strain: true, orientation: 'auto', align: 'left', backing: 'none', accent: 'map', menus: false };
+const DEFAULTS = { window: 20, strain: true, orientation: 'auto', align: 'left', menus: false, motion: 'full', backing: 'scrim', mapTint: true };
 let opt = DEFAULTS;
+let motion = 'full';
 let spanS = 20;
 const clamp = (v, lo, hi, fallback) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
 function applySettings(next) {
-  const accentChanged = next.accent !== opt.accent;
   opt = next;
+  motion = applyKitSettings(block, next);
   spanS = Math.round(clamp(next.window, 5, 60, 20));
   attr(block, 'data-align', next.align === 'right' ? 'right' : 'left');
-  attr(block, 'data-backing', ['scrim', 'panel'].includes(next.backing) ? next.backing : 'none');
-  if (accentChanged) loadPalette();
+  recolor();
   relayout();
   setView(decideView());
   axisDirty = true;
@@ -110,23 +108,24 @@ function applySettings(next) {
 
 // ---------------------------------------------------------------- re-flow to the host's box
 // Hosts (OBS, vosulay, the replay renderer's per-player cells) size the page; the layout follows
-// the box: horizontal when it is wider than tall (or forced by `orientation`), type and marks
-// scaled from the box (1 = 232 px wide vertical, 150 px tall horizontal), never below legibility.
+// the box: horizontal when it is wider than tall (or forced by `orientation`), the kit's sizes
+// scaled by --u (1 = the 152 px strip beside the stage, or a 160 px tall horizontal box).
+let u = NaN, tickPx = 11, band = 17;
+let tickFont = '400 11px "IBM Plex Mono", ui-monospace, monospace';
 function relayout() {
   const W = innerWidth, H = innerHeight;
-  const next = opt.orientation === 'horizontal' ? 'h' : opt.orientation === 'vertical' ? 'v' : W >= H ? 'h' : 'v';
-  const u = next === 'v' ? clamp(W / 232, 0.5, 2, 1) : clamp(H / 150, 0.5, 2, 1);
-  const lab = Math.max(10, Math.round(12 * u));
-  const s = block.style;
-  s.setProperty('--u', u.toFixed(3));
-  s.setProperty('--lab', `${lab}px`);
-  s.setProperty('--big', `${Math.max(34, Math.round(60 * u))}px`);
-  s.setProperty('--stat', `${Math.max(20, Math.round(30 * u))}px`);
-  s.setProperty('--axis', `${Math.max(30, Math.round(42 * u))}px`);
-  s.setProperty('--gap', `${Math.max(6, Math.round(10 * u))}px`);
-  // Narrow vertical boxes (multiplayer cells) stack PEAK · AVG under NOW.
-  attr(block, 'data-compact', next === 'v' && W < 200 ? '' : null);
-  monoFont = `500 ${lab}px "IBM Plex Mono", ui-monospace, monospace`;
+  const next = opt.orientation === 'horizontal' ? 'h' : opt.orientation === 'vertical' ? 'v' : W > H ? 'h' : 'v';
+  const scale = next === 'v' ? clamp(W / 152, 0.75, 2, 1) : clamp(H / 160, 0.75, 2, 1);
+  if (scale !== u) {
+    u = scale;
+    block.style.setProperty('--u', u.toFixed(3));
+    tickPx = Math.max(9, Math.round(11 * u));
+    tickFont = `400 ${tickPx}px "IBM Plex Mono", ui-monospace, monospace`;
+  }
+  // The value scale's band at the strip's old end: one text line tall (vertical) or wide enough
+  // for a two-digit value (horizontal).
+  const nextBand = next === 'v' ? tickPx + 6 : tickPx * 2 + 4;
+  if (nextBand !== band) { band = nextBand; plot.style.setProperty('--band', `${band}px`); }
   if (next !== orient) { orient = next; attr(block, 'data-orient', orient); }
   measure();
   axisDirty = dirty = true;
@@ -138,15 +137,11 @@ addEventListener('resize', relayout);
 let paletteFor = null;
 function loadPalette() {
   const checksum = values['/beatmap/checksum'] ?? null;
-  if (opt.accent !== 'map' || !checksum) {
-    paletteFor = null; palette = null; applyPalette(block, null); recolor(); kick();
-    return;
-  }
+  if (!checksum) { paletteFor = null; applyPalette(block, null); recolor(); kick(); return; }
   if (checksum === paletteFor) return;
   paletteFor = checksum;
   mapPalette(checksum).then(result => {
     if (paletteFor !== checksum) return;
-    palette = result;
     applyPalette(block, result);
     recolor();
     kick();
@@ -154,11 +149,16 @@ function loadPalette() {
 }
 
 // ---------------------------------------------------------------- canvas sizing
-// The chart is drawn in a virtual horizontal frame (cw = time length, ch = amplitude thickness).
-// A vertical box rotates it onto the canvas (later time goes up, amplitude grows away from the
-// stage side); a horizontal box uses it as is (orient 'h').
+// The chart is drawn in a virtual horizontal frame (cw = time length, ch = amplitude thickness;
+// x 0…band is the value scale, the plot runs from band to cw). A vertical box rotates it onto the
+// canvas (later time goes up, amplitude grows away from the stage side); a horizontal box uses it
+// as is (orient 'h').
 let cw = 0, ch = 0, nowX = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null, orient = 'v';
+let lastCw = -1, lastCh = -1;
 let box = null;
+let DASH_AVG = [4, 3];
+let DASH_PEAK = [2, 3];
+const DASH_NONE = [];
 new ResizeObserver(([entry]) => {
   box = entry.contentRect;
   dpr = window.devicePixelRatio || 1;
@@ -169,28 +169,28 @@ new ResizeObserver(([entry]) => {
   dirty = true;
   kick();
 }).observe(canvas);
-document.fonts?.load(monoFont).then(() => { dirty = true; kick(); }, () => {});
+document.fonts?.load(tickFont).then(() => { dirty = true; kick(); }, () => {});
 
 // A canvas call boxes every computed fractional number it is passed (a fresh heap number per
 // argument, per call); integers, and numbers already boxed, pass free. So per-frame drawing hands
 // the canvas integers (device pixels for crisp lines, bin times and window sums for the trace) and
-// lets a transform scale them, and the fractional arguments that change only on resize, rescale
-// or a new peak are computed once into G. Its fields start as null, so they keep numbers boxed
-// and a call takes them as they are.
+// lets a transform scale them, and the fractional arguments that change only on resize, rescale,
+// a new peak or a running transition are computed once into G. Its fields start as null, so they
+// keep numbers boxed and a call takes them as they are.
 const G = {
   a: null, b: null, c: null, d: null, e: null, f: null, // virtual → canvas (the frame transform)
   ra: null, rb: null, rc: null, rd: null,               // its rotation alone, in device pixels
   xe: null, xf: null, ye: null, yf: null,               // + the half-pixel offset of crisp x / y lines
-  dpr: null, cw: null, ch: null, base: null, baseCrisp: null,
-  topD: null, baseD: null, cwD: null, plotD: null, nowD: null, nowXD: null,
+  dpr: null, cw: null, ch: null, base: null, baseCrisp: null, band: null,
+  topD: null, baseD: null, cwD: null, bandD: null, nowD: null, nowXD: null, wide: null,
   k: null, vc: null, tx: null, sShift: null, xMid: null, headY: null, peakY: null, peakDX: null,
+  pastFill: null, pastEdge: null, futFill: null, futEdge: null, futW: null, pop: null,
 };
 
 /** Virtual dimensions, transforms and gradients for the current orientation (no layout reads). */
 function measure() {
   if (!box) return;
   if (orient === 'h') { cw = box.width; ch = box.height; } else { ch = box.width; cw = box.height; }
-  nowX = Math.round(cw * NOW_AT);
   // Virtual (x = time, y = amplitude from the top) → canvas, for the current orientation and side.
   let a = dpr, b = 0, c = 0, d = dpr, e = 0, f = 0;
   if (orient !== 'h') {
@@ -201,117 +201,165 @@ function measure() {
   G.ra = a / dpr; G.rb = b / dpr; G.rc = c / dpr; G.rd = d / dpr;
   G.xe = e + G.ra * half; G.xf = f + G.rb * half;
   G.ye = e + G.rc * half; G.yf = f + G.rd * half;
-  G.dpr = dpr; G.cw = cw; G.ch = ch; G.base = ch - 1; G.baseCrisp = crisp(ch - 1);
-  G.topD = chartTop * dpr; G.baseD = (ch - 1) * dpr; G.cwD = cw * dpr; G.plotD = (cw - GUTTER) * dpr;
-  G.nowD = nowX * dpr; G.nowXD = Math.round(nowX * dpr);
+  G.dpr = dpr; G.cw = cw; G.ch = ch; G.base = ch - 1; G.baseCrisp = crisp(ch - 1); G.band = band;
+  G.topD = chartTop * dpr; G.baseD = (ch - 1) * dpr; G.cwD = cw * dpr; G.bandD = Math.round(band * dpr);
+  G.wide = 2 * dpr;
+  DASH_AVG = [4 * dpr, 3 * dpr];
+  DASH_PEAK = [2 * dpr, 3 * dpr];
   strainK = K.labelScale = K.vcScale = K.headScale = K.peakScale = NaN; // laid out for the old box
+  if (cw !== lastCw || ch !== lastCh) {
+    lastCw = cw; lastCh = ch;
+    fut.snap = true; fut.to = futureTarget(); // the now line snaps to a new box
+    layoutNow(fut.to);
+  } else layoutNow(fut.px); // a settings change keeps its tween (stepNow)
   frameTransform();
   fillGrad = ctx.createLinearGradient(0, 0, 0, ch);
-  fillGrad.addColorStop(0, `rgb(${FG} / .3)`);
-  fillGrad.addColorStop(1, `rgb(${FG} / .04)`);
+  fillGrad.addColorStop(0, `rgb(${INK} / .3)`);
+  fillGrad.addColorStop(1, `rgb(${INK} / .04)`);
   ghostGrad = ctx.createLinearGradient(0, 0, 0, ch);
-  ghostGrad.addColorStop(0, `rgb(${FG} / .2)`);
-  ghostGrad.addColorStop(1, `rgb(${FG} / .03)`);
+  ghostGrad.addColorStop(0, `rgb(${INK} / .2)`);
+  ghostGrad.addColorStop(1, `rgb(${INK} / .03)`);
 }
 
 function frameTransform() { if (box) ctx.setTransform(G.a, G.b, G.c, G.d, G.e, G.f); }
 /** Device-pixel frames for crisp lines: an integer x (or y) lands exactly where crisp() puts it. */
 function crispX() { ctx.setTransform(G.ra, G.rb, G.rc, G.rd, G.xe, G.xf); }
 function crispY() { ctx.setTransform(G.ra, G.rb, G.rc, G.rd, G.ye, G.yf); }
+/** Device frame without the half-pixel offset: an even-width line centred on an integer row. */
+function deviceFrame() { ctx.setTransform(G.ra, G.rb, G.rc, G.rd, G.e, G.f); }
 const crisp = v => (Math.round(v * dpr) + half) / dpr;
 
+// ---------------------------------------------------------------- now line
+// The future past the now line is the map's upcoming density; without a density lane (strain off,
+// or a host that sends none: the replay renderer, tosu) the strip ends at the now line instead of
+// showing an empty band. A change eases (MOTION_MS.base, ease-out) unless motion is off.
+const fut = { from: 0, to: 0, at: 0, px: 0, snap: true };
+let nowCss = -1;
+function laneOn() { return opt.strain && sn > 1 && smax > 0 && view === 'live'; }
+function futureTarget() { return laneOn() ? Math.round((cw - band) * (1 - NOW_AT)) : HEADROOM; }
+function layoutNow(px) {
+  fut.px = px;
+  nowX = Math.round(cw - px);
+  G.nowD = nowX * dpr; G.nowXD = Math.round(nowX * dpr); G.futW = cw - nowX;
+  if (nowX !== nowCss) { nowCss = nowX; plot.style.setProperty('--now', `${nowX}px`); }
+}
+/** Advances the now line toward its target; true while it is still moving. */
+function stepNow(now) {
+  const target = futureTarget();
+  if (fut.snap || motion === 'off') {
+    fut.snap = false;
+    if (target !== fut.to || fut.px !== target) { fut.to = target; layoutNow(target); }
+    return false;
+  }
+  if (target !== fut.to) { fut.from = fut.px; fut.to = target; fut.at = now; }
+  if (fut.px === fut.to) return false;
+  const p = Math.min(1, (now - fut.at) / MOTION_MS.base);
+  const q = 1 - p;
+  layoutNow(p >= 1 ? fut.to : Math.round(fut.from + (fut.to - fut.from) * (1 - q * q * q * q)));
+  return fut.px !== fut.to;
+}
+
 // ---------------------------------------------------------------- attempt record
-// counts[b]: presses in bin b. kps[b]: presses in the window ending with bin b (w bins = 1 real
-// second), maintained incrementally so a press costs w adds and drawing reads it directly.
-let counts = new Uint16Array(8192);
-let kps = new Uint16Array(8192);
-let used = 0, w = 20, total = 0, peak = 0, peakBin = -1, firstT = null;
-const prev = new Int32Array(64).fill(-1);
+// The shared meter keeps the presses; series[b] is its window count at the end of bin b (map
+// time ORIGIN + (b + 1)·BIN), sampled as the shown time passes the bin and re-sampled for REVISIT
+// bins after each key message, since a press reaches the page after its gameplay time.
+const meter = createKps();
+const clock = createMapClock();
+let series = new Uint16Array(8192);
+let used = -1;          // highest sampled bin
+let doneBin = -1;       // first bin not yet sampled (−1: start at the shown time)
+let revisitFrom = 0x3fffffff;
+let peak = 0, peakBin = -1, peakSetAt = -Infinity, popAt = -Infinity;
+let baseTotal = -1, lastTotal = 0, presses = 0;
 let attemptChecksum = null;
+const S = { liveT: NaN, shownT: NaN, firstT: NaN, lastFrame: 0, dt: 16, scale: 10, avg: NaN, end: NaN, mix: 0 };
+let rate = 1;
 
 function ensure(size) {
-  if (size < counts.length) return;
-  let next = counts.length;
+  if (size < series.length) return;
+  let next = series.length;
   while (next <= size) next *= 2;
-  const c = new Uint16Array(next); c.set(counts); counts = c;
-  const k = new Uint16Array(next); k.set(kps); kps = k;
+  const grown = new Uint16Array(next); grown.set(series); series = grown;
 }
 
-function resetAttempt() {
-  counts.fill(0, 0, used + 1);
-  kps.fill(0, 0, used + 1);
-  used = 0; total = 0; peak = 0; peakBin = -1; firstT = null;
-  w = Math.max(1, Math.round(1000 * rate / BIN));
-  prev.fill(-1);
+/** Forgets the recorded run (keeps the meter's own state; see resetAttempt). */
+function clearRecord() {
+  if (used >= 0) series.fill(0, 0, used + 1);
+  used = -1; doneBin = -1; revisitFrom = 0x3fffffff;
+  peak = 0; peakBin = -1; peakSetAt = -Infinity; popAt = -Infinity;
+  baseTotal = -1; lastTotal = 0; presses = 0;
+  S.firstT = NaN;
   attemptChecksum = values['/beatmap/checksum'] ?? null;
-  baseline();
   dirty = true;
 }
-
-function baseline() {
-  const keys = values['/keys/all'];
-  if (!Array.isArray(keys)) return;
-  for (let i = 0; i < keys.length && i < prev.length; i++) {
-    const count = keys[i]?.count;
-    prev[i] = Number.isInteger(count) && count >= 0 ? count : -1;
-  }
+function resetAttempt() {
+  meter.reset();
+  clearRecord();
 }
 
 const binOf = t => Math.max(0, Math.floor((t - ORIGIN) / BIN));
-const timeOf = b => ORIGIN + (b + 1) * BIN; // a kps bin describes the window ending here
+const timeOf = b => ORIGIN + (b + 1) * BIN; // a series bin describes the window ending here
 
-/** n presses in bin b (callers pass the bin: a fractional time argument would be boxed). */
-function addPresses(b, n) {
-  const end = b + w;
-  ensure(end);
-  counts[b] += n;
-  for (let j = b; j < end; j++) {
-    const v = (kps[j] += n);
-    if (v > peak) { peak = v; peakBin = j; }
-  }
-  if (end - 1 > used) used = end - 1;
-  total += n;
-  dirty = true;
-}
-
+/** Feeds /keys/all to the shared meter at the latest map time sample. */
 function takeKeys(now) {
-  const keys = values['/keys/all'];
-  if (!Array.isArray(keys)) return;
-  estimate(now);
-  const est = S.est;
-  let shrank = false;
-  for (let i = 0; i < keys.length && i < prev.length; i++) {
-    const count = keys[i]?.count;
-    if (Number.isInteger(count) && prev[i] >= 0 && count < prev[i]) shrank = true;
+  const t = S.liveT;
+  meter.ingest(values['/keys/all'], t === t ? t : 0, rate);
+  if (!meter.available || t !== t) return;
+  const total = meter.total;
+  // The meter starts over when a count falls (a retry): so does the record.
+  if (total < lastTotal) clearRecord();
+  if (baseTotal < 0) baseTotal = total; // the first list is the baseline: those presses have no times
+  else if (total > lastTotal) {
+    presses = total - baseTotal;
+    if (S.firstT !== S.firstT) S.firstT = t;
+    const from = binOf(t - REVISIT * BIN * rate);
+    if (from < revisitFrom) revisitFrom = from;
   }
-  // A count going backwards is a retry: vosu restarts every column from zero.
-  if (shrank) { resetAttempt(); prev.fill(0); }
-  for (let i = 0; i < keys.length && i < prev.length; i++) {
-    const key = keys[i];
-    const count = key?.count;
-    if (!Number.isInteger(count) || count < 0) continue;
-    if (prev[i] < 0) { prev[i] = count; continue; }
-    const delta = count - prev[i];
-    prev[i] = count;
-    if (delta <= 0 || est !== est) continue;
-    // A single new press carries its exact gameplay timestamp; bursts between samples land now.
-    const at = key.pressedAt;
-    const exact = delta === 1 && typeof at === 'number' && at <= est + 500 && at >= est - 1000;
-    const time = exact ? at : est;
-    if (firstT === null || time < firstT) firstT = time;
-    addPresses(Math.max(0, Math.floor((time - ORIGIN) / BIN)), delta);
+  lastTotal = total;
+  if (meter.peak > peak) {
+    // A record that stood RECORD_MS and is broken flashes; a ramp-up (a new peak every press) does not.
+    const broken = peak >= 5 && now - peakSetAt >= RECORD_MS;
+    peak = meter.peak; peakBin = binOf(t); peakSetAt = now;
+    if (broken && motion === 'full') flashPeak(now);
+    dirty = true;
   }
 }
 
-// ---------------------------------------------------------------- clock
-// Numbers that change every frame or message live in S's number fields, which are written in
-// place (a module `let` given a fractional number allocates a fresh one on every write).
-// NaN stands for "no sample yet".
-const S = { liveT: NaN, liveAt: 0, shownT: NaN, est: NaN, lastFrame: 0, dt: 16, scale: 10, avg: NaN, end: NaN };
-let rate = 1;
-/** S.est: the map time at `now`, run on from the last vosu sample for at most HOLD ms (NaN without one). */
-function estimate(now) {
-  S.est = S.liveT + Math.min(Math.max(0, now - S.liveAt), HOLD) * rate;
+/** Samples the meter into the series up to map time t (bins whose end has passed). */
+function sample(t) {
+  const nowBin = binOf(t);
+  if (doneBin < 0) doneBin = nowBin;
+  let b = revisitFrom < doneBin ? revisitFrom : doneBin;
+  if (b < nowBin - 400) b = nowBin - 400; // after a stall, only what can still be on screen
+  revisitFrom = 0x3fffffff;
+  if (b >= nowBin) return;
+  ensure(nowBin + 1);
+  for (; b < nowBin; b++) {
+    const v = meter.at(timeOf(b));
+    series[b] = v === v ? v : 0;
+  }
+  if (nowBin - 1 > used) used = nowBin - 1;
+  doneBin = nowBin;
+}
+
+// ---------------------------------------------------------------- motion
+// Element animations are built once and restarted (no per-event allocation); canvas motion reads
+// page time in the frame loop. Deterministic under the replay renderer's virtual clock.
+const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const flash = new Animation(new KeyframeEffect(el.aEcho,
+  [{ opacity: 1 }, { opacity: 1, offset: 0.25, easing: EASE_OUT }, { opacity: 0 }],
+  { duration: MOTION_MS.slow, fill: 'none' }));
+const fade = new Animation(new KeyframeEffect(canvas,
+  [{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.base, easing: EASE_OUT, fill: 'none' }));
+/** A broken record: the peak numeral lights amber and fades back; the chart's peak mark pops. */
+function flashPeak(now) {
+  flash.cancel(); flash.play();
+  popAt = now;
+}
+/** The chart's content changed wholesale (retry, another view): fade it in. */
+function crossfade() {
+  if (motion === 'off') return;
+  fade.cancel(); fade.play();
 }
 
 // ---------------------------------------------------------------- strain backdrop
@@ -321,7 +369,9 @@ function takeStrain() {
   const series = values['/performance/graph/series'];
   const xaxis = values['/performance/graph/xaxis'];
   if (!Array.isArray(series) || !Array.isArray(xaxis) || !xaxis.length) return;
-  const data = (series.find(s => s?.name === 'strains') ?? series[0])?.data;
+  let data = null;
+  for (let i = 0; i < series.length && !data; i++) if (series[i]?.name === 'strains') data = series[i].data;
+  if (!data) data = series[0]?.data;
   if (!Array.isArray(data)) return;
   const n = Math.min(data.length, xaxis.length);
   if (sx.length < n) { sx = new Float64Array(n); sy = new Float32Array(n); }
@@ -341,6 +391,7 @@ let status = 'connecting';
 let view = 'init';
 let dirty = true, axisDirty = true;
 let scaleTarget = 10;
+const DRAWN = new Set(['live', 'summary', 'select']);
 
 function decideView() {
   if (status !== 'live') return 'offline';
@@ -349,7 +400,7 @@ function decideView() {
   if (state === undefined || mode === null) return 'empty';
   if (mode !== 'mania') return 'hidden';
   if (isPlaying(state)) return 'live';
-  const sameMap = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+  const sameMap = peak > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
   // Song select and results only on request: the page keeps its gameplay box, which on those
   // screens usually sits over osu!'s own panels (local ranking, results card, back button).
   if (!opt.menus) return 'hidden';
@@ -365,20 +416,14 @@ function setView(next) {
   const from = view;
   view = next;
   attr(block, 'data-view', next);
-  if (next === 'live' && from !== 'live') { S.liveT = NaN; S.shownT = NaN; resetAttempt(); }
+  if (next === 'live' && from !== 'live') { S.shownT = NaN; resetAttempt(); }
   chip.hidden = next !== 'offline' && next !== 'empty';
-  if (next === 'offline') {
-    attr(chip, 'data-state', status);
-    put(el.chip, status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
-  } else if (next === 'empty') {
-    attr(chip, 'data-state', 'idle');
-    put(el.chip, 'osu! not running');
-  }
+  if (next === 'offline') put(chip, status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
+  else if (next === 'empty') put(chip, 'osu! not running');
   axisDirty = true;
   dirty = true;
-  if (from === 'live' || from === 'summary' || from === 'select') {
-    canvas.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'cubic-bezier(0.65, 0, 0.2, 1)' });
-  }
+  fut.snap = true; // a view starts with its own now line, no tween
+  if (DRAWN.has(from) && DRAWN.has(next)) crossfade();
 }
 
 // ---------------------------------------------------------------- render loop
@@ -419,7 +464,7 @@ function gridStep() {
   while (i < STEPS.length - 1 && (STEPS[i] / S.scale) * usable < 30) i++;
   return STEPS[i];
 }
-/** Scale lines from x 0 to x1D (device pixels). */
+/** Scale lines across the plot (device pixels from the band to x1D). */
 function drawGridH(x1D) {
   const step = gridStep();
   ctx.lineWidth = 1;
@@ -429,46 +474,60 @@ function drawGridH(x1D) {
   for (let v = step; v < S.scale + 0.001; v += step) {
     const row = rowOf(v);
     if ((row + half) / dpr < chartTop - 2) break;
-    ctx.moveTo(0, row); ctx.lineTo(x1D, row);
+    ctx.moveTo(G.bandD, row); ctx.lineTo(x1D, row);
   }
   frameTransform();
   ctx.stroke();
 }
 
-// KPS scale values at the strip's future end (the overview's gutter), always drawn upright. Laid
-// out only when the scale or the box changes; LX/LY keep the positions boxed for the text calls.
+// The value scale in the band at the strip's old end, upright, zero on the stage side. Laid out
+// only when the scale or the box changes; LX/LY keep the positions boxed for the text calls.
 const LT = new Array(64).fill(''), LX = new Array(64).fill(null), LY = new Array(64).fill(null);
-let labelCount = 0;
+const LA = new Array(64).fill('center');
+let labelCount = 0, labelBaseline = 'middle';
 function layoutLabels() {
   K.labelScale = S.scale;
   labelCount = 0;
   const step = gridStep();
-  for (let v = step; v < S.scale + 0.001 && v < NUMBERS.length && labelCount < LT.length; v += step) {
+  const vertical = orient !== 'h';
+  const right = opt.align === 'right';
+  const room = tickPx * 1.6; // keeps a value label clear of the zero and of the far edge
+  labelBaseline = 'middle';
+  for (let v = 0; v < S.scale + 0.001 && v < NUMBERS.length && labelCount < LT.length; v += step) {
     const y = yOf(v);
-    if (y < 10) break;
-    let x = cw - GUTTER / 2, top = y;
-    if (orient !== 'h') { x = opt.align === 'right' ? ch - y : y; top = 3; }
-    LT[labelCount] = NUMBERS[v]; LX[labelCount] = x; LY[labelCount] = top;
+    let x, top, align = 'center';
+    if (vertical) {
+      // Canvas x of the value (the zero sits on the stage side); the band is the strip's bottom.
+      x = right ? ch - y : y; top = cw - band / 2;
+      if (v === 0) { x = right ? 1 : ch - 1; align = right ? 'left' : 'right'; }
+      else if (x < room / 2 + 2 || x > ch - room / 2 - 2 || Math.abs(x - (right ? 0 : ch)) < room + tickPx) continue;
+    } else {
+      x = band / 2; top = y;
+      if (v === 0) top = ch - tickPx / 2 - 1;
+      else if (y < tickPx / 2 + 1 || ch - y < tickPx * 1.5) continue;
+    }
+    LT[labelCount] = NUMBERS[v]; LX[labelCount] = x; LY[labelCount] = top; LA[labelCount] = align;
     labelCount++;
   }
 }
 function drawGridLabels() {
   if (K.labelScale !== S.scale) layoutLabels();
   ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0);
-  ctx.font = monoFont;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = orient === 'h' ? 'middle' : 'top';
+  ctx.font = tickFont;
+  ctx.textBaseline = labelBaseline;
   ctx.lineWidth = 3;
   ctx.lineJoin = 'round';
   ctx.strokeStyle = C.under;
   ctx.fillStyle = C.label;
   for (let i = 0; i < labelCount; i++) {
+    ctx.textAlign = LA[i];
     ctx.strokeText(LT[i], LX[i], LY[i]);
     ctx.fillText(LT[i], LX[i], LY[i]);
   }
   frameTransform();
 }
 
+/** The zero line, on the stage side, through the band to the strip's far end. */
 function drawBase() {
   ctx.lineWidth = 1;
   ctx.strokeStyle = C.base;
@@ -478,7 +537,7 @@ function drawBase() {
 }
 
 // The strain silhouette, built once per scale (k px per map ms) at absolute x = t·k; drawing
-// translates it by −t0·k. The edge is its own path: it has no segments along the base.
+// translates it by band − t0·k. The edge is its own path: it has no segments along the base.
 let strainArea = null, strainEdge = null, strainK = NaN;
 function buildStrain(k) {
   strainK = k;
@@ -497,23 +556,49 @@ function buildStrain(k) {
   strainArea.lineTo(sx[sn - 1] * k, base);
   strainArea.closePath();
 }
-/** The strain area under a transform already shifted by −t0·k; `strong` when it is the subject. */
-function drawStrain(strong) {
-  ctx.fillStyle = strong ? C.strainFillStrong : C.strainFill;
+// Strain alphas. Live: behind your trace (past) it stays quiet; ahead of the now line (future) it
+// is the preview and reads stronger; kiai lifts both (S.mix 0…1). Still views: behind a run, or
+// the subject of song select.
+const PAST_FILL = 0.1, PAST_EDGE = 0.3, FUT_FILL = 0.22, FUT_EDGE = 0.7, LIFT = 1.6;
+const S_FILL = 0.12, S_EDGE = 0.35, S_FILL_LIFT = 0.26, S_EDGE_LIFT = 0.8;
+/** The strain area under a transform already shifted to the plot's t0. */
+function drawStrain(fill, edge) {
+  ctx.fillStyle = C.map;
+  ctx.strokeStyle = C.map;
+  ctx.globalAlpha = fill;
   ctx.fill(strainArea);
   ctx.lineWidth = 1;
-  ctx.strokeStyle = strong ? C.strainEdgeStrong : C.strainEdge;
+  ctx.globalAlpha = edge;
   ctx.stroke(strainEdge);
+  ctx.globalAlpha = 1;
+}
+let mixTarget = 0, mixSettled = false;
+/** S.mix toward kiai (full motion only), eased over MOTION_MS.slow; true while it moves. */
+function stepKiai() {
+  const target = motion === 'full' && values['/beatmap/isKiai'] === true && laneOn() ? 1 : 0;
+  // Settled: compare integers only (reading the fractional S.mix would box it every frame).
+  if (mixSettled && target === mixTarget) return false;
+  mixTarget = target;
+  let moving = false;
+  if (S.mix !== target) {
+    const step = motion === 'full' ? S.dt / MOTION_MS.slow : 1;
+    S.mix = target > S.mix ? Math.min(target, S.mix + step) : Math.max(target, S.mix - step);
+    moving = S.mix !== target;
+  }
+  const m = 1 + (LIFT - 1) * S.mix * S.mix * (3 - 2 * S.mix); // smoothstep
+  G.pastFill = PAST_FILL * m; G.pastEdge = PAST_EDGE * m;
+  G.futFill = FUT_FILL * m; G.futEdge = Math.min(1, FUT_EDGE * m);
+  mixSettled = !moving;
+  return moving;
 }
 
-/** A level line at device row `row` from x 0 to x1D (device pixels). */
-function drawLevel(row, color, dash, x1D) {
+/** A level line at device row `row` from the band to x1D (device pixels). */
+function drawLevel(row, color, dash, x1D, wide) {
   ctx.setLineDash(dash);
-  ctx.lineWidth = 1;
   ctx.strokeStyle = color;
   ctx.beginPath();
-  crispY();
-  ctx.moveTo(0, row); ctx.lineTo(x1D, row);
+  if (wide) { ctx.lineWidth = G.wide; deviceFrame(); } else { ctx.lineWidth = 1; crispY(); }
+  ctx.moveTo(G.bandD, row); ctx.lineTo(x1D, row);
   frameTransform();
   ctx.stroke();
   ctx.setLineDash(DASH_NONE);
@@ -523,7 +608,7 @@ const PEAK_MARK = new Path2D();
 PEAK_MARK.moveTo(-4.5, -9); PEAK_MARK.lineTo(4.5, -9); PEAK_MARK.lineTo(0, -3.5); PEAK_MARK.closePath();
 /** The peak's marker, under a transform already moved to the peak. */
 function drawPeakMark() {
-  ctx.fillStyle = C.hl;
+  ctx.fillStyle = C.you;
   ctx.fill(PEAK_MARK);
 }
 
@@ -584,10 +669,10 @@ function liveTrace(n, area) {
 }
 
 const SMOOTH = 6; // bins (300 ms) of display smoothing; readouts stay exact
-/** Sum of kps over the m bins ending at e (the trace shows its mean). */
+/** Sum of the series over the m bins ending at e (the trace shows its mean). */
 function sumTo(e, m) {
   let sum = 0;
-  for (let j = Math.max(0, e - m + 1); j <= e; j++) sum += kps[j];
+  for (let j = Math.max(0, e - m + 1); j <= e; j++) sum += series[j];
   return sum;
 }
 
@@ -601,27 +686,36 @@ function clearCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   frameTransform();
 }
+/** Clips to the plot from the band to x (virtual). */
+function clipPlot(x) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(G.band, 0, x, G.ch); ctx.clip();
+}
 
 function renderLive(now) {
-  estimate(now);
-  let t = S.est;
+  let t = clock.now(now);
   if (t < S.shownT && S.shownT - t < 400) t = S.shownT; // never jitter backwards
   S.shownT = t;
   scaleTarget = targetScale();
-  S.scale += (scaleTarget - S.scale) * (1 - Math.exp(-S.dt / 140));
+  if (motion === 'off') S.scale = scaleTarget;
+  else S.scale += (scaleTarget - S.scale) * (1 - Math.exp(-S.dt / 140));
   if (Math.abs(scaleTarget - S.scale) < 0.01) S.scale = scaleTarget;
   const scaling = S.scale !== scaleTarget;
+  const easing = stepNow(now);
+  const lifting = stepKiai();
+  const popping = motion === 'full' && now - popAt < MOTION_MS.base;
 
   clearCanvas();
-  const keysPresent = Array.isArray(values['/keys/all']);
+  const keysPresent = meter.available;
   if (t !== t || !cw) {
     drawBase();
-    readouts(-1, keysPresent);
-    return scaling;
+    readouts(UNKNOWN, keysPresent);
+    return scaling || easing;
   }
+  if (keysPresent) sample(t);
   const span = spanS * 1000 * rate;       // map ms of history
-  const k = nowX / span;                  // px per map ms
-  const t0 = t - span;
+  const k = (nowX - band) / span;         // px per map ms
+  const t0 = t - span;                    // at x = band
   const t1 = t + (cw - nowX) / k;
   if (k !== G.k) G.k = k;
   // The bin frame's reference: the end of the first trace slice that can be in view. Its offset
@@ -630,7 +724,7 @@ function renderLive(now) {
   let ref = Math.max(0, Math.floor((t0 - stride * BIN - ORIGIN) / BIN));
   ref -= ref % stride;
   const xRef = ORIGIN + (ref + stride) * BIN;
-  G.tx = (xRef - t0) * k;
+  G.tx = band + (xRef - t0) * k;
 
   // Chart-recorder grid anchored to time: 1 s minor, 5 s (or 10 s) major.
   const second = 1000 * rate;
@@ -642,7 +736,7 @@ function renderLive(now) {
     crispX();
     for (let s = Math.ceil(t0 / second); s * second <= t1; s++) {
       if (s % major === 0) continue;
-      const x = Math.round((s * second - t0) * k * dpr) | 0;
+      const x = Math.round((band + (s * second - t0) * k) * dpr) | 0;
       ctx.moveTo(x, G.topD); ctx.lineTo(x, G.baseD);
     }
     frameTransform();
@@ -652,7 +746,7 @@ function renderLive(now) {
   ctx.beginPath();
   crispX();
   for (let s = Math.ceil(t0 / (second * major)); s * second * major <= t1; s++) {
-    const x = Math.round((s * second * major - t0) * k * dpr) | 0;
+    const x = Math.round((band + (s * second * major - t0) * k) * dpr) | 0;
     ctx.moveTo(x, G.topD); ctx.lineTo(x, G.baseD);
   }
   frameTransform();
@@ -662,26 +756,35 @@ function renderLive(now) {
     if (k !== strainK) buildStrain(k);
     if (strainArea) {
       if (xRef !== shiftRef || k !== K.shiftK) { shiftRef = xRef; K.shiftK = k; G.sShift = -xRef * k; }
-      ctx.translate(G.tx, 0); ctx.translate(G.sShift, 0); // −t0·k
-      drawStrain(false);
+      clipPlot(nowX - band);
+      ctx.translate(G.tx, 0); ctx.translate(G.sShift, 0); // band − t0·k
+      drawStrain(G.pastFill, G.pastEdge);
+      ctx.restore();
+      if (nowX < cw) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(nowX, 0, G.futW, G.ch); ctx.clip();
+        ctx.translate(G.tx, 0); ctx.translate(G.sShift, 0);
+        drawStrain(G.futFill, G.futEdge);
+        ctx.restore();
+      }
       frameTransform();
     }
   }
   drawGridH(G.cwD);
 
-  const nowBin = Math.max(0, Math.floor((t - ORIGIN) / BIN));
-  const current = keysPresent && nowBin <= used ? kps[nowBin] : 0;
+  const nowBin = binOf(t);
+  const current = keysPresent ? meter.at(t | 0) : UNKNOWN;
   average(false);
-  if (keysPresent && S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.nowD);
-  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.peak, DASH_PEAK, G.nowD);
+  if (keysPresent && S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.nowD, false);
+  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.you, DASH_PEAK, G.nowD, true);
 
-  // The live head sits on the trace's last mean (or the bare window count before the first press).
+  // The live head sits on the trace's last mean (or the exact count before the first press).
   // G.headY / G.peakY change only with it or the scale; computed here rather than in helpers,
   // since renderLive is optimised long before a small helper is and unoptimised arithmetic boxes.
   const m = Math.max(stride, SMOOTH);
-  const tracing = keysPresent && firstT !== null;
+  const tracing = keysPresent && S.firstT === S.firstT && used >= 0;
   if (keysPresent) {
-    const num = tracing ? sumTo(nowBin, m) : current;
+    const num = tracing ? sumTo(nowBin - 1, m) : current === current ? current : 0;
     const den = tracing ? m : 1;
     if (num !== headSum || den !== headDen || S.scale !== K.headScale) {
       headSum = num; headDen = den; K.headScale = S.scale;
@@ -690,9 +793,9 @@ function renderLive(now) {
   }
 
   // KPS trace: points every `stride` bins, anchored to absolute bins so the shape never shimmers;
-  // each point averages the last SMOOTH bins of window values so ±1 count flicker reads as a line.
+  // each point averages the last SMOOTH bins of window counts so ±1 flicker reads as a line.
   if (tracing) {
-    let b = Math.max(0, Math.floor((Math.max(t0 - stride * BIN, firstT - 1000 * rate) - ORIGIN) / BIN));
+    let b = Math.max(0, Math.floor((Math.max(t0 - stride * BIN, S.firstT - 1000 * rate) - ORIGIN) / BIN));
     b -= b % stride;
     let n = 0;
     for (; b + stride <= nowBin && n < TX.length - 1; b += stride) {
@@ -703,13 +806,13 @@ function renderLive(now) {
     }
     if (S.scale !== K.vcScale || m !== vcM) { K.vcScale = S.scale; vcM = m; G.vc = -(ch - 1 - chartTop) / (2 * m * S.scale); }
     if (n >= 2) G.xMid = (TX[n - 1] + (t - xRef)) / 2; // last point ↔ head
-    ctx.save();
-    ctx.beginPath(); ctx.rect(0, 0, nowX, G.ch); ctx.clip();
+    clipPlot(nowX - band);
     drawCurve(liveTrace, n + 1, fillGrad, C.line, W_LIVE, W_LIVE_UNDER);
     ctx.restore();
+    frameTransform();
     if (peakBin >= 0) {
-      const x = (timeOf(peakBin) - t0) * k;
-      if (x >= 0 && x <= nowX) {
+      const x = band + (timeOf(peakBin) - t0) * k;
+      if (x >= band && x <= nowX) {
         if (peak !== peakFor || S.scale !== K.peakScale) {
           peakFor = peak; K.peakScale = S.scale;
           G.peakY = ch - 1 - (peak / S.scale) * (ch - 1 - chartTop);
@@ -719,13 +822,18 @@ function renderLive(now) {
           G.peakDX = k * (timeOf(peakBin) - xRef);
         }
         ctx.translate(G.tx, G.peakY); ctx.translate(G.peakDX, 0);
+        if (popping) {
+          const q = 1 - (now - popAt) / MOTION_MS.base;
+          G.pop = 1 + 0.8 * q * q * q; // ease-out back to size
+          ctx.scale(G.pop, G.pop);
+        }
         drawPeakMark();
         frameTransform();
       }
     }
   }
 
-  // Now line and live head.
+  // Now line and live head (yours: amber).
   ctx.lineWidth = 1;
   ctx.strokeStyle = C.now;
   ctx.beginPath();
@@ -736,27 +844,27 @@ function renderLive(now) {
   if (keysPresent) {
     ctx.fillStyle = C.halo;
     ctx.beginPath(); ctx.arc(nowX, G.headY, 6, 0, TAU); ctx.fill();
-    ctx.fillStyle = C.hl;
+    ctx.fillStyle = C.you;
     ctx.beginPath(); ctx.arc(nowX, G.headY, 3, 0, TAU); ctx.fill();
   }
   drawBase();
   if (keysPresent) drawGridLabels();
   readouts(current, keysPresent);
-  const advancing = S.liveT === S.liveT && now - S.liveAt < HOLD;
-  return advancing || scaling;
+  const advancing = clock.moving && now - clock.sampledAt < HOLD;
+  return advancing || scaling || easing || lifting || popping;
 }
 
 /** S.avg: presses per real second since the first press, up to the shown time (or the end of the
  * map when `toEnd`); NaN while there is too little to say. */
 function average(toEnd) {
   S.avg = NaN;
-  if (firstT === null || total < 2) return;
+  if (S.firstT !== S.firstT || presses < 2) return;
   // Separate stores, not `toEnd ? Infinity : S.shownT`: that merge would box the shown time.
-  if (toEnd) S.end = Infinity; else S.end = S.shownT;
+  if (toEnd) S.end = timeOf(used); else S.end = S.shownT;
   const lastObject = values['/beatmap/time/lastObject'];
   if (typeof lastObject === 'number' && lastObject + 500 < S.end) S.end = lastObject + 500;
-  const seconds = (S.end - firstT) / rate / 1000;
-  if (seconds >= 1) S.avg = total / seconds;
+  const seconds = (S.end - S.firstT) / rate / 1000;
+  if (seconds >= 1) S.avg = presses / seconds;
 }
 
 /** The map's average note rate in notes per real second (one press per mania object). */
@@ -769,44 +877,50 @@ function mapRate() {
 }
 
 function renderStill() {
+  // Leaving for a hidden view keeps the last frame while the page fades out.
+  if (!cw || (view !== 'summary' && view !== 'select')) { readouts(UNKNOWN, true); return; }
   clearCanvas();
-  if (!cw || (view !== 'summary' && view !== 'select')) { readouts(-1, true); return; }
-  const run = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+  const run = peak > 0 && used >= 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
   S.scale = scaleTarget = targetScale();
+  const subject = view === 'select' && !run; // the map's density is the subject without a run
   const mp3 = values['/beatmap/time/mp3Length'];
   let t0 = sn ? Math.min(0, sx[0]) : 0;
   let t1 = typeof mp3 === 'number' && mp3 > 0 ? mp3 : 0;
   if (sn) t1 = Math.max(t1, sx[sn - 1]);
-  if (run) { t0 = Math.min(t0, firstT - 1000); t1 = Math.max(t1, timeOf(used)); }
+  if (run) { t0 = Math.min(t0, S.firstT - 1000); t1 = Math.max(t1, timeOf(used)); }
   if (t1 > t0) {
-    // Time runs upward over the whole map; the top GUTTER px hold the KPS scale.
-    const k = (cw - GUTTER) / (t1 - t0);
+    // Time runs upward over the whole map, from the value band to the far end.
+    const k = (cw - band) / (t1 - t0);
     if (opt.strain) {
       if (k !== strainK) buildStrain(k);
-      if (strainArea) { ctx.translate(-t0 * k, 0); drawStrain(!run); frameTransform(); }
+      if (strainArea) {
+        clipPlot(G.cw); ctx.translate(band - t0 * k, 0);
+        drawStrain(subject ? S_FILL_LIFT : S_FILL, subject ? S_EDGE_LIFT : S_EDGE);
+        ctx.restore(); frameTransform();
+      }
     }
     if (run) {
-      drawGridH(G.plotD);
+      drawGridH(G.cwD);
       average(true);
-      if (S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.plotD);
-      drawLevel(rowOf(peak), C.peak, DASH_PEAK, G.plotD);
+      if (S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.cwD, false);
+      drawLevel(rowOf(peak), C.you, DASH_PEAK, G.cwD, true);
       // Whole attempt, ~2 px per point: the highest window value in each slice, so the envelope
       // meets the peak marker exactly.
       const per = Math.max(1, Math.round(2 / (k * BIN)));
       let n = 0;
-      let b = binOf(firstT - 1000 * rate);
+      let b = binOf(S.firstT - 1000 * rate);
       b -= b % per;
       for (; b <= used && n < px.length - 1; b += per) {
         let top = 0;
-        for (let j = b; j < b + per; j++) if (kps[j] > top) top = kps[j];
-        px[n] = (timeOf(b + per - 1) - t0) * k;
+        for (let j = b; j < b + per; j++) if (series[j] > top) top = series[j];
+        px[n] = band + (timeOf(b + per - 1) - t0) * k;
         py[n] = yOf(top);
         n++;
       }
-      px[n] = px[n - 1] + 1; py[n] = ch - 1; n++; // the run ends on the baseline
+      if (n) { px[n] = px[n - 1] + 1; py[n] = ch - 1; n++; } // the run ends on the baseline
       drawCurve(stillTrace, n, ghostGrad, C.ghost, W_GHOST, W_GHOST_UNDER);
       if (peakBin >= 0) {
-        ctx.translate((timeOf(peakBin - (peakBin % per) + per - 1) - t0) * k, yOf(peak));
+        ctx.translate(band + (timeOf(peakBin) - t0) * k, yOf(peak));
         drawPeakMark();
         frameTransform();
       }
@@ -820,112 +934,72 @@ function renderStill() {
     put(el.axisL, has ? formatDuration(Math.max(0, t0) / rate) : '');
     put(el.axisM, has ? formatDuration(Math.max(0, (t0 + t1) / 2) / rate) : '');
     put(el.axisR, has ? formatDuration(t1 / rate) : '');
-    put(el.axisN, '');
   }
-  readouts(-1, true);
+  readouts(UNKNOWN, true);
 }
 
 // ---------------------------------------------------------------- DOM readouts
-function columns() {
-  const keys = values['/keys/all'];
-  if (isPlaying(values['/state/number']) && Array.isArray(keys) && keys.length) return keys.length;
-  const cs = values['/beatmap/stats/cs/converted'];
-  return typeof cs === 'number' && cs > 0 ? Math.round(cs) : null;
-}
+// One formatter per displayed field (docs/overlay-system.md "Numbers"): each returns the same
+// string until its shown value changes, so a steady readout allocates nothing per frame.
+const fmtHero = numberFormatter('kps');
+const fmtPeak = numberFormatter('kps');
+const fmtAvg = numberFormatter('kps');
+const fmtKeys = numberFormatter('count');
+/** The average rounded to its shown precision (an integer passes unboxed; the format has 0 decimals). */
+const avgShown = () => (S.avg === S.avg ? Math.round(S.avg) : UNKNOWN);
+let shownView = '';
 
-const NONE = '—';
-/** A readout value; placeholders render dimmed. */
-function show(node, value) {
-  if (node._text === value) return;
-  put(node, value);
-  attr(node, 'data-none', value === NONE ? '' : null);
-}
-const intText = v => (v >= 0 && v < NUMBERS.length ? NUMBERS[v] : String(v));
-// One-decimal text cached by tenths per slot, so a steady value allocates nothing per frame.
-// Callers pass tenths (an integer; negative for none): a fractional argument would be boxed.
-function decimal(cache, key) {
-  if (key < 0) return NONE;
-  if (key !== cache.key) { cache.key = key; cache.text = (key / 10).toFixed(1); }
-  return cache.text;
-}
-const avgTenths = () => (S.avg === S.avg ? Math.round(S.avg * 10) : -1);
-function mapTenths() {
-  const r = mapRate();
-  return r === null ? -1 : Math.round(r * 10);
-}
-const avgText = { key: NaN, text: NONE };
-const mapText = { key: NaN, text: NONE };
-let phaseLabel = '', phaseColumns = -1, phaseRate = NaN;
-
-function phase(label) {
-  const keyCount = columns();
-  if (label === phaseLabel && keyCount === phaseColumns && rate === phaseRate) return;
-  phaseLabel = label; phaseColumns = keyCount; phaseRate = rate;
-  const rateText = Math.abs(rate - 1) > 0.001 ? ` · ${rate.toFixed(2)}×` : '';
-  const detail = keyCount ? `${keyCount}K${rateText}` : rateText.slice(3);
-  put(el.phase, label && detail ? `${label} · ${detail}` : label || detail);
-}
-
-function labels(p, a, b, aKey, bKey, unit) {
-  put(el.pLabel, p); put(el.aLabel, a); put(el.bLabel, b);
+/** The labels of one view, written when the view (or whether a run exists) changes. */
+function labels(phase, p, unit, a, b, aKey, bKey) {
+  put(el.phase, phase); put(el.pLabel, p); put(el.pUnit, unit);
+  put(el.aName, a); put(el.bName, b);
   attr(el.aLabel, 'data-key', aKey); attr(el.bLabel, 'data-key', bKey);
-  put(el.pUnit, unit);
+}
+function showPeak(text) {
+  show(el.aValue, text);
+  put(el.aEcho, text);
 }
 
-/** `current`: the live window's count, or −1 when there is none to show. */
+/** `current`: the live window's count (UNKNOWN when there is none to show). */
 function readouts(current, keysPresent) {
   if (view === 'live') {
-    phase('');
-    labels('Now', 'Peak', 'Avg', 'peak', 'avg', 'kps');
-    attr(el.aValue, 'data-peak', '');
-    const live = keysPresent && current >= 0;
-    show(el.pValue, live ? intText(current) : NONE);
-    show(el.aValue, live && peak > 0 ? intText(peak) : NONE);
-    show(el.bValue, live ? decimal(avgText, avgTenths()) : NONE);
-    attr(block, 'data-hot', live && peak >= 5 && current === peak ? '' : null);
+    if (shownView !== 'live') { shownView = 'live'; labels('', '', 'kps', 'Peak', 'Avg', 'peak', 'avg'); }
+    show(el.pValue, fmtHero(current));
+    showPeak(keysPresent && peak > 0 ? fmtPeak(peak) : DASH);
+    show(el.bValue, keysPresent ? fmtAvg(avgShown()) : DASH);
     if (note.hidden !== keysPresent) note.hidden = keysPresent;
-    if (!keysPresent) put(note, 'No key data. Enable ENABLE_KEY_OVERLAY in vosu.');
-    if (axisDirty) {
-      axisDirty = false;
-      put(el.axisL, `−${spanS}s`);
-      put(el.axisM, `−${spanS / 2}s`);
-      put(el.axisN, 'Now');
-      const ahead = spanS * (1 - NOW_AT) / NOW_AT;
-      put(el.axisR, `+${ahead < 10 ? ahead.toFixed(1) : Math.round(ahead)}s`);
-    }
+    if (!keysPresent) put(note, 'No key data from this host (vosu sends it with its key overlay enabled).');
     return;
   }
   if (!note.hidden) note.hidden = true;
-  attr(block, 'data-hot', null);
-  attr(el.aValue, 'data-peak', null);
   if (view === 'summary') {
-    phase('Result');
-    labels('Peak', 'Avg', 'Keys', 'avg', 'none', 'kps');
-    show(el.pValue, intText(peak));
+    if (shownView !== 'summary') { shownView = 'summary'; labels('Your run', 'Peak', 'kps', 'Avg', 'Keys', 'avg', 'none'); }
+    show(el.pValue, fmtHero(peak));
     average(true);
-    show(el.aValue, decimal(avgText, avgTenths()));
-    show(el.bValue, intText(total));
+    showPeak(fmtAvg(avgShown()));
+    show(el.bValue, fmtKeys(meter.total));
     return;
   }
   if (view === 'select') {
     // osu! shows object counts and length, not the rate they add up to, nor where it peaks.
-    const run = total > 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
-    phase(RESULTS.has(values['/state/number']) ? 'Result' : 'Map');
-    if (run) {
-      labels('Map avg', 'Peak', 'Avg', 'peak', 'avg', 'nps');
-      show(el.aValue, intText(peak));
-      average(true);
-      show(el.bValue, decimal(avgText, avgTenths()));
-    } else {
-      labels('Map avg', '', '', 'none', 'none', 'nps');
-      put(el.aValue, ''); put(el.bValue, '');
+    const run = peak > 0 && used >= 0 && attemptChecksum !== null && attemptChecksum === values['/beatmap/checksum'];
+    const key = run ? 'select-run' : 'select';
+    if (shownView !== key) {
+      shownView = key;
+      if (run) labels('This map', 'Average', 'nps', 'Peak', 'Avg', 'peak', 'avg');
+      else labels('This map', 'Average', 'nps', '', '', 'none', 'none');
     }
-    show(el.pValue, decimal(mapText, mapTenths()));
+    const r = mapRate();
+    show(el.pValue, fmtHero(r === null ? UNKNOWN : r));
+    if (run) {
+      showPeak(fmtPeak(peak));
+      average(true);
+      show(el.bValue, fmtAvg(avgShown()));
+    } else { showPeak(''); show(el.bValue, ''); }
   }
 }
 
 // ---------------------------------------------------------------- wiring
-recolor();
 settings(DEFAULTS, applySettings);
 subscribe(POINTERS, (next, changed) => {
   values = next;
@@ -933,7 +1007,7 @@ subscribe(POINTERS, (next, changed) => {
   if (changed.has('/beatmap/time/rate') || changed.has('/play/mods/rate')) {
     const r = values['/beatmap/time/rate'] ?? values['/play/mods/rate'];
     const fresh = typeof r === 'number' && r > 0 ? r : 1;
-    if (fresh !== rate) { rate = fresh; takeStrain(); if (total === 0) w = Math.max(1, Math.round(1000 * rate / BIN)); dirty = axisDirty = true; }
+    if (fresh !== rate) { rate = fresh; takeStrain(); dirty = axisDirty = true; }
   }
   if (changed.has('/performance/graph/series') || changed.has('/performance/graph/xaxis')) { takeStrain(); dirty = axisDirty = true; }
   setView(decideView());
@@ -941,13 +1015,15 @@ subscribe(POINTERS, (next, changed) => {
     const t = values['/beatmap/time/live'];
     if (typeof t === 'number') {
       // A large backwards jump during play is a retry or rewind.
-      if (view === 'live' && t < S.liveT - 1500) { resetAttempt(); S.shownT = NaN; }
-      S.liveT = t; S.liveAt = now;
+      if (view === 'live' && t < S.liveT - 1500) { resetAttempt(); S.shownT = NaN; crossfade(); }
+      S.liveT = t;
     } else S.liveT = NaN;
+    clock.sample(t, rate, values['/beatmap/time/firstObject'], values['/beatmap/time/lastObject'], values['/beatmap/time/mp3Length'], now);
   }
   if (view === 'live' && changed.has('/keys/all')) takeKeys(now);
   if (changed.has('/beatmap/checksum')) { loadPalette(); dirty = axisDirty = true; }
-  if (changed.has('/beatmap/time/mp3Length') || changed.has('/beatmap/stats/objects/total') || changed.has('/beatmap/time/lastObject') || changed.has('/play/source')) dirty = axisDirty = true;
+  if (changed.has('/beatmap/isKiai')) dirty = true;
+  if (changed.has('/beatmap/time/mp3Length') || changed.has('/beatmap/stats/objects/total') || changed.has('/beatmap/time/lastObject')) dirty = axisDirty = true;
   if (view === 'live' || dirty) kick();
 }, {
   onStatus: next => {

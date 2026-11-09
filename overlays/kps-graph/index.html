@@ -5,26 +5,27 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KPS graph</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<section id="kps" class="kps" aria-label="Keys per second" data-view="init" data-orient="v" data-align="left" data-backing="none">
-  <p id="chip" class="chip" role="status" hidden><i></i><span id="chipText"></span></p>
+<section id="kps" class="kit kps" aria-label="Keys per second" data-view="init" data-orient="v" data-align="left" data-backing="scrim" data-motion="full" data-map-tint="on">
+  <p id="chip" class="chip kit-caption" role="status" hidden></p>
   <div class="readouts">
-    <span class="phase"><span id="phase"></span></span>
-    <span id="pLabel" class="label p">Now</span>
-    <span id="aLabel" class="label a" data-key="peak">Peak</span>
-    <span id="bLabel" class="label b" data-key="avg">Avg</span>
-    <span class="figure"><b id="pValue">—</b><span id="pUnit" class="unit">kps</span></span>
-    <b id="aValue" class="stat a">—</b>
-    <b id="bValue" class="stat b">—</b>
+    <span id="phase" class="phase kit-label"></span>
+    <span id="pLabel" class="label p kit-label"></span>
+    <span class="hero kit-hero"><span id="pValue" class="kit-dash">—</span><span id="pUnit" class="kit-unit">kps</span></span>
+    <span id="aLabel" class="label a kit-label" data-key="peak"><i></i><span id="aName">Peak</span></span>
+    <span id="bLabel" class="label b kit-label" data-key="avg"><i></i><span id="bName">Avg</span></span>
+    <span class="stat a kit-value"><span id="aValue" class="kit-dash">—</span><span id="aEcho" class="echo" aria-hidden="true"></span></span>
+    <span class="stat b kit-value"><span id="bValue" class="kit-dash">—</span></span>
   </div>
   <div class="plot">
     <div class="axis" aria-hidden="true">
-      <span id="axisL"></span><span id="axisM"></span><span id="axisN"></span><span id="axisR"></span>
+      <span id="axisL" class="kit-tick"></span><span id="axisM" class="kit-tick"></span><span id="axisN" class="kit-label">Now</span><span id="axisR" class="kit-tick"></span>
     </div>
     <canvas id="chart" aria-label="Keys per second over time, with the map's density behind it"></canvas>
-    <p id="note" class="note" hidden></p>
+    <p id="note" class="note kit-caption" hidden></p>
   </div>
 </section>
 <script type="module" src="overlay.js"></script>

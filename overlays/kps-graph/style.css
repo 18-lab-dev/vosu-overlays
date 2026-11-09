@@ -1,154 +1,103 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Type, colour roles, backing, signature and motion come from kit.css (docs/overlay-system.md). */
 
 * { box-sizing: border-box; }
-/* tokens.css declares color-scheme: dark; inside an embedder with another scheme Chromium would paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; }
 
 /* ---------------------------------------------------------------- the page is the instrument
    Content-sized: it fills whatever box the host gives it and re-flows (overlay.js sets
-   data-orient and the size variables from the box on every resize).
-   --u: scale of the design (1 = 232 px wide vertical / 150 px tall horizontal). */
+   data-orient, --u, --now and --band from the box). --u = 1 at the 152 × 400 strip beside the
+   mania stage (vertical) or a 160 px tall horizontal box. */
 .kps {
-  --u: 1;
-  --lab: 12px;
-  --big: 60px;
-  --stat: 30px;
-  --axis: 44px;
-  --gap: 10px;
-  --hl: var(--map-accent, var(--accent));
-  --now: 82%;
-  --gutter: 0px;
+  --axis: calc(var(--u, 1) * 30px);   /* outer time column (vertical) / row height (horizontal) */
+  --now: 0px;                         /* the now line's distance from the strip's old end */
+  --band: 16px;                       /* the value-scale band at the strip's old end */
   position: absolute; inset: 0;
-  display: grid; gap: var(--gap);
-  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
+  display: grid; gap: var(--s-2);
   contain: strict;
-  transition: opacity 220ms var(--ease-draft), visibility 0s;
+  transition: opacity var(--dur-base) var(--ease-out), visibility 0s;
 }
-.kps:not([data-view="live"]) { --gutter: 22px; }
 .kps[data-orient="v"] { grid-template-rows: auto minmax(0, 1fr); }
-.kps[data-orient="h"] { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "r p"; align-items: stretch; }
+.kps[data-orient="h"] { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "r p"; column-gap: var(--s-4); }
 .kps[data-orient="h"][data-align="right"] { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "p r"; }
 .kps[data-orient="h"] .readouts { grid-area: r; align-self: center; }
 .kps[data-orient="h"] .plot { grid-area: p; }
 
+/* Entering play eases in, leaving eases out (0 ms under motion = off: kit.css zeroes --dur-base). */
 .kps[data-view="hidden"], .kps[data-view="init"] {
   opacity: 0; visibility: hidden;
-  transition: opacity 220ms var(--ease-draft), visibility 0s 220ms;
+  transition: opacity var(--dur-base) var(--ease-in), visibility 0s var(--dur-base);
 }
-.kps :is(.label, .unit, .phase, .axis, .note, .chip) { user-select: none; }
 .kps[data-view="offline"] > :not(.chip), .kps[data-view="empty"] > :not(.chip) { visibility: hidden; }
-
-/* Optional backing: a soft scrim that fades out (no edges), or the graphite panel. */
-.kps::before { content: ""; position: absolute; pointer-events: none; opacity: 0; transition: opacity 220ms var(--ease-draft); }
-.kps[data-backing="scrim"]::before {
-  inset: 0; opacity: 1;
-  background: radial-gradient(closest-side, rgb(5 6 7 / .55), rgb(5 6 7 / .36) 60%, rgb(5 6 7 / 0));
-}
-.kps[data-backing="panel"]::before {
-  inset: 0; opacity: 1;
-  background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius);
-}
-.kps[data-backing="panel"] { padding: 10px; }
-.kps[data-view="offline"]::before, .kps[data-view="empty"]::before { opacity: 0; }
+.kps:is([data-view="offline"], [data-view="empty"])::before { display: none; }
 
 /* ---------------------------------------------------------------- status chip */
-.chip {
-  position: absolute; left: 0; top: 0; margin: 0; z-index: 1;
-  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
-  font: 500 var(--lab)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-}
+.chip { position: absolute; left: var(--pad); top: var(--pad); margin: 0; white-space: nowrap; text-shadow: var(--shade); }
 .chip[hidden] { display: none; }
-.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
-.chip[data-state="offline"] i { background: var(--danger); }
 
 /* ---------------------------------------------------------------- readouts
-   Wide: one row of NOW · PEAK · AVG. Compact (narrow boxes): NOW above, PEAK · AVG below. */
+   The live count is the hero (this overlay owns KPS in mania); peak and average sit under it,
+   each labelled with a sample of the line that marks it on the chart. Song select and results
+   add a phase label and a label for the hero. Stage side = the side the readouts align to. */
 .readouts {
   position: relative;
-  display: grid; align-items: baseline; column-gap: calc(var(--gap) * 1.2); row-gap: 3px;
-  grid-template-columns: auto auto auto;
-  grid-template-areas: "phase phase phase" "pl al bl" "pv av bv";
-}
-.kps[data-compact] .readouts {
+  display: grid; align-items: end; column-gap: var(--s-4); row-gap: var(--s-1);
   grid-template-columns: auto auto;
   grid-template-areas: "phase phase" "pl pl" "pv pv" "al bl" "av bv";
+  justify-content: start; justify-items: start;
 }
-.kps[data-orient="v"][data-align="left"] .readouts { justify-content: end; }
-.kps[data-orient="v"][data-align="right"] .readouts,
-.kps[data-orient="h"] .readouts { justify-content: start; }
-.phase { grid-area: phase; }
-.label.p { grid-area: pl; } .label.a { grid-area: al; } .label.b { grid-area: bl; }
-.figure { grid-area: pv; } .stat.a { grid-area: av; } .stat.b { grid-area: bv; }
-.kps[data-orient="v"][data-align="left"] .phase { justify-self: end; }
-.kps[data-compact] .stat { margin-bottom: 2px; }
+.kps[data-orient="v"][data-align="left"] .readouts { justify-content: end; justify-items: end; }
+.phase { grid-area: phase; color: var(--text-1); }
+.label.p { grid-area: pl; }
+.label.a { grid-area: al; margin-top: var(--s-1); }
+.label.b { grid-area: bl; margin-top: var(--s-1); }
+.hero { grid-area: pv; }
+.stat.a { grid-area: av; }
+.stat.b { grid-area: bv; }
+.phase:empty, .label.p:empty { display: none; }
+.label:has(> span:empty) { visibility: hidden; }
 
-.phase {
-  display: inline-flex; align-items: center; gap: 6px; margin-bottom: 4px;
-  font: 500 var(--lab)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
-  color: var(--fg-dim); font-variant-numeric: tabular-nums;
-}
-.kps[data-view="live"] .phase { color: var(--fg); }
+.label.a, .label.b { display: inline-flex; align-items: center; gap: var(--s-1); }
+.label i { flex: none; width: calc(var(--u, 1) * 14px); }
+/* The same strokes the chart draws (overlay.js DASH_PEAK / DASH_AVG). */
+.label[data-key="peak"] i { height: 2px; background: repeating-linear-gradient(to right, var(--you) 0 2px, transparent 2px 5px); }
+.label[data-key="avg"] i { height: 1px; background: repeating-linear-gradient(to right, rgb(239 236 229 / .7) 0 4px, transparent 4px 7px); }
+.label[data-key="none"] i { display: none; }
 
-.label {
-  display: flex; align-items: center; gap: 5px; white-space: nowrap;
-  font: 500 var(--lab)/1.15 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-}
-.label[data-key]::before { content: ""; flex: none; width: 10px; height: 0; border-top: 1px dashed var(--fg); }
-.label[data-key="peak"]::before { border-top: 2px dotted var(--hl); }
-.label[data-key="none"]::before { display: none; }
-.label:empty { visibility: hidden; }
-.figure { display: flex; align-items: baseline; gap: 5px; }
-.figure b {
-  font: 600 var(--big)/.88 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em;
-  color: var(--fg); min-width: 1.1ch;
-}
-.unit { font: 500 var(--lab)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
-.stat { font: 600 var(--stat)/.95 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.kps[data-hot] .figure b, .kps[data-hot] .stat[data-peak] { color: var(--hl); }
-.figure b[data-none], .stat[data-none] { color: var(--fg-dim); font-weight: 500; }
+.stat { position: relative; font-size: calc(var(--u, 1) * 28px); }
+/* A new peak: an amber copy of the numeral that fades back to the value (overlay.js FLASH). */
+.echo { position: absolute; inset: 0; color: var(--you); opacity: 0; pointer-events: none; }
 
 /* ---------------------------------------------------------------- chart
-   Vertical: time runs upward like the mania editor (upcoming density above the now line, the
-   trace below it), amplitude grows away from the stage side (data-align: left = stage on the right).
-   Horizontal: time runs left → right, now at 82 %, the next seconds of density to its right. */
-.plot { position: relative; display: flex; gap: 6px; min-height: 0; min-width: 0; }
+   Vertical: time runs upward like the mania editor (the map's upcoming density above the now
+   line, your trace below it); the zero line sits on the stage side and KPS grows away from it.
+   Horizontal: time runs left → right. The value scale sits in a band at the strip's old end. */
+.plot { position: relative; display: flex; gap: var(--s-1); min-height: 0; min-width: 0; }
 .kps[data-orient="v"][data-align="right"] .plot { flex-direction: row-reverse; }
-.kps[data-orient="h"] .plot { flex-direction: column-reverse; gap: 3px; }
+.kps[data-orient="h"] .plot { flex-direction: column-reverse; }
 #chart { display: block; flex: 1 1 0; min-width: 0; min-height: 0; }
-.axis {
-  position: relative; flex: none;
-  font: 500 var(--lab)/1 var(--font-mono); letter-spacing: .02em; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.axis span { position: absolute; }
-#axisN { color: var(--fg); text-transform: uppercase; letter-spacing: .08em; }
+.axis { position: relative; flex: none; }
+.axis span { position: absolute; white-space: nowrap; }
+.kps[data-view="live"] :is(#axisL, #axisM, #axisR) { display: none; }
 .kps:not([data-view="live"]) #axisN { display: none; }
 
-/* vertical axis column (outer side) */
+/* vertical: a column on the outer side */
 .kps[data-orient="v"] .axis { width: var(--axis); height: 100%; }
 .kps[data-orient="v"] .axis span { right: 0; transform: translateY(50%); }
 .kps[data-orient="v"][data-align="right"] .axis span { right: auto; left: 0; }
-.kps[data-orient="v"] #axisL { bottom: 0; transform: none; }
-.kps[data-orient="v"] #axisM { bottom: calc(var(--now) / 2); }
 .kps[data-orient="v"] #axisN { bottom: var(--now); }
+.kps[data-orient="v"] #axisL { bottom: var(--band); }
+.kps[data-orient="v"] #axisM { bottom: calc(var(--band) + (100% - var(--band)) / 2); }
 .kps[data-orient="v"] #axisR { top: 0; transform: none; }
-.kps[data-orient="v"]:not([data-view="live"]) #axisM { bottom: calc((100% - var(--gutter)) / 2); }
-.kps[data-orient="v"]:not([data-view="live"]) #axisR { top: var(--gutter); transform: translateY(-50%); }
 
-/* horizontal axis row (under the chart) */
-.kps[data-orient="h"] .axis { width: 100%; height: calc(var(--lab) + 2px); }
+/* horizontal: a row under the chart */
+.kps[data-orient="h"] .axis { width: 100%; height: calc(var(--u, 1) * 18px); }
 .kps[data-orient="h"] .axis span { top: 0; transform: translateX(-50%); }
-.kps[data-orient="h"] #axisL { left: 0; transform: none; }
-.kps[data-orient="h"] #axisM { left: calc(var(--now) / 2); }
 .kps[data-orient="h"] #axisN { left: var(--now); }
+.kps[data-orient="h"] #axisL { left: var(--band); }
+.kps[data-orient="h"] #axisM { left: calc(var(--band) + (100% - var(--band)) / 2); }
 .kps[data-orient="h"] #axisR { right: 0; transform: none; }
-.kps[data-orient="h"]:not([data-view="live"]) #axisM { left: calc((100% - var(--gutter)) / 2); }
-.kps[data-orient="h"]:not([data-view="live"]) #axisR { right: auto; left: calc(100% - var(--gutter)); transform: translateX(-50%); }
 
-.note {
-  position: absolute; left: 0; right: 0; top: 30%; margin: 0;
-  font: 500 var(--lab)/1.35 var(--font-mono); color: var(--fg); white-space: normal; text-wrap: balance;
-}
+.note { position: absolute; left: 0; right: 0; top: 30%; margin: 0; text-wrap: balance; }
+.kps[data-orient="v"][data-align="left"] .note { text-align: right; }
 .note[hidden] { display: none; }

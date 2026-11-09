@@ -1,167 +1,139 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Fruit ledger: osu!catch judgements as a ruled ledger — caught and missed per object class,
-// combo status, accuracy and the accuracy still reachable. A content-sized page: the host
-// (OBS, vosulay, the replay renderer) places and sizes it; the ledger re-flows to that box,
-// vertical for side columns and corners, horizontal for top/bottom bands. Gameplay only: a page
-// placed for gameplay would sit on song select's carousel art, and osu!'s results screen already
-// lists every catch judgement, so song select, results and menus show nothing.
-import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
+// Fruit ledger: the two osu!catch misses the game's HUD never counts. Droplets missed (the hero:
+// they cost accuracy but not combo, so a full combo hides them) and combo breaks (fruit and drop
+// misses). With `hudFields` on it also lists what the HUD already shows: fruits, drops and
+// droplets caught, accuracy with the best accuracy still possible, and combo.
+// A content-sized page on the 18-LAB kit (docs/overlay-system.md): the host places and sizes it,
+// the ledger fits itself to that box through --u. Gameplay only: song select, results (osu!'s
+// results screen lists every catch judgement) and menus show nothing.
+import {
+  subscribe, settings, activeMode, known, isKnown, numberFormatter, applyKitSettings, MOTION_MS,
+} from './vosu-overlay.js';
 
-const PAD = 20; // design px around the ledger, holding the scrim's fade (.frame padding)
-const STRETCH = 1.3; // a wide box widens the ledger up to this factor before scaling it up
 const PLAYING = 2;
+const MAX_U = 4; // largest scale a big box gets
+const STRETCH = 1.3; // a wide box widens the ledger up to this factor of its natural width
 
 const P = {
   state: '/state/number',
   playMode: '/play/mode/number',
   settingsMode: '/settings/mode/number',
   checksum: '/beatmap/checksum',
-  mapCombo: '/beatmap/stats/maxCombo',
   accuracy: '/play/accuracy',
   combo: '/play/combo/current',
-  comboMax: '/play/combo/max',
+  h300: '/play/hits/300',
+  h100: '/play/hits/100',
+  h50: '/play/hits/50',
+  h0: '/play/hits/0',
+  katu: '/play/hits/katu',
+  large: '/play/hits/largeTickHits',
+  small: '/play/hits/smallTickHits',
+  sliderBreaks: '/play/hits/sliderBreaks',
 };
-const HIT_KEYS = ['300', '100', '50', '0', 'katu', 'largeTickHits', 'smallTickHits'];
-const playHits = HIT_KEYS.map(key => `/play/hits/${key}`);
 
 const $ = id => document.getElementById(id);
-const root = document.documentElement;
-const frame = $('frame');
 const ledger = $('ledger');
-const chip = $('chip');
+const statusEl = $('status');
+const hud = $('hud');
+const bestStat = $('best-stat');
+const breaksCell = ledger.querySelector('.cell-breaks');
 
 // ------------------------------------------------------------ writers (DOM touched only on change)
-function textCell(el) {
-  let last = null;
-  return value => { if (value !== last) { last = value; el.textContent = value; } };
-}
-/**
- * A text cell keyed by its number (or null): `format` runs, and allocates, only when the number
- * changes, and the DOM is written only when the formatted text does.
- */
-function numberCell(el, format) {
-  let last, text = null;
+/** A number field: one formatter (same string object until the shown value changes), the text
+ *  written only when that string changes, and the dash colour while the value is unknown. */
+function numberField(el, kind) {
+  const format = numberFormatter(kind);
+  let last = el.textContent;
+  let dash = el.classList.contains('kit-dash');
   return value => {
-    if (value === last) return;
-    last = value;
-    const next = format(value);
-    if (next !== text) { text = next; el.textContent = next; }
+    const text = format(value);
+    if (text !== last) { last = text; el.textContent = text; }
+    const unknown = !isKnown(value);
+    if (unknown !== dash) { dash = unknown; el.classList.toggle('kit-dash', unknown); }
   };
 }
-function attrCell(el, name) {
-  let last;
-  return value => {
-    if (value === last) return;
-    last = value;
-    if (value === null) el.removeAttribute(name); else el.setAttribute(name, value);
-  };
+function attrToggle(el, name) {
+  let last = el.hasAttribute(name);
+  return on => { if (on !== last) { last = on; el.toggleAttribute(name, on); } };
 }
-function classCell(el, name) {
-  let last = null;
-  return on => { if (on !== last) { last = on; el.classList.toggle(name, on); } };
+function textField(el) {
+  let last = el.textContent;
+  return text => { if (text !== last) { last = text; el.textContent = text; } };
 }
-let mirrored = false;
-let segEpoch = 0; // bumped when the bars' direction flips, so every bar rewrites
-// Transform strings per thousandth, built the first time each is used. A segment at the track's
-// start (fruits, droplets caught) then reuses a whole cached string; any other costs one
-// concatenation of two cached pieces instead of two number conversions and a template.
-const AT_START = new Array(1001).fill(null);
-const TRANSLATE = new Array(1001).fill(null);
-const TRANSLATE_MIRRORED = new Array(1001).fill(null);
-const SCALE = new Array(1001).fill(null);
-function scalePiece(k) {
-  return SCALE[k] ?? (SCALE[k] = `scaleX(${k / 1000})`);
-}
-function transformOf(startK, widthK) {
-  // translateX(0%) reads the same mirrored or not.
-  if (startK === 0) return AT_START[widthK] ?? (AT_START[widthK] = `translateX(0%) ${scalePiece(widthK)}`);
-  const table = mirrored ? TRANSLATE_MIRRORED : TRANSLATE;
-  const translate = table[startK] ?? (table[startK] = `translateX(${(mirrored ? -startK : startK) / 1000 * 100}%) `);
-  return translate + scalePiece(widthK);
-}
-
-/**
- * A bar segment spanning `[startCount, startCount + widthCount)` of `total`, positioned in
- * thousandths. Integer counts (not shares) let unchanged counts return at once and keep the
- * quantising to one division per edge.
- */
-function segCell(el) {
-  let lastStartCount = -1, lastWidthCount = -1, lastTotal = -1;
-  let lastStart = -1, lastWidth = -1, lastEpoch = -1;
-  return (startCount, widthCount, total) => {
-    if (startCount === lastStartCount && widthCount === lastWidthCount && total === lastTotal && segEpoch === lastEpoch) return;
-    lastStartCount = startCount; lastWidthCount = widthCount; lastTotal = total;
-    let startK = 0, widthK = 0;
-    if (total) {
-      // A non-zero share stays visible: at least 16 ‰ (2 px of a ~120 px track), pushed back
-      // from the track's end when it would overflow it.
-      if (widthCount > 0 && widthCount * 1000 < 16 * total) {
-        widthK = 16;
-        startK = startCount * 1000 + 16 * total > 1000 * total ? 984 : Math.round(startCount * 1000 / total);
-      } else {
-        widthK = Math.round(widthCount * 1000 / total);
-        startK = Math.round(startCount * 1000 / total);
-      }
-    }
-    if (startK === lastStart && widthK === lastWidth && segEpoch === lastEpoch) return;
-    lastStart = startK; lastWidth = widthK; lastEpoch = segEpoch;
-    el.style.transform = transformOf(startK, widthK);
-  };
-}
-const stat = name => document.querySelector(`.stat-${name}`);
-
-const grouping = new Intl.NumberFormat('en-US');
-const count = n => (n === null ? '—' : grouping.format(n));
-const percent = n => (n === null ? '—' : n.toFixed(2));
-const comboOf = n => (n === null ? '' : `/ ${grouping.format(n)}`);
-const hundredths = n => (n === null ? '—' : (n / 100).toFixed(2));
 
 const ui = {
-  chipState: attrCell(chip, 'data-state'),
-  chipText: textCell($('chip-text')),
-  hidden: classCell(ledger, 'is-hidden'),
-  verdict: textCell($('verdict')),
-  tone: attrCell($('verdict'), 'data-tone'),
-  fruit: numberCell($('n-fruit'), count),
-  drop: numberCell($('n-drop'), count),
-  tiny: numberCell($('n-tiny'), count),
-  miss: numberCell($('n-miss'), count),
-  missHot: classCell($('n-miss'), 'hot'),
-  dmiss: numberCell($('n-dmiss'), count),
-  dmissHot: classCell($('n-dmiss'), 'hot'),
-  segFruit: segCell($('seg-fruit')),
-  segDrop: segCell($('seg-drop')),
-  segMiss: segCell($('seg-miss')),
-  segTiny: segCell($('seg-tiny')),
-  segDmiss: segCell($('seg-dmiss')),
-  acc: numberCell($('acc'), percent),
-  accEmpty: attrCell(stat('acc'), 'data-empty'),
-  max: numberCell($('max'), hundredths),
-  maxUnknown: attrCell(stat('max'), 'data-unknown'),
-  combo: numberCell($('combo'), count),
-  comboEmpty: attrCell(stat('combo'), 'data-empty'),
-  comboOf: numberCell($('combo-of'), comboOf),
+  dmiss: numberField($('dmiss'), 'count'),
+  breaks: numberField($('breaks'), 'count'),
+  broken: attrToggle(breaksCell, 'data-broken'),
+  fruits: numberField($('fruits'), 'count'),
+  drops: numberField($('drops'), 'count'),
+  droplets: numberField($('droplets'), 'count'),
+  acc: numberField($('acc'), 'accuracy'),
+  best: numberField($('best'), 'accuracy'),
+  bestUnknown: attrToggle(bestStat, 'data-unknown'),
+  combo: numberField($('combo'), 'count'),
+  out: attrToggle(ledger, 'data-out'),
+  statusHidden: attrToggle(statusEl, 'hidden'),
+  status: textField(statusEl),
 };
 
+// ------------------------------------------------------------ motion (full only)
+// Event motion answers a miss: the cell's rule flashes the miss colour (held a moment, then
+// fading) and its number kicks. Animation objects are created once and restarted per event.
+const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const FLASH_KEYS = [{ opacity: 1 }, { opacity: 1, offset: 0.3, easing: EASE_OUT }, { opacity: 0 }];
+const FLASH_OPTS = { duration: MOTION_MS.slow, easing: 'linear' };
+const KICK_KEYS = [{ transform: 'scale(1.12)' }, { transform: 'scale(1)' }];
+const KICK_OPTS = { duration: MOTION_MS.base, easing: EASE_OUT };
+
+function effect(numberEl, flashEl) {
+  const flash = flashEl.animate(FLASH_KEYS, FLASH_OPTS);
+  const kick = numberEl.animate(KICK_KEYS, KICK_OPTS);
+  flash.cancel();
+  kick.cancel();
+  return { flash, kick, kickedAt: -Infinity };
+}
+const dmissFx = effect($('dmiss'), $('dmiss-flash'));
+const breaksFx = effect($('breaks'), $('breaks-flash'));
+
+/** Restarts a cell's flash; the kick restarts only when the last one is older than a fast
+ *  duration, so a stream of droplet misses keeps the rule lit while the number snaps. */
+function fire(fx, now) {
+  fx.flash.currentTime = 0;
+  fx.flash.play();
+  if (now - fx.kickedAt < MOTION_MS.fast) return;
+  fx.kickedAt = now;
+  fx.kick.currentTime = 0;
+  fx.kick.play();
+}
+function still(fx) {
+  fx.flash.cancel();
+  fx.kick.cancel();
+}
+
 // ------------------------------------------------------------ state
-const DEFAULTS = { orientation: 'auto', align: 'right', backing: 'scrim', accent: 'map', compact: false, showAcc: true };
-// The subscribed values, copied out of the client's reused frame object on every message.
-let gameState, playMode, settingsMode, checksum, mapComboRaw, accuracyRaw, comboRaw, comboMaxRaw;
-let hit300, hit100, hit50, hit0, hitKatu, hitLarge, hitSmall;
+const DEFAULTS = { motion: 'full', backing: 'scrim', hudFields: false, orientation: 'auto', align: 'left' };
 let options = { ...DEFAULTS };
+let motion = 'full';
 let status = 'connecting';
-let dirty = true;
+// The subscribed values, copied out of the client's reused frame object on every message.
+let gameState, playMode, settingsMode, checksum, accuracyRaw, comboRaw;
+let h300, h100, h50, h0, katu, large, small, sliderBreaks;
 let rafId = 0;
 
-// Map composition from vosu's (and tosu's) calculator: one request per selected map. The
-// replay renderer does not serve it; MAX then stays hidden.
-let composition = null;
+// Previous counts, for events. `armed` is false until a frame in play has been shown, so
+// entering play (or a page loaded mid-play) never flashes.
+let armed = false;
+let lastDmiss = 0;
+let lastBreaks = 0;
+
+// Map composition (vosu's and tosu's /api/calculate/pp): object counts for "Best possible".
+// Fetched only while hudFields is on; the replay renderer does not serve it (stays hidden).
+let composition = 0; // accuracy objects on the map (fruits + drops + droplets); 0 = unknown
 let compositionFor = null;
 let compositionTimer = 0;
-let paletteFor = null;
 
 function markDirty() {
-  dirty = true;
   if (!rafId) rafId = requestAnimationFrame(render);
 }
 
@@ -172,223 +144,171 @@ function scheduleRelayout() {
   relayoutTimer = setTimeout(relayout, 0);
 }
 
+/** Scale at which the ledger, laid out in `orient` at --u 1, fits W×H. */
+function fitScale(orient, W, H) {
+  ledger.dataset.orient = orient;
+  return Math.min(MAX_U, W / ledger.offsetWidth, H / ledger.offsetHeight);
+}
+
 /**
- * Picks the arrangement for the box (horizontal when it is much wider than tall, unless the
- * orientation setting forces one), measures the ledger at design size, then scales the frame to
- * fit and aligns it. A box too small for the full ledger at ≥ 70 % (e.g. a 4-player renderer
- * cell) gets the compact ledger, which keeps type larger. Runs on resize, settings change and
- * font load only.
+ * Picks the arrangement (auto: whichever of the band and the column shows the ledger larger),
+ * sets --u so it fits the page box, widens it up to STRETCH to fill a wide box, and places it by
+ * the align setting, vertically centred. Runs on resize, settings change and font load only.
  */
 function relayout() {
   const W = innerWidth, H = innerHeight;
   if (!W || !H) return;
-  const orient = options.orientation === 'horizontal' ? 'h'
-    : options.orientation === 'vertical' ? 'v'
-      : W / H > 2.2 ? 'h' : 'v';
-  ledger.dataset.orient = orient;
   ledger.dataset.align = options.align;
-  frame.dataset.align = options.align;
-  const nowMirrored = orient === 'v' && options.align === 'right';
-  if (nowMirrored !== mirrored) { mirrored = nowMirrored; segEpoch++; dirty = true; }
+  statusEl.dataset.align = options.align;
+  ledger.style.setProperty('--u', '1');
   ledger.style.width = '';
-  const measure = () => {
-    const naturalW = ledger.offsetWidth;
-    const naturalH = ledger.offsetHeight;
-    return { naturalW, naturalH, scale: Math.min(4, W / (naturalW + 2 * PAD), H / (naturalH + 2 * PAD)) };
-  };
-  ledger.classList.toggle('compact', options.compact);
-  let box = measure();
-  if (!options.compact && box.scale < 0.7) {
-    ledger.classList.add('compact');
-    box = measure();
+  let orient = options.orientation === 'vertical' ? 'v' : options.orientation === 'horizontal' ? 'h' : '';
+  let u;
+  if (orient) {
+    u = fitScale(orient, W, H);
+  } else {
+    const uv = fitScale('v', W, H);
+    const uh = fitScale('h', W, H);
+    // The band unless the column is clearly larger (it reads as one chip at the slot's shape).
+    if (uv > uh * 1.15) { orient = 'v'; ledger.dataset.orient = 'v'; u = uv; } else { orient = 'h'; u = uh; }
   }
-  const { naturalW, naturalH, scale } = box;
-  const width = Math.min(W / scale - 2 * PAD, naturalW * STRETCH);
-  ledger.style.width = `${Math.floor(width)}px`;
-  const frameW = (width + 2 * PAD) * scale;
-  const frameH = (naturalH + 2 * PAD) * scale;
-  const x = options.align === 'left' ? 0 : options.align === 'right' ? W - frameW : (W - frameW) / 2;
-  const y = (H - frameH) / 2;
-  frame.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${scale})`;
-  markDirty();
+  ledger.style.setProperty('--u', String(u));
+  const naturalW = ledger.offsetWidth;
+  const height = ledger.offsetHeight;
+  const width = Math.max(naturalW, Math.min(W, naturalW * STRETCH));
+  ledger.style.width = `${width}px`;
+  const x = options.align === 'left' ? 0 : options.align === 'right' ? W - width : (W - width) / 2;
+  ledger.style.left = `${Math.round(x)}px`;
+  ledger.style.top = `${Math.round((H - height) / 2)}px`;
 }
 
-function wantComposition(checksum) {
-  if (!checksum || checksum === compositionFor) return;
-  compositionFor = checksum;
-  composition = null;
+function wantComposition(key) {
+  if (!key || key === compositionFor) return;
+  compositionFor = key;
+  composition = 0;
   clearTimeout(compositionTimer);
   // Arguments rather than a closure: a captured parameter would allocate a context on every call.
-  compositionTimer = setTimeout(loadComposition, 300, checksum, 0);
+  compositionTimer = setTimeout(loadComposition, 300, key, 0);
 }
 
-async function loadComposition(checksum, attempt) {
+async function loadComposition(key, attempt) {
   try {
     const response = await fetch('/api/calculate/pp?mode=2', { cache: 'no-store' });
-    if (compositionFor !== checksum) return;
+    if (compositionFor !== key) return;
     if (!response.ok) {
       // 503: the map is still being parsed; anything else means the route is unavailable.
-      if (response.status === 503 && attempt < 5) compositionTimer = setTimeout(loadComposition, 1500, checksum, attempt + 1);
+      if (response.status === 503 && attempt < 5) compositionTimer = setTimeout(loadComposition, 1500, key, attempt + 1);
       return;
     }
     const attributes = (await response.json())?.difficulty;
-    if (compositionFor !== checksum || !attributes) return;
-    const { nFruits: fruits, nDroplets: drops, nTinyDroplets: droplets } = attributes;
-    if (![fruits, drops, droplets].every(Number.isInteger)) return;
-    composition = { fruits, drops, droplets, total: fruits + drops + droplets };
+    if (compositionFor !== key || !attributes) return;
+    const { nFruits, nDroplets, nTinyDroplets } = attributes;
+    if (!Number.isInteger(nFruits) || !Number.isInteger(nDroplets) || !Number.isInteger(nTinyDroplets)) return;
+    composition = nFruits + nDroplets + nTinyDroplets;
     markDirty();
   } catch { /* offline or not JSON: composition stays unknown */ }
 }
 
-function wantPalette(checksum) {
-  const key = options.accent === 'map' ? checksum || null : null;
-  if (key === paletteFor) return;
-  paletteFor = key;
-  if (!key) { applyPalette(root, null); return; }
-  mapPalette(key).then(palette => { if (paletteFor === key) applyPalette(root, palette); });
+const int = value => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+
+function showStatus(text) {
+  ui.out(true);
+  ui.status(text);
+  ui.statusHidden(false);
+  armed = false;
 }
 
-const int = value => (Number.isFinite(value) ? value : 0);
-
-// The current hits (readHits), kept as scalars so a render builds no objects.
-let fruits = 0, drops = 0, droplets = 0, misses = 0, raw = false;
-let dropletMisses = null; // unknown when vosu publishes catch statistics raw
-
-/**
- * Reads the hits. The brief's (tosu) catch table: 300 fruits, 100 drops, 50 droplets,
- * katu missed droplets, 0 fruit+drop misses. vosu v2 currently publishes catch statistics raw
- * (drops in largeTickHits, droplets in smallTickHits, droplet misses absent): then droplet
- * misses are unknown (null), never zero. Returns false when there are no hits yet.
- */
-function readHits() {
-  if (!Number.isFinite(hit300)) return false;
-  const h100 = int(hit100);
-  const h50 = int(hit50);
-  const katu = int(hitKatu);
-  const large = int(hitLarge);
-  const small = int(hitSmall);
-  raw = h100 === 0 && h50 === 0 && katu === 0 && (large > 0 || small > 0);
-  fruits = hit300;
-  drops = raw ? large : h100;
-  droplets = raw ? small : h50;
-  misses = int(hit0);
-  dropletMisses = raw ? null : katu;
-  return true;
-}
-
-const VERDICT = { none: '', broken: 'Combo broken', intact: 'Combo intact', fc: 'Full combo' };
-
-/** The combo verdict's tone for the current hits; VERDICT maps it to its words. */
-function verdictOf(maxCombo) {
-  const judged = fruits + drops + droplets + misses + (dropletMisses ?? 0);
-  if (!judged) return 'none';
-  // Without a separate drop-miss count, a combo shorter than the combo objects caught means a break.
-  const broken = misses > 0 || (raw && Number.isFinite(maxCombo) && maxCombo < fruits + drops);
-  if (broken) return 'broken';
-  if (dropletMisses === null || dropletMisses > 0) return 'intact';
-  return 'fc';
-}
-
-function chipOnly(state, text) {
-  ui.chipState(state);
-  ui.chipText(text);
-  ui.hidden(true);
-}
-
-// ------------------------------------------------------------ render (rAF only)
-function render() {
+// ------------------------------------------------------------ render (rAF, one per data change)
+function render(now) {
   rafId = 0;
-  if (!dirty) return;
-  dirty = false;
-
-  if (status !== 'live') return chipOnly(status, status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
-
-  if (!Number.isInteger(gameState)) return chipOnly('idle', 'Waiting for osu!');
-  ui.chipState('live');
+  if (status !== 'live') return showStatus(status === 'connecting' ? 'Connecting to vosu' : 'vosu offline');
+  if (!Number.isInteger(gameState)) return showStatus('Waiting for osu!');
+  ui.statusHidden(true);
 
   // Another ruleset, song select, results, menus: nothing.
   if (gameState !== PLAYING || activeMode(gameState, playMode, settingsMode) !== 'fruits') {
-    ui.hidden(true);
+    ui.out(true);
+    armed = false;
     return;
   }
-  ui.hidden(false);
+  ui.out(false);
 
-  ui.comboOf(Number.isFinite(mapComboRaw) && mapComboRaw > 0 ? mapComboRaw : null);
-  const combo = Number.isFinite(comboRaw) ? comboRaw : null;
-  ui.combo(combo);
-  ui.comboEmpty(combo === null ? '' : null);
-
-  if (!readHits()) {
-    ui.fruit(null); ui.drop(null); ui.tiny(null); ui.miss(null); ui.dmiss(null); ui.acc(null);
-    ui.missHot(false); ui.dmissHot(false);
-    ui.segFruit(0, 0, 0); ui.segDrop(0, 0, 0); ui.segMiss(0, 0, 0); ui.segTiny(0, 0, 0); ui.segDmiss(0, 0, 0);
-    ui.tone('none'); ui.verdict('');
-    ui.accEmpty(''); ui.maxUnknown('');
+  const fruits = known(h300);
+  if (!isKnown(fruits)) {
+    ui.dmiss(NaN); ui.breaks(NaN); ui.broken(false);
+    if (options.hudFields) { ui.fruits(NaN); ui.drops(NaN); ui.droplets(NaN); ui.acc(NaN); ui.best(NaN); ui.bestUnknown(true); ui.combo(known(comboRaw)); }
+    armed = false;
     return;
   }
 
-  ui.fruit(fruits);
-  ui.drop(drops);
-  ui.tiny(droplets);
-  ui.miss(misses);
-  ui.missHot(misses > 0);
-  ui.dmiss(dropletMisses);
-  ui.dmissHot(dropletMisses > 0);
+  // Two shapes of catch statistics. tosu (and vosu's legacy shape): 300 fruits, 100 drops,
+  // 50 droplets, katu missed droplets, 0 fruit + drop misses. vosu v2: drops and droplets as
+  // large/small tick hits, 100/50/katu zero and missed droplets not published.
+  const n100 = int(h100), n50 = int(h50), nKatu = int(katu);
+  const legacy = n100 > 0 || n50 > 0 || nKatu > 0;
+  const drops = legacy ? n100 : int(large);
+  const droplets = legacy ? n50 : int(small);
+  const misses = int(h0);
+  // Combo breaks: fruit and drop misses. lazer files a missed drop as a large-tick miss, which
+  // vosu does not publish either; it counts the combo resets without a new miss as slider breaks.
+  const breaks = misses + int(sliderBreaks);
+  const caught = fruits + drops + droplets;
 
-  // Waterfall shares: combo objects (fruits, drops, their misses) and droplets (caught, missed).
-  const comboTotal = fruits + drops + misses;
-  ui.segFruit(0, fruits, comboTotal);
-  ui.segDrop(fruits, drops, comboTotal);
-  ui.segMiss(fruits + drops, misses, comboTotal);
-  const knownDropletMisses = dropletMisses ?? 0;
-  const dropletTotal = droplets + knownDropletMisses;
-  ui.segTiny(0, droplets, dropletTotal);
-  ui.segDmiss(droplets, knownDropletMisses, dropletTotal);
+  // Everything lost to accuracy so far. Both clients weight every catch object equally, so the
+  // judged count is caught ÷ accuracy; without a usable accuracy the counted misses stand.
+  const accuracy = known(accuracyRaw);
+  const lost = isKnown(accuracy) && accuracy > 0 && caught > 0
+    ? Math.max(0, Math.round(caught * 100 / accuracy) - caught)
+    : misses + nKatu;
+  const dmiss = legacy ? nKatu : Math.max(0, lost - breaks);
 
-  const tone = verdictOf(Number.isFinite(comboMaxRaw) ? comboMaxRaw : null);
-  ui.tone(tone);
-  ui.verdict(VERDICT[tone]);
+  ui.dmiss(dmiss);
+  ui.breaks(breaks);
+  ui.broken(breaks > 0);
 
-  const accuracy = tone !== 'none' && Number.isFinite(accuracyRaw) ? accuracyRaw : null;
-  ui.acc(accuracy);
-  ui.accEmpty(accuracy === null ? '' : null);
-
-  // Max achievable: everything not yet missed is still catchable. Needs the map's object counts
-  // and a known droplet-miss count; otherwise the readout stays hidden rather than a dash.
-  // Kept in integer hundredths of a percent, so an unchanged readout costs nothing.
-  let max = null;
-  if (composition && composition.total > 0 && dropletMisses !== null) {
-    max = Math.floor(Math.max(0, (composition.total - misses - dropletMisses) / composition.total) * 100 * 100);
+  if (armed && motion === 'full') {
+    if (dmiss > lastDmiss) fire(dmissFx, now);
+    if (breaks > lastBreaks) fire(breaksFx, now);
   }
-  ui.max(max);
-  ui.maxUnknown(max === null ? '' : null);
+  lastDmiss = dmiss;
+  lastBreaks = breaks;
+  armed = true;
+
+  if (!options.hudFields) return;
+  ui.fruits(fruits);
+  ui.drops(drops);
+  ui.droplets(droplets);
+  ui.acc(caught + lost > 0 ? accuracy : NaN);
+  ui.combo(known(comboRaw));
+  // Best possible: every object not yet lost is still catchable. Floored to the shown hundredth
+  // so it never promises more than is left.
+  const best = composition > 0 ? Math.floor(Math.max(0, (composition - lost) / composition) * 10000) / 100 : NaN;
+  ui.best(best);
+  ui.bestUnknown(!isKnown(best));
 }
 
 // ------------------------------------------------------------ wiring
-subscribe([...Object.values(P), ...playHits], (next, changed) => {
+subscribe(Object.values(P), (next, changed) => {
   // `next` and `changed` are reused by the client for every frame: copy the values out now.
   gameState = next[P.state];
   playMode = next[P.playMode];
   settingsMode = next[P.settingsMode];
   checksum = next[P.checksum];
-  mapComboRaw = next[P.mapCombo];
   accuracyRaw = next[P.accuracy];
   comboRaw = next[P.combo];
-  comboMaxRaw = next[P.comboMax];
-  hit300 = next[playHits[0]];
-  hit100 = next[playHits[1]];
-  hit50 = next[playHits[2]];
-  hit0 = next[playHits[3]];
-  hitKatu = next[playHits[4]];
-  hitLarge = next[playHits[5]];
-  hitSmall = next[playHits[6]];
-  const isFruits = activeMode(gameState, playMode, settingsMode) === 'fruits';
-  if (isFruits) wantComposition(checksum);
-  if (changed.has(P.checksum) || changed.has(P.state)) wantPalette(isFruits ? checksum : null);
+  h300 = next[P.h300];
+  h100 = next[P.h100];
+  h50 = next[P.h50];
+  h0 = next[P.h0];
+  katu = next[P.katu];
+  large = next[P.large];
+  small = next[P.small];
+  sliderBreaks = next[P.sliderBreaks];
+  if (options.hudFields && activeMode(gameState, playMode, settingsMode) === 'fruits') wantComposition(checksum);
   if (changed.size) markDirty();
 }, {
   onStatus: state => {
-    // A reconnect attempt after losing vosu still reads as offline; no chip flicker per retry.
+    // A reconnect attempt after losing vosu still reads as offline; no flicker per retry.
     if (state === 'connecting' && status === 'offline') return;
     if (state === status) return;
     status = state;
@@ -398,13 +318,13 @@ subscribe([...Object.values(P), ...playHits], (next, changed) => {
 
 settings(DEFAULTS, next => {
   options = next;
-  ledger.dataset.backing = options.backing;
-  stat('acc').hidden = !options.showAcc;
-  stat('max').hidden = !options.showAcc;
-  const isFruits = activeMode(gameState, playMode, settingsMode) === 'fruits';
-  wantPalette(isFruits ? checksum : null);
+  motion = applyKitSettings(ledger, next);
+  if (motion !== 'full') { still(dmissFx); still(breaksFx); }
+  hud.hidden = !options.hudFields;
+  if (options.hudFields && activeMode(gameState, playMode, settingsMode) === 'fruits') wantComposition(checksum);
   scheduleRelayout();
+  markDirty();
 });
 
-new ResizeObserver(scheduleRelayout).observe(root);
+new ResizeObserver(scheduleRelayout).observe(document.documentElement);
 document.fonts.ready.then(scheduleRelayout);

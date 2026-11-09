@@ -1,128 +1,99 @@
-/* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-
+/* Copyright (c) 2026 18-LAB. MIT. Type, colour roles, backing, signature and motion: kit.css. */
 *, *::before, *::after { box-sizing: border-box; }
-/* tokens.css sets color-scheme: dark; a differing embedder scheme would paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-/* --u scales every size to the box the host gives the page (set from the box in overlay.js). */
-:root { --u: 1; }
-body { color: var(--fg); font: 400 calc(var(--u) * 15px)/1.3 var(--font-body); -webkit-font-smoothing: antialiased; }
 [hidden] { display: none !important; }
+p, h1, dl, dd { margin: 0; }
 
-/* Content floats on the game: contrast comes from weight, size and a tight shadow, not a box. */
-#np, .chip {
-  --tint: var(--map-accent, var(--accent));
-  text-shadow: 0 1px 2px rgb(0 0 0 / .7), 0 0 1px rgb(0 0 0 / .5);
-}
+/* ------------------------------------------------------------------ card
+   Content-sized: the card (and its scrim and registration marks) hugs what it shows, at the top of
+   the box. Column: the box's full width. Strip: as wide as its content, from the aligned edge. */
+#np { width: 100%; }
+#np[data-orient="horizontal"] { width: fit-content; max-width: 100%; }
+#np[data-orient="horizontal"][data-align="end"] { margin-left: auto; }
+/* Entering and leaving play (.kit-enter eases opacity and a 4 px rise); hidden after the exit. */
+#np[data-out] { visibility: hidden; transition: opacity var(--dur-base) var(--ease-in), transform var(--dur-base) var(--ease-in), visibility 0s linear var(--dur-base); }
 
-.label {
-  font: 500 calc(var(--u) * 12px)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-  white-space: nowrap; user-select: none;
-}
-
-/* ------------------------------------------------------------------ strip */
-#np {
-  position: absolute; inset: 0; display: grid; align-content: start; gap: calc(var(--u) * 9px);
-  contain: layout style; isolation: isolate;
-  opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms;
-}
-#np[data-show] { opacity: 1; visibility: visible; transition: opacity 200ms var(--ease-draft); }
+.body { display: grid; min-width: 0; }
 #np[data-align="end"] { text-align: right; }
 
-.ident { grid-area: id; display: grid; gap: calc(var(--u) * 2px); min-width: 0; }
+/* ------------------------------------------------------------------ identity
+   Title (two lines at most, ellipsis), then the artist with the title's (…)/[…] suffix, then the
+   difficulty by the mapper. When the title needs two lines, artist and difficulty share one line
+   (suffix dropped) so the card keeps its height. */
+.ident { min-width: 0; }
 .title {
-  margin: 0; font: 600 calc(var(--u) * 22px)/1.12 var(--font-body); color: var(--fg); letter-spacing: -.005em;
-  overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  overflow-wrap: anywhere;
 }
-.artist { margin: 0; font-size: calc(var(--u) * 14px); line-height: 1.25; color: var(--fg-dim); overflow-wrap: anywhere; }
-.diff { margin: 0; font: 500 calc(var(--u) * 14px)/1.25 var(--font-body); color: var(--fg); overflow-wrap: anywhere; }
-.diff .mapper { font-weight: 400; color: var(--fg-dim); }
-.diff .by { opacity: .8; }
+.meta .artist, .meta .diffline { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .sep { display: none; color: var(--text-3); }
+.meta .suffix { color: var(--text-3); }
+.meta .diff { color: var(--text-1); }
+.meta .by { color: var(--text-3); }
+.ident[data-merge] .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ident[data-merge] .meta :is(.artist, .diffline) { display: inline; }
+.ident[data-merge] .meta .sep { display: inline; }
+.ident[data-merge] .meta .suffix { display: none; }
 
-/* Progress: a hairline filled in the map's tint, with time and mods beneath. */
-.prog { grid-area: prog; display: grid; gap: calc(var(--u) * 5px); min-width: 0; }
-.track { position: relative; height: max(2px, calc(var(--u) * 3px)); background: rgb(235 232 225 / .2); border-radius: 1px; overflow: hidden; box-shadow: 0 1px 2px rgb(0 0 0 / .45); }
-.track i { position: absolute; inset: 0; background: var(--tint); transform-origin: 0 50%; transform: scaleX(0); }
-.prog .row { display: flex; justify-content: space-between; align-items: center; gap: calc(var(--u) * 10px); }
-#np[data-align="end"] .prog .row { flex-direction: row-reverse; }
-.time { font: 400 calc(var(--u) * 12px)/1 var(--font-mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.time b { font-weight: 500; color: var(--fg); }
-.mods { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4px); }
-#np[data-align="end"] .mods { justify-content: flex-start; }
+/* ------------------------------------------------------------------ progress
+   The map's progress as a hairline in the map colour (createMapClock, the clock strain-graph
+   shows). In kiai the track lifts and the fill breathes; reduced and off drop both. */
+.prog { min-width: 0; }
+.track { height: max(2px, calc(var(--u) * 3px)); background: var(--hair); overflow: hidden; transform-origin: 50% 100%; transition: transform var(--dur-base) var(--ease-draft); }
+.fill { display: block; height: 100%; background: var(--map); transform-origin: 0 50%; transform: scaleX(0); }
+#np[data-motion="full"] .prog[data-kiai] .track { transform: scaleY(1.667); }
+.prog[data-kiai] .fill { animation: np-breathe var(--dur-ambient) ease-in-out infinite alternate; }
+@keyframes np-breathe { from { opacity: 1; } to { opacity: .55; } }
+#np[data-progress="off"] .prog { display: none; }
+
+/* ------------------------------------------------------------------ numbers
+   The map's star rating is the hero; under it a 2 px bar fills with the live rating (the
+   difficulty of the map so far) against it. BPM and mods beside it, difficulty settings below. */
+/* Hero, BPM and (in the strip) the settings share one baseline; mods sit above the BPM. */
+.nums { display: grid; align-items: last baseline; min-width: 0; }
+.hero { position: relative; grid-area: hero; }
+.star { color: var(--map); }
+.strain { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * 2px); height: max(2px, calc(var(--u) * 2px)); background: var(--hair); overflow: hidden; }
+.strain i { display: block; height: 100%; background: var(--map); transform-origin: 0 50%; transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out); }
+.side { grid-area: side; display: grid; row-gap: var(--s-1); min-width: 0; }
+.bpm { display: block; }
+#bpmNum { display: inline-block; }
+.mods { white-space: nowrap; }
 .mods:empty { display: none; }
-.mod {
-  padding: calc(var(--u) * 3px) calc(var(--u) * 5px) calc(var(--u) * 2px); border: 1px solid rgb(235 232 225 / .4); border-radius: var(--radius);
-  background: rgb(11 12 13 / .45); text-shadow: none;
-  font: 500 calc(var(--u) * 11px)/1 var(--font-mono); letter-spacing: .06em; color: var(--fg);
-}
-.mod.rate { border-color: var(--tint); color: var(--tint); font-variant-numeric: tabular-nums; }
 
-/* Readouts: star rating (live) and BPM (realtime), the two numbers worth a glance. */
-.read { grid-area: read; display: flex; gap: calc(var(--u) * 24px); align-items: start; }
-.r { display: grid; gap: calc(var(--u) * 4px); }
-.v { display: flex; align-items: baseline; gap: calc(var(--u) * 4px); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.r .v b { font: 600 calc(var(--u) * 30px)/.86 var(--font-display); color: var(--fg); }
-.star { font-style: normal; font-size: calc(var(--u) * 16px); color: var(--tint); }
-.sub { font: 400 calc(var(--u) * 12px)/1 var(--font-mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; min-height: calc(var(--u) * 12px); white-space: nowrap; }
+.stats { grid-area: stats; display: flex; column-gap: var(--s-4); min-width: 0; }
+.cell { display: flex; align-items: baseline; gap: var(--s-1); }
+.cell .v { display: flex; align-items: baseline; font: 600 calc(var(--u) * 20px)/1 var(--font-display); color: var(--text-1); white-space: nowrap; }
+/* Raised or lowered by mods: a small arrow after the effective value (no colour: not a judgement). */
+.cell .adj { font: 500 calc(var(--u) * 14px)/1 var(--font-body); color: var(--text-2); margin-left: .04em; }
+.cell .adj:empty { display: none; }
 
-/* Difficulty settings, original→mod-adjusted. */
-.stats { grid-area: stats; display: flex; gap: calc(var(--u) * 18px); }
-.cell { display: grid; gap: calc(var(--u) * 4px); }
-.cell .v .to { font: 600 calc(var(--u) * 21px)/.9 var(--font-display); color: var(--fg); }
-.cell .from { font: 400 calc(var(--u) * 12px)/1 var(--font-mono); color: var(--fg-dim); }
-.cell .from:empty { display: none; }
-.cell[data-d="up"] .to { color: var(--accent); }
-.cell[data-d="down"] .to { color: var(--signal); }
-#np[data-stats="off"] .stats { display: none; }
+/* ------------------------------------------------------------------ column (tall boxes) */
+#np[data-orient="vertical"] .body { grid-template-areas: "ident" "prog" "nums"; row-gap: calc(var(--u) * 6px); }
+#np[data-orient="vertical"] .ident { grid-area: ident; }
+#np[data-orient="vertical"] .prog { grid-area: prog; }
+#np[data-orient="vertical"] .nums { grid-area: nums; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "hero side" "stats stats"; column-gap: var(--s-3); row-gap: var(--s-1); }
+#np[data-orient="vertical"][data-align="end"] .nums { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "side hero" "stats stats"; }
+#np[data-orient="vertical"][data-align="end"] .stats { justify-content: flex-end; }
+/* Four settings span the row; with every value mod-adjusted (HR DT) they need all of it. */
+#np[data-orient="vertical"] .stats[data-n="4"] { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
 
-/* ------------------------------------------------------------------ vertical (column) */
-#np[data-orient="vertical"] { grid-template-areas: "id" "prog" "read" "stats"; }
-#np[data-orient="vertical"] .stats { padding-top: calc(var(--u) * 8px); border-top: 1px solid rgb(235 232 225 / .22); }
-#np[data-orient="vertical"][data-align="end"] :is(.read, .stats) { justify-content: flex-end; }
-#np[data-orient="vertical"][data-align="end"] :is(.r, .cell) { justify-items: end; }
+/* ------------------------------------------------------------------ strip (wide boxes)
+   One reading line: title and credits, then the numbers (critique: no two islands). */
+#np[data-orient="horizontal"] .body { grid-template-columns: minmax(0, auto) auto; grid-template-areas: "ident nums" "prog prog"; column-gap: var(--s-5); row-gap: calc(var(--u) * 6px); align-items: last baseline; }
+#np[data-orient="horizontal"][data-align="end"] .body { grid-template-columns: auto minmax(0, auto); grid-template-areas: "nums ident" "prog prog"; }
+#np[data-orient="horizontal"] .ident { grid-area: ident; }
+#np[data-orient="horizontal"] .prog { grid-area: prog; }
+#np[data-orient="horizontal"] .title { display: block; white-space: nowrap; text-overflow: ellipsis; }
+#np[data-orient="horizontal"] .nums { grid-area: nums; grid-template-columns: auto auto auto; grid-template-areas: "hero side stats"; column-gap: var(--s-4); }
+#np[data-orient="horizontal"][data-align="end"] .nums { grid-template-areas: "stats side hero"; }
+#np[data-orient="horizontal"] .stats { display: grid; grid-template-rows: repeat(2, auto); grid-auto-flow: column; column-gap: var(--s-3); row-gap: var(--s-1); }
+#np[data-orient="horizontal"][data-align="end"] .cell { justify-content: flex-end; }
 
-/* ------------------------------------------------------------------ horizontal (strip) */
-#np[data-orient="horizontal"] {
-  grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "id read stats" "prog prog prog";
-  column-gap: calc(var(--u) * 28px); row-gap: calc(var(--u) * 8px); align-items: end;
-}
-#np[data-orient="horizontal"][data-align="end"] { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "stats read id" "prog prog prog"; }
-#np[data-orient="horizontal"] .title { font-size: calc(var(--u) * 21px); }
-/* One identity line under the title: artist · difficulty by mapper. */
-#np[data-orient="horizontal"] .ident { display: block; }
-#np[data-orient="horizontal"] .title { margin-bottom: calc(var(--u) * 3px); }
-#np[data-orient="horizontal"] .artist, #np[data-orient="horizontal"] .diff { display: inline; }
-#np[data-orient="horizontal"] .artist:not(:empty)::after { content: " · "; color: var(--muted); }
-#np[data-orient="horizontal"] .stats { padding-left: calc(var(--u) * 20px); border-left: 1px solid rgb(235 232 225 / .22); }
-#np[data-orient="horizontal"][data-align="end"] .stats { padding: 0 calc(var(--u) * 20px) 0 0; border-left: 0; border-right: 1px solid rgb(235 232 225 / .22); }
-#np[data-orient="horizontal"][data-align="end"] :is(.r, .cell) { justify-items: end; }
+/* ------------------------------------------------------------------ toggles (after the layouts, which set display)
+   compact: artist and difficulty on one line, no settings row. */
+#np:is([data-layout="compact"], [data-stats="off"]) .stats { display: none; }
 
-/* ------------------------------------------------------------------ compact */
-#np[data-layout="compact"] .artist { display: none; }
-#np[data-layout="compact"] .stats { display: none; }
-#np[data-layout="compact"] .read { gap: calc(var(--u) * 16px); }
-#np[data-layout="compact"] .r { display: flex; align-items: baseline; gap: calc(var(--u) * 6px); }
-#np[data-layout="compact"] .r .label { order: 2; }
-#np[data-layout="compact"] .r .sub { display: none; }
-#np[data-layout="compact"] .r .v b { font-size: calc(var(--u) * 24px); line-height: 1; }
-
-/* ------------------------------------------------------------------ backing (optional) */
-#np[data-backing="scrim"]::before {
-  content: ""; position: absolute; inset: calc(var(--u) * -20px); z-index: -1; pointer-events: none;
-  background: radial-gradient(closest-side, rgb(11 12 13 / .74), rgb(11 12 13 / .5) 60%, rgb(11 12 13 / 0));
-}
-#np[data-backing="scrim"] { inset: calc(var(--u) * 14px); }
-#np[data-backing="panel"] {
-  padding: calc(var(--u) * 12px) calc(var(--u) * 14px); background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--tint); border-radius: var(--radius); bottom: auto;
-}
-
-/* ------------------------------------------------------------------ status chip */
-.chip {
-  position: absolute; top: 0; left: 0; margin: 0; display: inline-flex; align-items: center; gap: calc(var(--u) * 7px); white-space: nowrap;
-  font: 500 calc(var(--u) * 12px)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim);
-}
+/* ------------------------------------------------------------------ status (outside play: nothing) */
+.chip { position: absolute; top: 0; left: 0; margin: 0; padding: var(--s-1) var(--s-2); white-space: nowrap; text-shadow: var(--shade); }
 .chip[data-align="end"] { left: auto; right: 0; }
-.chip i { width: calc(var(--u) * 7px); height: calc(var(--u) * 7px); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
-.chip[data-s="offline"] i { background: var(--danger); }

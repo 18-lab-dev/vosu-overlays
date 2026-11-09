@@ -5,29 +5,31 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Now playing · 18-LAB</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<p class="chip" id="chip" hidden><i></i><span data-f="chip"></span></p>
-<section id="np" data-orient="vertical" data-align="end" data-layout="full" data-backing="none" aria-label="Now playing">
-  <div class="ident" id="ident">
-    <h1 class="title" data-f="title"></h1>
-    <p class="artist" data-f="artist"></p>
-    <p class="diff"><span class="version" data-f="version"></span><span class="mapper" id="mapperWrap"> <span class="by">by</span> <span data-f="mapper"></span></span></p>
-  </div>
-  <div class="prog">
-    <div class="track" aria-hidden="true"><i id="bar"></i></div>
-    <div class="row"><span class="time"><b data-f="elapsed">0:00</b><span class="of"> / <span data-f="total">—</span></span></span><span class="mods" id="mods"></span></div>
-  </div>
-  <div class="read">
-    <div class="r"><span class="label">Stars</span><span class="v"><b data-f="stars">—</b><i class="star">★</i></span><span class="sub" data-f="starsOf"></span></div>
-    <div class="r"><span class="label">BPM</span><span class="v"><b data-f="bpm">—</b></span><span class="sub" data-f="bpmRange"></span></div>
-  </div>
-  <div class="stats" id="stats">
-    <div class="cell" data-k="ar"><span class="label">AR</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-    <div class="cell" data-k="cs"><span class="label">CS</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-    <div class="cell" data-k="od"><span class="label">OD</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
-    <div class="cell" data-k="hp"><span class="label">HP</span><span class="v"><span class="from"></span><b class="to">—</b></span></div>
+<p class="chip kit-caption" id="chip" hidden data-f="chip"></p>
+<section class="kit kit-enter" id="np" data-out data-orient="vertical" data-align="end" data-layout="full" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Now playing">
+  <div class="body" id="body">
+    <div class="ident" id="ident">
+      <h1 class="title kit-title" id="title"><span data-f="title"></span></h1>
+      <p class="meta kit-text"><span class="artist" id="artistLine"><span data-f="artist"></span><span class="suffix" id="suffixWrap"> <span data-f="suffix"></span></span></span><span class="sep" aria-hidden="true"> · </span><span class="diffline"><span class="diff" data-f="version"></span><span class="mapper" id="mapperWrap"><span class="by"> by </span><span data-f="mapper"></span></span></span></p>
+    </div>
+    <div class="prog" id="prog" aria-hidden="true"><div class="track"><i class="fill kit-ambient" id="bar"></i></div></div>
+    <div class="nums">
+      <p class="hero kit-hero" aria-label="Star rating"><span data-f="stars">—</span><span class="kit-unit tight star">★</span><span class="strain" id="strain" hidden><i id="strainFill"></i></span></p>
+      <div class="side">
+        <p class="mods kit-code" data-f="mods"></p>
+        <p class="bpm kit-value"><span id="bpmNum"><span data-f="bpm">—</span></span><span class="kit-unit">bpm</span></p>
+      </div>
+      <dl class="stats" id="stats">
+        <div class="cell" data-k="ar"><dt class="kit-label">AR</dt><dd class="v"><span class="to">—</span><span class="adj"></span></dd></div>
+        <div class="cell" data-k="cs"><dt class="kit-label">CS</dt><dd class="v"><span class="to">—</span><span class="adj"></span></dd></div>
+        <div class="cell" data-k="od"><dt class="kit-label">OD</dt><dd class="v"><span class="to">—</span><span class="adj"></span></dd></div>
+        <div class="cell" data-k="hp"><dt class="kit-label">HP</dt><dd class="v"><span class="to">—</span><span class="adj"></span></dd></div>
+      </dl>
+    </div>
   </div>
 </section>
 <script type="module" src="overlay.js"></script>

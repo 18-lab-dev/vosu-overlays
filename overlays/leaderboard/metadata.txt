@@ -3,4 +3,4 @@ author = 18-LAB
 version = 0.4.0
 description = The in-game leaderboard for every ruleset, as a custom overlay: your position up top, every player's name and score, accuracy, combo and mods for the players either side of you, and your row always in view with the gap to the next place. Entries slide past each other as you overtake. A vertical list in tall boxes, a horizontal strip in wide ones; optional rival view.
 resolution = [256,400]
-placement = {"osu":["left+24","top+144",256,400],"fruits":["left+24","top+144",256,400],"taiko":["right-24","top+144",480,72],"mania":["left+24","top+240",256,400]}
+placement = {"osu":["left+24","top+144",256,400],"fruits":["left+24","top+144",256,400],"taiko":["right-24","top+144",480,72],"mania":["left+24","top+360",256,400]}

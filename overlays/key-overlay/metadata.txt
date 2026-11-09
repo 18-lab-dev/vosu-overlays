@@ -3,4 +3,4 @@ author = 18-LAB
 version = 0.4.0
 description = Scrolling key-press tape: one lane per key with bars timed from gameplay press/release edges, the present in 18-LAB amber, history quieter; key caps with press counts. osu!mania shows caps and counts unless the tape is turned on. Keys per second optional (the set's shared figure). Lays out for its box: columns when tall, rows when wide. Needs vosu keys.all.
 resolution = [256,264]
-placement = {"osu":["left+24","bottom-248",256,264],"fruits":["left+24","bottom-248",256,264],"taiko":["left+320","lane-bottom+24",560,96],"mania":["left+24","bottom-72",256,344]}
+placement = {"osu":["left+24","bottom-248",256,264],"fruits":["left+24","bottom-248",256,264],"taiko":["left+320","lane-bottom+24",560,96],"mania":["left+24","bottom-72",256,96]}

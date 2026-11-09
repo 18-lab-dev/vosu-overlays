@@ -248,24 +248,43 @@ export const NUMBER_FORMATS = Object.freeze({
 });
 const SCALES = [1, 10, 100, 1000];
 
-// Grouped text for 0…9999, built on first use: counters that tick through small integers reuse
-// one string per value instead of building a new one each time.
+// Digit text comes from tables built on first use with toFixed(0): String(n) and template literals
+// would turn each new number into a string through V8's number-string cache, which churns while
+// a value climbs. A shown value that changes still costs its one new (concatenated) string.
 const INT_TABLE = 10000;
-const intTexts = new Array(INT_TABLE).fill(null);
+const intTexts = new Array(INT_TABLE).fill(null); // grouped text for 0…9999
+const group3 = new Array(1000).fill(null); // "000"…"999"
+const pad1 = new Array(10).fill(null); // "0"…"9"
+const pad2 = new Array(100).fill(null); // "00"…"99"
+
+function groupText(r) {
+  let text = group3[r];
+  if (text === null) text = group3[r] = (r < 10 ? '00' : r < 100 ? '0' : '') + r.toFixed(0);
+  return text;
+}
+
+/** `fraction` (an integer below 10^digits) as exactly `digits` digits. */
+function fractionText(fraction, digits) {
+  if (digits === 3) return groupText(fraction);
+  const table = digits === 2 ? pad2 : pad1;
+  let text = table[fraction];
+  if (text === null) text = table[fraction] = (digits === 2 && fraction < 10 ? '0' : '') + fraction.toFixed(0);
+  return text;
+}
 
 function groupedInteger(n) {
   if (n < INT_TABLE) {
     let text = intTexts[n];
-    if (text === null) text = intTexts[n] = n < 1000 ? String(n) : `${(n - n % 1000) / 1000},${String(n % 1000).padStart(3, '0')}`;
+    if (text === null) text = intTexts[n] = n < 1000 ? n.toFixed(0) : ((n - n % 1000) / 1000).toFixed(0) + ',' + groupText(n % 1000);
     return text;
   }
   let text = '';
   while (n >= 1000) {
     const r = n % 1000;
-    text = `,${r < 10 ? '00' : r < 100 ? '0' : ''}${r}${text}`;
+    text = ',' + groupText(r) + text;
     n = (n - r) / 1000;
   }
-  return `${n}${text}`;
+  return groupedInteger(n) + text;
 }
 
 /** Text for `key` = the value already multiplied by 10^decimals and rounded. */
@@ -278,9 +297,9 @@ function renderKey(key, spec) {
   if (digits) {
     let fraction = magnitude - whole * scale;
     if (spec.trim) while (digits > 0 && fraction % 10 === 0) { fraction /= 10; digits--; }
-    if (digits) text = `${text}.${String(fraction).padStart(digits, '0')}`;
+    if (digits) text = text + '.' + fractionText(fraction, digits);
   }
-  if (spec.signed) return `${key === 0 ? '\u00b1' : key < 0 ? MINUS : '+'}${text}`;
+  if (spec.signed) return (key === 0 ? '\u00b1' : key < 0 ? MINUS : '+') + text;
   return key < 0 ? MINUS + text : text;
 }
 
@@ -340,7 +359,14 @@ const KPS_SLACK_MS = 250;
  * Feed every `/keys/all` frame to `ingest(list, live, rate)` (the list is read in place, never kept)
  * and read `at(live)` when drawing. `available` is false while the host sends no `keys.all` (tosu):
  * show DASH then, not 0. `expiresAt` is the map time at which the count next drops, for scheduling
- * one wake-up instead of a frame loop. Nothing here allocates after construction.
+ * one wake-up instead of a frame loop.
+ *
+ * Cost: the live count needs the map clock, so an overlay showing it subscribes to
+ * `/beatmap/time/live` and parses a message on every vosu tick (+13–16 KB/s of client allocation in
+ * JSON.parse, measured in taiko-drum and judgement-ratio). Where KPS is not the overlay's main job,
+ * make it opt-in (`showKps`, default off) and subscribe to the clock only while it is on.
+ * Times are whole milliseconds in an Int32Array, so nothing here allocates after construction,
+ * in optimised or baseline code.
  */
 export function createKps() {
   return new KpsMeter();
@@ -348,17 +374,22 @@ export function createKps() {
 
 class KpsMeter {
   constructor() {
-    this.times = new Float64Array(KPS_RING);
+    this.times = new Int32Array(KPS_RING);
     this.counts = new Int32Array(KPS_KEYS);
     this.head = 0;
     this.size = 0;
     this.keys = 0;
     this.baselined = false;
     this.available = false;
+    // Fields that hold a number from vosu or Infinity start as null: a field V8 has typed as
+    // "double" boxes a fresh number on every read, a tagged one hands back what was stored.
+    this.rate = null;
     this.rate = 1;
+    this.span = KPS_WINDOW_MS;
     this.current = 0;
     this.peak = 0;
     this.total = 0;
+    this.expiresAt = null;
     this.expiresAt = Infinity;
   }
 
@@ -382,7 +413,10 @@ class KpsMeter {
   ingest(list, live, rate = 1) {
     if (!Array.isArray(list)) { this.available = false; return; }
     this.available = true;
-    this.rate = rate > 0 ? rate : 1;
+    if (rate !== this.rate) {
+      this.rate = rate > 0 ? rate : 1;
+      this.span = Math.round(KPS_WINDOW_MS * this.rate);
+    }
     const n = list.length < KPS_KEYS ? list.length : KPS_KEYS;
     if (this.baselined) {
       for (let i = 0; i < n; i++) {
@@ -399,7 +433,7 @@ class KpsMeter {
       this.counts[i] = count;
       total += count;
       if (delta <= 0 || delta > KPS_MAX_STEP) continue;
-      const at = Number.isFinite(key.pressedAt) ? key.pressedAt : live;
+      const at = Math.round(Number.isFinite(key.pressedAt) ? key.pressedAt : live);
       for (let k = 0; k < delta; k++) {
         this.times[this.head] = at;
         this.head = (this.head + 1) & (KPS_RING - 1);
@@ -413,12 +447,12 @@ class KpsMeter {
     this.baselined = true;
   }
 
-  /** Presses in the window ending at map time `end`; also sets `expiresAt`. */
+  /** Presses in the window ending at map time `end` (whole ms); also sets `expiresAt`. */
   window(end) {
-    const span = KPS_WINDOW_MS * this.rate;
+    const span = this.span;
     const from = end - span;
     let count = 0;
-    let oldest = Infinity;
+    let oldest = 0x7fffffff;
     for (let k = 0, i = this.head; k < this.size; k++) {
       i = (i - 1) & (KPS_RING - 1);
       const t = this.times[i];
@@ -432,7 +466,7 @@ class KpsMeter {
   /** The live count at map time `live` (UNKNOWN without `keys.all`). */
   at(live) {
     if (!this.available) return UNKNOWN;
-    this.current = this.window(live);
+    this.current = this.window(Math.round(live));
     return this.current;
   }
 }
@@ -444,16 +478,25 @@ export const MAP_TIME_POINTERS = Object.freeze(['/beatmap/time/live', '/beatmap/
 // A sample older than this stops extrapolating (paused, frozen, or the data stopped).
 const EXTRAPOLATE_MS = 120;
 
+// Fractions 0…1 in 1/4096 steps as numbers allocated once, in an array V8 keeps as tagged elements
+// (it starts with null), so progress and beat phase hand back a stored number instead of boxing
+// a new one each frame. 1/4096 is below a device pixel for any overlay box.
+const FRACTION_STEPS = 4096;
+const FRACTIONS = [null];
+FRACTIONS.pop();
+for (let k = 0; k <= FRACTION_STEPS; k++) FRACTIONS.push(k / FRACTION_STEPS);
+
 /**
  * The set's one map time / progress computation, so every clock and progress bar agrees.
  * Definition: the play span runs from the first to the last hit object (the audio length when the
  * map reports no objects); `elapsed` is real time since the first object, clamped to the span, and
  * `total` is the span in real time (both ÷ the clock rate, so DT shows real minutes). Lead-in reads
- * 0:00. `progress` is elapsed ÷ total. Without a span everything is UNKNOWN.
+ * 0:00. `progress` is elapsed ÷ total (in 1/4096 steps). Without a span everything is UNKNOWN.
  *
  * `sample(live, rate, first, last, mp3, pageNow)` on each data frame (pageNow = performance.now()
  * or the rAF timestamp); `now(pageNow)` extrapolates map time between samples for smooth motion
- * (up to 120 ms, and only while the clock is moving). No allocation.
+ * (up to 120 ms, and only while the clock is moving). Times are whole milliseconds. No allocation:
+ * every value returned or kept is a small integer, a stored fraction or UNKNOWN.
  */
 export function createMapClock() {
   return new MapClock();
@@ -461,54 +504,64 @@ export function createMapClock() {
 
 class MapClock {
   constructor() {
+    // Start every number field as null so V8 keeps it tagged (see KpsMeter).
+    this.live = null;
+    this.rate = null;
+    this.start = null;
+    this.end = null;
+    this.span = null;
     this.live = UNKNOWN;
     this.rate = 1;
     this.start = UNKNOWN;
     this.end = UNKNOWN;
+    this.span = UNKNOWN;
     this.sampledAt = 0;
     this.moving = false;
   }
 
   sample(live, rate, first, last, mp3, pageNow) {
-    const t = known(live);
-    this.moving = isKnown(t) && isKnown(this.live) && t !== this.live;
+    const t = isKnown(live) ? Math.round(live) : UNKNOWN;
+    this.moving = t === t && this.live === this.live && t !== this.live; // both known (NaN ≠ NaN) and changed
     this.live = t;
     this.rate = typeof rate === 'number' && rate > 0 ? rate : 1;
-    this.sampledAt = pageNow;
-    const from = known(first);
-    const to = known(last);
-    if (isKnown(from) && isKnown(to) && to > from) { this.start = from; this.end = to; }
-    else {
-      const length = known(mp3, true);
-      this.start = isKnown(length) ? 0 : UNKNOWN;
-      this.end = isKnown(length) ? length : UNKNOWN;
+    this.sampledAt = Math.round(pageNow);
+    if (isKnown(first) && isKnown(last) && last > first) {
+      this.start = Math.round(first);
+      this.end = Math.round(last);
+    } else if (isKnown(mp3) && mp3 !== 0) {
+      this.start = 0;
+      this.end = Math.round(mp3);
+    } else {
+      this.start = UNKNOWN;
+      this.end = UNKNOWN;
     }
+    this.span = this.end === this.end ? Math.round((this.end - this.start) / this.rate) : UNKNOWN;
   }
 
-  /** Map time (ms) at page time `pageNow`. */
+  /** Map time (whole ms) at page time `pageNow`. */
   now(pageNow) {
     if (!this.moving) return this.live;
-    const ahead = pageNow - this.sampledAt;
-    return this.live + (ahead < 0 ? 0 : ahead > EXTRAPOLATE_MS ? EXTRAPOLATE_MS : ahead) * this.rate;
+    const ahead = Math.round(pageNow) - this.sampledAt;
+    return this.live + Math.round((ahead < 0 ? 0 : ahead > EXTRAPOLATE_MS ? EXTRAPOLATE_MS : ahead) * this.rate);
   }
 
   /** Real milliseconds of the play span. */
   total() {
-    return isKnown(this.end) ? (this.end - this.start) / this.rate : UNKNOWN;
+    return this.span;
   }
 
   /** Real milliseconds played at map time `mapMs`, clamped to the span. */
   elapsed(mapMs) {
-    if (!isKnown(this.end) || !isKnown(mapMs)) return UNKNOWN;
+    if (this.end !== this.end || !isKnown(mapMs)) return UNKNOWN;
     const t = mapMs < this.start ? this.start : mapMs > this.end ? this.end : mapMs;
-    return (t - this.start) / this.rate;
+    return Math.round((t - this.start) / this.rate);
   }
 
   /** 0…1 through the span at map time `mapMs`. */
   progress(mapMs) {
-    if (!isKnown(this.end) || !isKnown(mapMs)) return UNKNOWN;
+    if (this.end !== this.end || !isKnown(mapMs)) return UNKNOWN;
     const t = mapMs < this.start ? this.start : mapMs > this.end ? this.end : mapMs;
-    return (t - this.start) / (this.end - this.start);
+    return FRACTIONS[Math.round((t - this.start) * FRACTION_STEPS / (this.end - this.start))];
   }
 }
 
@@ -578,6 +631,10 @@ class BeatClock {
     this.lengths = null;
     this.segment = 0;
     this.index = 0;
+    // Number fields start as null so V8 keeps them tagged (see KpsMeter): `at()` stores a fraction
+    // from FRACTIONS and a beat length from the parsed points, never a freshly boxed number.
+    this.phase = null;
+    this.beatLength = null;
     this.phase = 0;
     this.beatLength = UNKNOWN;
     this.kiai = false;
@@ -634,24 +691,29 @@ class BeatClock {
     while (s > 0 && mapMs < starts[s]) s--;
     this.segment = s;
     const length = this.lengths[s];
-    const beats = (mapMs - starts[s]) / length;
-    const index = Math.floor(beats);
-    this.index = index;
-    this.phase = beats - index;
+    // One floor in 1/4096 beats: beat index = q >> 12 (floors negatives too), phase = q's low 12 bits.
+    const q = Math.floor((mapMs - starts[s]) * FRACTION_STEPS / length);
+    this.index = q >> 12;
+    this.phase = FRACTIONS[q & (FRACTION_STEPS - 1)]; // 0…1 in 1/4096 steps
     this.beatLength = length;
     return true;
   }
 }
 
-/** Uninherited points from /json/sc as sorted typed arrays, or null when there are none. */
+/**
+ * Uninherited points from /json/sc sorted by time, or null when there are none. Plain arrays of the
+ * parsed numbers (tagged elements, so reading them never boxes a new number).
+ */
 function beatPoints(list) {
   if (!Array.isArray(list)) return null;
   const valid = list.filter(p => p && Number.isFinite(p.startTime) && Number.isFinite(p.beatLength) && p.beatLength > 0)
     .sort((a, b) => a.startTime - b.startTime);
   if (!valid.length) return null;
-  const starts = new Float64Array(valid.length);
-  const lengths = new Float64Array(valid.length);
-  for (let i = 0; i < valid.length; i++) { starts[i] = valid[i].startTime; lengths[i] = valid[i].beatLength; }
+  const starts = [null];
+  const lengths = [null];
+  starts.pop();
+  lengths.pop();
+  for (let i = 0; i < valid.length; i++) { starts.push(valid[i].startTime); lengths.push(valid[i].beatLength); }
   return { starts, lengths };
 }
 

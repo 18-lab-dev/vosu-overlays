@@ -101,12 +101,12 @@ Placements follow one slot plan (docs/overlay-system.md "Placement"): side colum
 | `strain-graph` | all | 256×96 strip | Map strain with playhead, kiai and breaks; time runs upward in tall boxes; preview in song select |
 | `results-card` | all | 840×96 row | Results-only strip: UR, timing histogram, pp and if-FC; stacked in upright boxes |
 | `leaderboard` | all | 256×400 list | In-game-style board on the left where osu!'s sits (taiko: strip above the lane); rival style optional; nothing when the leaderboard is idle |
-| `profile-card` | all | 256×72 strip | Player tag: name, country, avatar, rank, pp, session deltas; every field can be overridden with a custom value (shown in the replay renderer too) |
-| `aim-scatter` | osu | 256×264 column | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
+| `profile-card` | all | 256×96 card | Player tag: name, country, avatar, rank, pp, session deltas; every field can be overridden with a custom value (shown in the replay renderer too) |
+| `aim-scatter` | osu | 256×240 column | Cursor offsets per hit with spread ellipse and aim bias (*vosu* `ENABLE_HIT_OFFSETS`) |
 | `taiko-drum` | taiko | 560×96 row | Four-zone drum, zone counts, hand balance, recent hits, alternation, KPS (*vosu* `keys.all`) |
 | `taiko-pace` | taiko | 280×80 chip | OK and miss budget for a target accuracy, max achievable accuracy, counts, UR, pp |
-| `catcher-trail` | catch | 256×264 column | Catcher position seismograph with dash, travel and turns; final readouts on results (*vosu* `catcher`) |
-| `catcher-heatmap` | catch | 256×264 column | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
+| `catcher-trail` | catch | 256×240 column | Catcher position seismograph with dash, travel and turns; final readouts on results (*vosu* `catcher`) |
+| `catcher-heatmap` | catch | 256×240 column | Where the catcher spends time, centre of gravity, dash share (*vosu* `catcher`) |
 | `fruit-ledger` | catch | 256×96 chip | Fruits/drops/droplets caught and missed, accuracy, combo status (gameplay only) |
 | `judgement-ratio` | mania | 256×352 column | MAX…MISS, MAX:300 ratio, accuracy, live and peak KPS; focus row over the stage in wide boxes |
 | `kps-graph` | mania | 152×400 column | KPS over the attempt against the map's density, time running upward; horizontal in wide boxes |

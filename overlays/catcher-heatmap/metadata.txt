@@ -2,5 +2,5 @@ name = Catcher heatmap
 author = 18-LAB
 version = 0.4.0
 description = osu!catch only. Where the catcher spends its time this attempt, as a top-down playfield strip: time per position, the centre of that time, the live catcher in amber (solid while dashing), the dash share and the left/right split. The alternative to catcher-trail in the same slot. Re-flows to its box: a column for the side columns, a band for the top or bottom edge. Holds the attempt on results. Needs vosu's /play/catcher data.
-resolution = [256,264]
-placement = {"fruits":["right-24","bottom-240",256,264]}
+resolution = [256,240]
+placement = {"fruits":["right-24","bottom-240",256,240]}

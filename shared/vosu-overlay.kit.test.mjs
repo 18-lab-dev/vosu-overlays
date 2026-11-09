@@ -12,6 +12,12 @@ test('number conventions: comma grouping, fixed decimals per quantity, real minu
   assert.equal(formatNumber(3683232), '3,683,232');
   assert.equal(formatNumber(999), '999');
   assert.equal(formatNumber(1000), '1,000');
+  assert.equal(formatNumber(1000005), '1,000,005');
+  assert.equal(formatNumber(10007), '10,007');
+  assert.equal(formatNumber(0.05, 'stars'), '0.05');
+  assert.equal(formatNumber(100, 'accuracy'), '100.00');
+  assert.equal(formatNumber(1.25, 'rate'), '1.25');
+  assert.equal(formatNumber(1.05, 'rate'), '1.05');
   assert.equal(formatNumber(1075.34, 'pp'), '1,075');
   assert.equal(formatNumber(7.006, 'stars'), '7.01');
   assert.equal(formatNumber(99.6, 'accuracy'), '99.60');

@@ -93,8 +93,9 @@ html[data-theme] { color-scheme: normal; }
 
 /* Backings. scrim (default): a dark field at 80 % under the content that fades out across the
    padding, so it has no hard edge. panel: a solid graphite panel with a hairline. none: the text
-   floats on the game with a contrast shadow (dimmed backgrounds only). */
-.kit:is([data-backing="scrim"], [data-backing="panel"]) { padding: var(--pad); }
+   floats on the game with a contrast shadow (dimmed backgrounds only). Every backing keeps the same
+   --pad, so the registration marks never touch content and switching backing never moves it. */
+.kit { padding: var(--pad); }
 .kit::before {
   content: "";
   position: absolute;
@@ -133,7 +134,11 @@ html[data-theme] { color-scheme: normal; }
     linear-gradient(var(--you), var(--you)) right bottom / var(--arm) var(--stroke) no-repeat,
     linear-gradient(var(--you), var(--you)) right bottom / var(--stroke) var(--arm) no-repeat;
 }
-.kit[data-view="hidden"]::after, .kit[data-signature="off"]::after { display: none; }
+/* The marks leave with the card: an overlay hiding its .kit root fades them with it; one hiding
+   only its content still gets them faded out here. */
+.kit::after { transition: opacity var(--dur-base) var(--ease-out); }
+.kit[data-view="hidden"]::after { opacity: 0; }
+.kit[data-signature="off"]::after { display: none; }
 
 /* ------------------------------------------------------------------ type
    Sizes at --u = 1 on a 1080p canvas. Nothing a viewer needs to read is below 14 px (≈ 9 px on a

@@ -2,5 +2,5 @@ name = Catcher trail
 author = 18-LAB
 version = 0.4.0
 description = osu!catch only. The path the catcher took over the last seconds, rising from a true-width catcher: dashes in amber, every miss pinned in red where the catcher was, kiai stretches shaded in the map's tone, with the attempt's dash share. The movement record osu! does not keep; catcher-heatmap is its alternative for the same slot (where the catcher spends its time). Wide boxes run the trail left to right. Holds dash share and direction changes on results. Needs vosu's catcher state.
-resolution = [256,264]
-placement = {"fruits":["right-24","bottom-240",256,264]}
+resolution = [256,240]
+placement = {"fruits":["right-24","bottom-240",256,240]}

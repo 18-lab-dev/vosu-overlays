@@ -3,4 +3,4 @@ author = 18-LAB
 version = 0.4.0
 description = The current map during gameplay in one line above the playfield, for any ruleset: artist, title, difficulty, star rating, mods and mapper with a play-progress hairline in the map's colour. Long lines rest with an ellipsis after scrolling through once. An alternative to now-playing (run one of the two). Re-flows to a two-line stack or a side column when its box is taller or upright.
 resolution = [720,32]
-placement = {"osu":["hud-gap","top+4",720,32],"fruits":["hud-gap","top+4",720,32],"taiko":["hud-gap","top+4",720,32],"mania":["stage-left-24","top+24",432,32]}
+placement = {"osu":["hud-gap","top+4",720,32],"fruits":["hud-gap","top+4",720,32],"taiko":["hud-gap","top+4",720,32],"mania":["stage-left-24","top+144",432,32]}

@@ -1,22 +1,37 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Aim scatter: every osu! circle / slider-head hit as a dot at the cursor's offset from the
-// object's centre (vosu `play.hitOffsets`, ENABLE_HIT_OFFSETS), coloured by timing error, with a
-// running centroid, 1σ covariance ellipse, aim bias and on-centre share for the whole attempt.
+// object's centre (vosu `play.hitOffsets`, ENABLE_HIT_OFFSETS), with the attempt's spread ellipse
+// and its aim bias (the vector to the hits' average, plus a pointer on the bezel), and that bias
+// as the one readout.
 // The page is the overlay's own box: hosts place and size it, and the layout re-flows to it
 // (vertical column or horizontal strip, from the box's aspect or the `orientation` setting).
-import { subscribe, settings, activeMode, mapPalette, applyPalette } from './vosu-overlay.js';
+//
+// Colour roles (docs/overlay-system.md): your hits and their statistics are neutral, the newest
+// hit is "you" (amber), the hit circle is the map's (its CS, --map). No timing colours here: the
+// timing distribution is results-card's.
+//
+// Motion: the newest hit lands (an amber ring, a compositor Web Animation restarted per hit), the
+// bias vector, pointer and ellipse ease to each new average while a hit moves them visibly (an
+// attempt's first hits), the readout's arrow turns to the new direction, and the box eases in and
+// out with play.
+import {
+  subscribe, settings, activeMode, mapPalette, applyPalette, applyKitSettings, numberFormatter,
+  DASH, MOTION_MS,
+} from './vosu-overlay.js';
 
-// Reference boxes the type scale is derived from (the default resolution is the vertical one).
-const REF_V = { w: 280, h: 340 };
-const REF_H = { w: 560, h: 124 };
+const REF = { w: 256, h: 264 };   // default box: --u = 1
+const STRIP = { w: 416, h: 160 }; // strip box at --u = 1
 const RING_RATIO = 104 / 288;     // hit-circle radius / target diameter
-const CENTRE = 1 / 3;             // "on centre" = within R/3
-const RECENT = 40;                // newest hits drawn bright on the live layer
-const BUCKETS = 41;               // timing colour steps across ±great
+const RECENT = 40;                // newest hits drawn bright on the recent layer
 const PLAYING = 2;
 const RESULTS = 7;
 const FALLBACK_RADIUS = 54.4 - 4.48 * 4;
-const AMBER = '#ff963f';
+const TAU = Math.PI * 2;
+// Hits closer together than this (above ~15 a second) move the ring without landing it.
+const SNAP_HIT_MS = 66;
+// The stats layer draws in 1/Q CSS px integer units: integers reach canvas calls as small
+// integers, so an optimised 60 fps ease boxes no coordinates.
+const Q = 16;
 
 const P = {
   state: '/state/number',
@@ -25,160 +40,201 @@ const P = {
   offsets: '/play/hitOffsets',
   csConverted: '/beatmap/stats/cs/converted',
   csOriginal: '/beatmap/stats/cs/original',
-  great: '/beatmap/stats/hitWindow/great',
   checksum: '/beatmap/checksum',
 };
 
 const $ = id => document.getElementById(id);
 const aim = $('aim');
-const readouts = $('readouts');
-const canvases = { reticle: $('reticle'), trail: $('trail'), live: $('live') };
+const canvases = { reticle: $('reticle'), trail: $('trail'), recent: $('recent'), stats: $('stats') };
 const ctx = {
   reticle: canvases.reticle.getContext('2d', { alpha: true }),
   trail: canvases.trail.getContext('2d', { alpha: true }),
-  live: canvases.live.getContext('2d', { alpha: true }),
+  recent: canvases.recent.getContext('2d', { alpha: true }),
+  stats: canvases.stats.getContext('2d', { alpha: true }),
 };
-const el = {
-  status: $('status'), statusText: $('status-text'),
-  window: $('window'), bias: $('bias'), biasArrow: $('bias-arrow'), biasDir: $('bias-dir'),
-  centre: $('centre'), centreSub: $('centre-sub'), spread: $('spread'), spreadSub: $('spread-sub'),
-};
+const el = { hit: $('hit'), ring: $('hit-ring'), bias: $('bias'), biasArrow: $('bias-arrow') };
+const biasText = el.bias.firstChild;
 
-// ------------------------------------------------------------------ tokens & colour ramp
-const css = getComputedStyle(document.documentElement);
-const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-const rgb = hex => { const v = parseInt(hex.replace('#', ''), 16); return [v >> 16 & 255, v >> 8 & 255, v & 255]; };
-const C = {
-  early: rgb(token('--signal', '#7fa6cf')),
-  mid: rgb(token('--fg', '#ebe8e1')),
-  late: rgb(token('--accent', AMBER)),
-  fg: rgb(token('--fg', '#ebe8e1')),
-};
-const mix = (a, b, t) => `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)} ${Math.round(a[1] + (b[1] - a[1]) * t)} ${Math.round(a[2] + (b[2] - a[2]) * t)})`;
-// Early/late colours are fixed (they carry meaning). Steeper near zero (|t|^0.6) so a few ms
-// early or late already reads as blue or amber.
-const RAMP = Array.from({ length: BUCKETS }, (_, i) => {
-  const t = i / (BUCKETS - 1) * 2 - 1;            // -1 early … +1 late
-  const k = Math.abs(t) ** 0.6;
-  return t < 0 ? mix(C.mid, C.early, k) : mix(C.mid, C.late, k);
-});
-const fgA = alpha => `rgb(${C.fg[0]} ${C.fg[1]} ${C.fg[2]} / ${alpha})`;
-// Reticle strokes: fixed foreground tints and dash patterns, built once.
-const FG = { hair: fgA(0.12), tick: fgA(0.26), zone: fgA(0.34), ring: fgA(0.72), cardinal: fgA(0.7), major: fgA(0.42), minor: fgA(0.22) };
-const DASH = [2, 3];
-const SOLID = [];
-const TAU = Math.PI * 2;
-// Highlight (centroid, ellipse, bias) follows the map's tonal-spot accent, else 18-LAB amber.
-let hl = AMBER;
-let hlFill = 'rgb(255 150 63 / .08)';
+// ------------------------------------------------------------------ colours (kit roles)
+// Canvas strokes from the kit's roles, read on boot and when the map tone or mapTint changes.
+// Fields seeded with null stay tagged, so a frame passes the stored string, never a new one.
+const COL = { dot: null, hair: null, tick: null, minor: null, major: null, cardinal: null, circle: null, ellipse: null, fill: null, arrow: null, casing: null, lens: null };
+
+function readColours() {
+  const css = getComputedStyle(aim);
+  const hex = (css.getPropertyValue('--text-1').trim() || '#efece5').replace('#', '');
+  const v = parseInt(hex, 16);
+  const t1 = `${v >> 16 & 255} ${v >> 8 & 255} ${v & 255}`;
+  const back = css.getPropertyValue('--backing-rgb').trim() || '11 12 13';
+  COL.dot = `rgb(${t1})`;
+  COL.hair = `rgb(${t1} / .14)`;
+  COL.tick = `rgb(${t1} / .28)`;
+  COL.minor = `rgb(${t1} / .2)`;
+  COL.major = `rgb(${t1} / .38)`;
+  COL.cardinal = `rgb(${t1} / .62)`;
+  COL.circle = css.getPropertyValue('--map').trim() || '#c9c4ba';
+  COL.ellipse = css.getPropertyValue('--text-2').trim() || '#d3cfc6';
+  COL.fill = `rgb(${t1} / .05)`;
+  COL.arrow = `rgb(${t1})`;
+  COL.casing = `rgb(${back} / .75)`;
+  COL.lens = back;
+  dirty.reticle = dirty.stats = true;
+  schedule();
+}
 
 // ------------------------------------------------------------------ target geometry (CSS px)
-let VIEW = 220;                   // target diameter
+let VIEW = 192;                   // target diameter
 let HALF = VIEW / 2;
 let RING = VIEW * RING_RATIO;     // hit-circle radius on screen
 let EDGE = HALF - 4;              // off-target hits pin to this radius
-let DOT = 2.2;                    // dot radius
-let K = VIEW / 288;               // detail scale (ticks, marks) relative to the 288 px design
+let DOT = 2;                      // dot radius
+let K = VIEW / 288;               // detail scale (ticks) relative to the 288 px design
 let unit = RING / FALLBACK_RADIUS; // screen px per playfield px: RING over the latched radius
-// Mark sizes that change with the diameter only (newest-hit ring, centroid cross and pip).
-let ringR = DOT + 2.5;
-let arm = Math.max(4.5, 6 * K), gap = Math.max(1.8, 2.5 * K), pip = Math.max(1.1, 1.6 * K);
+let ringR = DOT + 2.5;            // newest-hit ring radius
 
 function setDiameter(d) {
   VIEW = d; HALF = d / 2; RING = d * RING_RATIO; K = d / 288;
   EDGE = HALF - Math.max(2, 6 * K);
-  DOT = Math.max(1.3, Math.min(2.8, d / 105));
-  ringR = DOT + 2.5;
-  arm = Math.max(4.5, 6 * K); gap = Math.max(1.8, 2.5 * K); pip = Math.max(1.1, 1.6 * K);
+  DOT = Math.max(1.3, Math.min(2.6, d / 96));
+  ringR = DOT + 2.75;
   rescale();
 }
 
 function rescale() {
-  const r = (radius ?? FALLBACK_RADIUS) * CENTRE;
-  inner2 = r * r;
   unit = RING / (radius ?? FALLBACK_RADIUS);
-  dirty.place = true;
+  G.s = unit * Q;
+  dirty.place = dirty.ring = dirty.stats = true;
 }
 
 // ------------------------------------------------------------------ attempt store (grows by doubling)
 // The whole attempt stays in typed arrays sized once (doubling past 2048 hits): "All hits"
-// re-rasterises every dot after a resize, and a CS or window change recounts and recolours them.
+// re-rasterises every dot after a resize or a CS change.
 let cap = 2048;
 let xs = new Float32Array(cap);
 let ys = new Float32Array(cap);
-let errs = new Float32Array(cap);
-let bucket = new Uint8Array(cap);
 let n = 0;
 // Running statistics in plain object fields, seeded with null so V8 keeps them tagged: per-hit
 // code runs about ten times a second, so it stays in V8's baseline tier for a long time, where
 // every double it computes is already a heap number. Tagged fields store and hand those on as
 // they are; a Float64Array would box each read again.
-// Welford moments of (x, y), then what derive() takes from them once per hit: bias length,
-// 1σ spread, the covariance ellipse's semi-axes and tilt (playfield px, radians).
-const S = { mx: null, my: null, sxx: null, syy: null, sxy: null, bias: null, spread: null, major: null, minor: null, tilt: null };
-S.mx = S.my = S.sxx = S.syy = S.sxy = S.bias = S.spread = S.major = S.minor = S.tilt = 0;
-let inside = 0;                   // hits within the centre zone, R/3
-let inner2 = (FALLBACK_RADIUS * CENTRE) * (FALLBACK_RADIUS * CENTRE);   // its radius², playfield px
+// Welford moments of (x, y), then what derive() takes from them once per hit: bias length and the
+// covariance ellipse's semi-axes and tilt (playfield px, radians).
+const S = { mx: null, my: null, sxx: null, syy: null, sxy: null, bias: null, major: null, minor: null, tilt: null };
+S.mx = S.my = S.sxx = S.syy = S.sxy = S.bias = S.major = S.minor = S.tilt = 0;
 let radius = null;                // latched hit-circle radius (playfield px) for the held attempt
 let cs = null;
-let great = null;                 // latched ±great window (ms) for the colour scale
 
 function grow() {
   cap *= 2;
   const nx = new Float32Array(cap); nx.set(xs); xs = nx;
   const ny = new Float32Array(cap); ny.set(ys); ys = ny;
-  const ne = new Float32Array(cap); ne.set(errs); errs = ne;
-  const nb = new Uint8Array(cap); nb.set(bucket); bucket = nb;
-}
-
-function bucketOf(error) {
-  const t = Math.max(-1, Math.min(1, error / (great > 0 ? great : 50)));
-  return Math.round((t + 1) / 2 * (BUCKETS - 1));
 }
 
 function resetAttempt() {
-  n = 0; S.mx = S.my = S.sxx = S.syy = S.sxy = 0; inside = 0; baked = 0;
-  dirty.trail = dirty.live = dirty.dom = true;
+  n = 0; S.mx = S.my = S.sxx = S.syy = S.sxy = S.bias = S.major = S.minor = S.tilt = 0; baked = 0;
+  sDeg = -1;
+  // The next attempt's arrow and ellipse grow out of the centre.
+  D.mx = D.my = D.major = D.minor = D.tilt = D.bias = 0;
+  easing = false;
+  dirty.trail = dirty.recent = dirty.stats = dirty.ring = dirty.dom = true;
 }
 
 /** Appends the hit at `offsets[i…i+2]` (x, y, timing error), read in place from vosu's array. */
 function push(offsets, i) {
-  const x = offsets[i], y = offsets[i + 1], e = offsets[i + 2];
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(e)) return;
+  const x = offsets[i], y = offsets[i + 1];
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
   if (n === cap) grow();
-  xs[n] = x; ys[n] = y; errs[n] = e; bucket[n] = bucketOf(e);
+  xs[n] = x; ys[n] = y;
   place(n);
   n++;
   const dx = x - S.mx; S.mx += dx / n;
   const dy = y - S.my; S.my += dy / n;
   S.sxx += dx * (x - S.mx); S.syy += dy * (y - S.my); S.sxy += dx * (y - S.my);
-  if (x * x + y * y <= inner2) inside++;
 }
 
-/** Bias, spread and ellipse from the moments: once per batch of new hits, for canvas and text. */
+const DEG = 180 / Math.PI;
+
+/** Whole degrees 0…359 of the direction (x, y), clockwise from +x as on screen. */
+function directionOf(x, y) {
+  const deg = Math.round(Math.atan2(y, x) * DEG);
+  return deg < 0 ? deg + 360 : deg === 360 ? 0 : deg;
+}
+
+/** Bias and ellipse from the moments: once per batch of new hits, for canvas and text. */
 function derive() {
   S.bias = Math.hypot(S.mx, S.my);
+  sDeg = S.bias >= 0.05 ? directionOf(S.mx, S.my) : -1;
   if (n < 2) return;
   const a = S.sxx / n, b = S.sxy / n, d = S.syy / n;
   const half = (a + d) / 2;
   const root = Math.sqrt(((a - d) / 2) ** 2 + b * b);
-  S.spread = Math.sqrt(Math.max(0, a + d));
   S.major = Math.sqrt(Math.max(0, half + root));
   S.minor = Math.sqrt(Math.max(0, half - root));
   S.tilt = 0.5 * Math.atan2(2 * b, a - d);
 }
 
-function recount() {
-  inside = 0;
-  for (let i = 0; i < n; i++) if (xs[i] * xs[i] + ys[i] * ys[i] <= inner2) inside++;
+// ------------------------------------------------------------------ stats ease
+// What the stats layer shows (D): the attempt's statistics (S), or between them while easing.
+// Tagged fields (seeded null) so the per-hit snap passes S's numbers on without boxing new ones.
+// The ease runs only for an attempt's first EASE_HITS hits, where each hit visibly moves the
+// average; later a hit moves it by a fraction of a pixel and the layer snaps.
+const D = { mx: null, my: null, major: null, minor: null, tilt: null, bias: null };
+D.mx = D.my = D.major = D.minor = D.tilt = D.bias = 0;
+let sDeg = -1;                    // S's bias direction in whole degrees, -1 when centred
+const EASE_HITS = 64;
+const EASE_MS = MOTION_MS.base;
+// From and to values (x, y, semi-axes, tilt) and the ease's start time, unboxed.
+const F = new Float64Array(5);
+const T = new Float64Array(5);
+const T0 = new Float64Array(1);
+let easing = false;
+const HALF_TURN = Math.PI;
+const QUARTER_TURN = Math.PI / 2;
+// Ellipse tilt by whole degree (0…179) as stored numbers: a frame passes the same boxed value.
+const TILTS = [null];
+for (let deg = 0; deg < 180; deg++) TILTS[deg] = deg / DEG;
+
+function snapStats() {
+  D.mx = S.mx; D.my = S.my; D.tilt = S.tilt; D.bias = S.bias;
+  if (n >= 3) { D.major = S.major; D.minor = S.minor; } else D.major = D.minor = 0;
+  easing = false;
 }
 
-function rebucket() {
-  for (let i = 0; i < n; i++) bucket[i] = bucketOf(errs[i]);
+/** Points the arrow and ellipse at the attempt's new statistics: eased early in the attempt. */
+function retarget() {
+  dirty.stats = true;
+  if (level === 'off' || view !== 'data' || n > EASE_HITS) { snapStats(); return; }
+  F[0] = D.mx; F[1] = D.my; F[2] = D.major; F[3] = D.minor; F[4] = D.tilt;
+  T[0] = S.mx; T[1] = S.my;
+  T[2] = n >= 3 ? S.major : 0; T[3] = n >= 3 ? S.minor : 0;
+  // The ellipse is symmetric under a half turn: take the shorter way round.
+  let turn = S.tilt - D.tilt;
+  while (turn > QUARTER_TURN) turn -= HALF_TURN;
+  while (turn < -QUARTER_TURN) turn += HALF_TURN;
+  T[4] = D.tilt + turn;
+  T0[0] = -1;
+  easing = true;
+}
+
+/** Advances the ease to rAF time `now`; false once it has arrived. */
+function stepEase(now) {
+  if (T0[0] < 0) T0[0] = now;
+  const k = (now - T0[0]) / EASE_MS;
+  if (k >= 1) { snapStats(); return false; }
+  const r = 1 - k;
+  const p = 1 - r * r * r * r;     // ease-out (quart)
+  const mx = F[0] + (T[0] - F[0]) * p, my = F[1] + (T[1] - F[1]) * p;
+  D.mx = mx; D.my = my;
+  D.major = F[2] + (T[2] - F[2]) * p;
+  D.minor = F[3] + (T[3] - F[3]) * p;
+  D.tilt = F[4] + (T[4] - F[4]) * p;
+  D.bias = Math.sqrt(mx * mx + my * my);
+  return true;
 }
 
 // ------------------------------------------------------------------ state
-const options = { orientation: 'auto', align: 'center', dots: 'All hits', ellipse: true, results: true, backing: 'none', accent: 'map' };
+const options = { orientation: 'auto', align: 'center', dots: 'All hits', ellipse: true, results: true, motion: 'full', backing: 'scrim', mapTint: true };
+let level = 'full';               // motion level
 let limit = Infinity;             // dots kept on the target; Infinity = all hits
 let status = 'connecting';
 let state;                        // /state/number
@@ -186,18 +242,18 @@ let mode = null;
 let extension = 'unknown';        // 'on' | 'off' | 'unknown'
 let prevState;
 let checksum = null;
-let view = '';
-let small = false;                // half-size box (multiplayer cell): shorter labels
+let view = 'hidden';
+let small = false;                // half-size box (renderer cell): no label
 let baked = 0;                    // all-hits mode: dots already rasterised on the trail layer
 let drawnN = -1;
-const dirty = { size: true, reticle: true, trail: true, live: true, dom: true, place: true };
+const dirty = { size: true, reticle: true, trail: true, recent: true, stats: true, ring: true, dom: true, place: true };
 let raf = 0;
 let pixel = 1;                    // device px per CSS px of the target canvas
-let atlas = null;                 // pre-rendered dot sprites, one per colour bucket
+let atlas = null;                 // the dot sprite, rasterised at the device scale
 let cell = 0;
-let lens = null;                  // reticle lens gradient, rebuilt with the canvas size
-// Status and legend strings, rebuilt only when CS or the timing window changes.
-let csShort = 'CS —', csFull = 'CS —', resultsLabel = 'Results · CS —', windowLabel = '± — ms';
+let lens = null;                  // reticle lens gradient (backing none), rebuilt with the canvas size
+let hitAt = -1e9;                 // page time of the last ring landing
+let ringFor = -1;                 // hit count the ring was placed for
 
 function schedule() { if (!raf) raf = requestAnimationFrame(frame); }
 
@@ -212,7 +268,7 @@ function onData(values, changed) {
   if (state !== prevState) dirty.dom = true;
   prevState = state;
 
-  // Latch circle size and timing window while playing, or while nothing is held yet.
+  // Latch circle size while playing, or while nothing is held yet.
   if (playing || n === 0) {
     const nextCs = values[P.csConverted] ?? values[P.csOriginal];
     const csNumber = typeof nextCs === 'number' && Number.isFinite(nextCs) ? nextCs : null;
@@ -220,17 +276,7 @@ function onData(values, changed) {
       cs = csNumber;
       radius = cs === null ? null : Math.max(1, 54.4 - 4.48 * cs);
       rescale();
-      recount();
-      relabel();
-      dirty.reticle = dirty.trail = dirty.live = dirty.dom = true;
-    }
-    const nextGreat = values[P.great];
-    const g = typeof nextGreat === 'number' && nextGreat > 0 ? nextGreat : null;
-    if (g !== great) {
-      great = g;
-      windowLabel = great === null ? '± — ms' : `±${Math.round(great * 10) / 10} ms`;
-      rebucket();
-      dirty.trail = dirty.live = dirty.dom = true;
+      dirty.reticle = dirty.trail = dirty.recent = dirty.stats = true;
     }
     const sum = values[P.checksum] || null;
     if (sum !== checksum) { checksum = sum; loadPalette(); }
@@ -246,7 +292,8 @@ function onData(values, changed) {
     if (count > n) {
       for (let i = n * 3, end = count * 3; i < end; i += 3) push(offsets, i);
       derive();
-      dirty.live = dirty.dom = true;
+      retarget();
+      dirty.recent = dirty.ring = dirty.dom = true;
     }
   }
   schedule();
@@ -259,88 +306,101 @@ function onStatus(next) {
   schedule();
 }
 
-// ------------------------------------------------------------------ map tint (off the hot path)
+// ------------------------------------------------------------------ map tone (off the hot path)
 function loadPalette() {
   const wanted = checksum;
-  if (options.accent !== 'map' || !wanted) { setPalette(null); return; }
-  mapPalette(wanted).then(result => { if (wanted === checksum && options.accent === 'map') setPalette(result); });
+  if (!options.mapTint || !wanted) { setPalette(null); return; }
+  mapPalette(wanted).then(result => { if (wanted === checksum && options.mapTint) setPalette(result); });
 }
 
 function setPalette(palette) {
   applyPalette(aim, palette);
-  hl = palette?.accent || AMBER;
-  const [r, g, b] = rgb(hl);
-  hlFill = `rgb(${r} ${g} ${b} / .08)`;
-  dirty.live = true;
-  schedule();
+  readColours();
 }
 
 // ------------------------------------------------------------------ box layout (resize / settings only)
 /**
- * Re-flows to the page box: vertical column (status, target, legend, readouts) for upright boxes,
- * horizontal strip (target beside the text) for wide ones. Type scales with the box against the
- * reference size, labels floored so they stay legible in half-size multiplayer cells; the target
- * takes the space the text leaves. Pure arithmetic (no layout reads), so it gives the same answer
- * whichever view is showing.
+ * Re-flows to the page box: a column (target over the bias line) for upright boxes, a strip
+ * (target beside it) for wide ones. --u scales the kit against the default box, floored at 0.75
+ * so the readout stays legible in half-size renderer cells; the target takes the space the text
+ * leaves. Pure arithmetic (no layout reads), so it gives the same answer whichever view shows.
  */
 function layoutBox() {
-  const w = innerWidth || REF_V.w;
-  const h = innerHeight || REF_V.h;
+  const w = innerWidth || REF.w;
+  const h = innerHeight || REF.h;
   const orient = options.orientation === 'vertical' || options.orientation === 'horizontal'
     ? options.orientation : (h / w >= 0.75 ? 'vertical' : 'horizontal');
-  const ref = orient === 'vertical' ? REF_V : REF_H;
-  const s = Math.max(0.45, Math.min(3, Math.min(w / ref.w, h / ref.h)));
-  const t = Math.max(0.8, s);
+  const s = orient === 'vertical' ? Math.min(w / REF.w, h / REF.h) : Math.min(w / STRIP.w, h / STRIP.h);
+  const u = Math.max(0.75, Math.min(3, s));
   if (aim.dataset.orient !== orient) aim.dataset.orient = orient;
-  aim.style.setProperty('--s', s.toFixed(3));
-  aim.style.setProperty('--t', t.toFixed(3));
+  aim.style.setProperty('--u', u.toFixed(3));
   small = s < 0.8;
   aim.classList.toggle('is-small', small);
-  dirty.dom = true;
-  const pad = 6 * s;
+  const pad = 16 * u;
   let d;
-  if (orient === 'vertical') {
-    // Text rows at this scale (line boxes from style.css): head, legend, readouts (rule, label,
-    // number, sub line), plus the row gaps; the rest goes to the target.
-    const sub = s < 0.8 ? 0 : 16 * t;
-    const text = 14.4 * t + 12 * t + (11 * s + 14.4 * t + 30 * s + 2 + sub) + 4 * 6 * s + 4;
-    d = Math.min(w - 2 * pad, h - 2 * pad - text);
-  } else {
-    d = Math.min(h - 2 * pad, w * 0.42);
-  }
+  if (orient === 'vertical') d = Math.min(w - 2 * pad, h - 2 * pad - 32 * u - 8 * u);
+  else d = Math.min(h - 2 * pad, w - 2 * pad - 24 * u - (small ? 80 : 120) * u);
   d = Math.max(48, Math.floor(d));
   aim.style.setProperty('--d', `${d}px`);
   if (d !== VIEW) { setDiameter(d); dirty.size = true; }
+  aim.style.setProperty('--ring', `${ringR.toFixed(2)}px`);
   const next = devicePixelRatio || 1;
   if (Math.abs(next - pixel) > 1e-3) dirty.size = true;
   pixel = next;
+  dirty.dom = true;
   schedule();
 }
 
+// Ring positions as transform strings by half CSS px, built per target size: a hit only looks
+// one up. X goes to `transform`, Y to the independent `translate` property of the same element.
+let ringX = [];
+let ringY = [];
+
 function resize() {
   const side = Math.max(1, Math.round(VIEW * (devicePixelRatio || 1)));
-  for (const canvas of Object.values(canvases)) { canvas.width = side; canvas.height = side; }
+  for (const key in canvases) { canvases[key].width = side; canvases[key].height = side; }
   pixel = side / VIEW;
-  // Dot sprites: one filled disc per colour bucket, rasterised at the device scale.
+  G.q = pixel / Q;
+  G.half = HALF * Q;
+  G.o = Math.round(HALF * Q);
+  G.s = unit * Q;
+  G.casing = Math.round(Math.max(3.5, 4 * K) * Q);
+  G.line = Math.round(Math.max(1.5, 1.75 * K) * Q);
+  G.ellipseCasing = Math.round(Math.max(3, 3.5 * K) * Q);
+  G.ellipseLine = Math.round(Math.max(1.25, 1.5 * K) * Q);
+  G.pip = Math.round(Math.max(1.6, 2.2 * K) * Q);
+  const base = RING + Math.max(3, 4 * K), tip = RING + Math.max(10, 14 * K), wing = Math.max(3.5, 5 * K);
+  for (let deg = 0; deg < 360; deg++) {
+    const ux = Math.cos(deg / DEG), uy = Math.sin(deg / DEG);
+    POINTER.lx[deg] = Math.round((HALF + ux * base - uy * wing) * Q);
+    POINTER.ly[deg] = Math.round((HALF + uy * base + ux * wing) * Q);
+    POINTER.rx[deg] = Math.round((HALF + ux * base + uy * wing) * Q);
+    POINTER.ry[deg] = Math.round((HALF + uy * base - ux * wing) * Q);
+    POINTER.tx[deg] = Math.round((HALF + ux * tip) * Q);
+    POINTER.ty[deg] = Math.round((HALF + uy * tip) * Q);
+  }
+  // Dot sprite: one filled disc, rasterised at the device scale.
   const r = DOT * pixel;
   cell = Math.ceil(r * 2 + 2);
   atlas = document.createElement('canvas');
-  atlas.width = cell * BUCKETS;
+  atlas.width = cell;
   atlas.height = cell;
   const a = atlas.getContext('2d');
-  for (let b = 0; b < BUCKETS; b++) {
-    a.fillStyle = RAMP[b];
-    a.beginPath();
-    a.arc(b * cell + cell / 2, cell / 2, r, 0, Math.PI * 2);
-    a.fill();
-  }
-  // The lens depends on the target's size only.
+  a.fillStyle = COL.dot;
+  a.beginPath();
+  a.arc(cell / 2, cell / 2, r, 0, TAU);
+  a.fill();
   lens = ctx.reticle.createRadialGradient(HALF, HALF, RING * 0.2, HALF, HALF, HALF);
-  lens.addColorStop(0, 'rgb(8 9 10 / .62)');
-  lens.addColorStop(RING / HALF, 'rgb(8 9 10 / .5)');
-  lens.addColorStop(1, 'rgb(8 9 10 / 0)');
+  lens.addColorStop(0, `rgb(${COL.lens} / .62)`);
+  lens.addColorStop(RING / HALF, `rgb(${COL.lens} / .5)`);
+  lens.addColorStop(1, `rgb(${COL.lens} / 0)`);
+  const slots = Math.ceil(VIEW * 2) + 1;
+  ringX = new Array(slots);
+  ringY = new Array(slots);
+  for (let k = 0; k < slots; k++) { ringX[k] = `translateX(${k / 2}px)`; ringY[k] = `0 ${k / 2}px`; }
+  ringFor = -1;
   dirty.size = false;
-  dirty.place = dirty.reticle = dirty.trail = dirty.live = true;
+  dirty.place = dirty.reticle = dirty.trail = dirty.recent = dirty.stats = dirty.ring = true;
 }
 
 // ------------------------------------------------------------------ drawing
@@ -350,18 +410,27 @@ function resize() {
 // Seeded with null so V8 keeps them as tagged arrays rather than unboxed double arrays.
 const dotX = [null];
 const dotY = [null];
-const liveAlpha = [null];         // by age (0 = newest) across `liveFor` recent dots
-let liveFor = 0;
+const recentAlpha = [null];       // by age (0 = newest) across `recentFor` recent dots
+let recentFor = 0;
 const trailAlpha = [null];        // by position across a limited trail of `trailFor` dots
 let trailFor = 0;
+// Stats-layer sizes in 1/Q px, set per target size; tagged for the same reason.
+const G = { q: null, s: null, half: null, o: null, casing: null, line: null, ellipseCasing: null, ellipseLine: null, pip: null };
+// Bias pointer on the bezel by whole degree: base corners and tip in 1/Q px. Int32Array reads
+// are small integers, so a hit draws it without boxing a coordinate.
+const POINTER = { lx: new Int32Array(360), ly: new Int32Array(360), tx: new Int32Array(360), ty: new Int32Array(360), rx: new Int32Array(360), ry: new Int32Array(360) };
+let ringKX = 0, ringKY = 0;       // the newest dot's ring slot (half CSS px)
 
 /** Sprite origin of dot `i` at the target's scale, pinned inside the bezel. */
 function place(i) {
   let x = xs[i] * unit, y = ys[i] * unit;
   const d = x * x + y * y;
   if (d > EDGE * EDGE) { const f = EDGE / Math.sqrt(d); x *= f; y *= f; }
-  dotX[i] = (HALF + x) * pixel - cell / 2;
-  dotY[i] = (HALF + y) * pixel - cell / 2;
+  const px = HALF + x, py = HALF + y;
+  dotX[i] = px * pixel - cell / 2;
+  dotY[i] = py * pixel - cell / 2;
+  // The ring's slot (half CSS px) for whichever dot was placed last: the newest.
+  ringKX = Math.round(px * 2); ringKY = Math.round(py * 2);
 }
 
 function placeAll() {
@@ -378,17 +447,17 @@ function drawReticle() {
   c.setTransform(pixel, 0, 0, pixel, 0, 0);
   const hair = 1 / pixel;
   const mid = crisp(HALF);
-  const full = VIEW >= 180;
+  const full = VIEW >= 160;
 
-  // Lens: a dark disc that fades out past the bezel, so dots and hairlines read over any map
-  // background without a box. The panel backing brings its own surface.
-  if (options.backing !== 'panel') {
+  // Without a backing, a dark lens that fades out past the bezel keeps dots and hairlines
+  // readable on the game; scrim and panel bring their own field.
+  if (options.backing === 'none') {
     c.fillStyle = lens;
     c.fillRect(0, 0, VIEW, VIEW);
   }
 
   c.lineWidth = hair;
-  c.strokeStyle = FG.hair;
+  c.strokeStyle = COL.hair;
   c.beginPath();
   c.moveTo(HALF - RING - 18 * K, mid); c.lineTo(HALF + RING + 18 * K, mid);
   c.moveTo(mid, HALF - RING - 18 * K); c.lineTo(mid, HALF + RING + 18 * K);
@@ -397,7 +466,7 @@ function drawReticle() {
   // Ruler ticks every 10 playfield px along both axes, inside the circle (large targets only).
   const s = unit;
   if (full) {
-    c.strokeStyle = FG.tick;
+    c.strokeStyle = COL.tick;
     c.beginPath();
     for (let d = 10; d * s < RING - 2; d += 10) {
       for (let sign = -1; sign <= 1; sign += 2) {
@@ -409,16 +478,12 @@ function drawReticle() {
     c.stroke();
   }
 
-  // Centre zone (R/3), dashed.
-  c.setLineDash(DASH);
-  c.strokeStyle = FG.zone;
-  c.beginPath(); c.arc(HALF, HALF, RING * CENTRE, 0, TAU); c.stroke();
-  c.setLineDash(SOLID);
-
-  // The hit circle.
+  // The map's hit circle (its CS), in the map tone.
   c.lineWidth = full ? 1.5 : 1.25;
-  c.strokeStyle = FG.ring;
+  c.strokeStyle = COL.circle;
+  c.globalAlpha = 0.8;
   c.beginPath(); c.arc(HALF, HALF, RING, 0, TAU); c.stroke();
+  c.globalAlpha = 1;
 
   // Bezel: 10° ticks, 30° majors, cardinal points brightest (30° only on small targets).
   c.lineWidth = hair * Math.max(1, Math.round(pixel * 0.9));
@@ -428,7 +493,7 @@ function drawReticle() {
     const a = deg * Math.PI / 180;
     const r0 = RING + 5 * K + 1;
     const r1 = RING + (cardinal ? 14 : major ? 10 : 7) * K + 1;
-    c.strokeStyle = cardinal ? FG.cardinal : major ? FG.major : FG.minor;
+    c.strokeStyle = cardinal ? COL.cardinal : major ? COL.major : COL.minor;
     c.beginPath();
     c.moveTo(HALF + Math.cos(a) * r0, HALF + Math.sin(a) * r0);
     c.lineTo(HALF + Math.cos(a) * r1, HALF + Math.sin(a) * r1);
@@ -437,7 +502,7 @@ function drawReticle() {
 }
 
 function blit(c, i) {
-  c.drawImage(atlas, bucket[i] * cell, 0, cell, cell, dotX[i], dotY[i], cell, cell);
+  c.drawImage(atlas, 0, 0, cell, cell, dotX[i], dotY[i], cell, cell);
 }
 
 function drawTrail() {
@@ -448,7 +513,7 @@ function drawTrail() {
   if (limit === Infinity) {
     // All hits: rasterise each dot once as it leaves the recent window; the layer accumulates.
     if (dirty.trail || end < baked) { c.clearRect(0, 0, canvases.trail.width, canvases.trail.height); baked = 0; }
-    c.globalAlpha = 0.26;
+    c.globalAlpha = 0.24;
     for (let i = baked; i < end; i++) blit(c, i);
     baked = end;
   } else if (dirty.trail || n !== drawnN) {
@@ -457,7 +522,7 @@ function drawTrail() {
     const span = Math.max(1, end - start);
     if (span !== trailFor) {
       trailFor = span;
-      for (let k = 0; k < span; k++) trailAlpha[k] = 0.12 + 0.3 * k / span;
+      for (let k = 0; k < span; k++) trailAlpha[k] = 0.1 + 0.28 * k / span;
     }
     for (let i = start; i < end; i++) { c.globalAlpha = trailAlpha[i - start]; blit(c, i); }
   }
@@ -466,201 +531,201 @@ function drawTrail() {
   dirty.trail = false;
 }
 
-const centroid = { x: null, y: null };   // live layer: centroid on screen (CSS px)
-
-function drawLive() {
-  const c = ctx.live;
+/** The newest RECENT dots, fading with age; once per batch of hits. */
+function drawRecent() {
+  const c = ctx.recent;
   c.setTransform(1, 0, 0, 1, 0, 0);
-  c.clearRect(0, 0, canvases.live.width, canvases.live.height);
-  dirty.live = false;
+  c.clearRect(0, 0, canvases.recent.width, canvases.recent.height);
+  dirty.recent = false;
   if (!n) return;
   const recent = Math.min(RECENT, limit, n);
-  if (recent !== liveFor) {
-    liveFor = recent;
-    for (let age = 0; age < recent; age++) liveAlpha[age] = 1 - 0.55 * age / recent;
+  if (recent !== recentFor) {
+    recentFor = recent;
+    for (let age = 0; age < recent; age++) recentAlpha[age] = 0.92 - 0.5 * age / recent;
   }
-  for (let i = n - recent; i < n; i++) { c.globalAlpha = liveAlpha[n - 1 - i]; blit(c, i); }
+  for (let i = n - recent; i < n; i++) { c.globalAlpha = recentAlpha[n - 1 - i]; blit(c, i); }
   c.globalAlpha = 1;
-  c.setTransform(pixel, 0, 0, pixel, 0, 0);
-  const s = unit;
+}
 
-  // Newest hit: a ring in its own timing colour.
-  let lx = xs[n - 1] * s, ly = ys[n - 1] * s;
-  const ld = Math.hypot(lx, ly);
-  if (ld > EDGE) { lx *= EDGE / ld; ly *= EDGE / ld; }
-  c.lineWidth = 1.25;
-  c.strokeStyle = RAMP[bucket[n - 1]];
-  c.beginPath(); c.arc(HALF + lx, HALF + ly, ringR, 0, TAU); c.stroke();
+/**
+ * Ellipse and bias at the shown statistics (D): once per hit, and every frame of an ease. Every
+ * coordinate reaches the canvas as an integer in 1/Q px and sizes, colours and the pointer come
+ * from stored values, so a hit costs a handful of numbers and an optimised frame none.
+ */
+function drawStats() {
+  const c = ctx.stats;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, canvases.stats.width, canvases.stats.height);
+  dirty.stats = false;
+  if (!n) return;
+  c.setTransform(G.q, 0, 0, G.q, 0, 0);
+  const cx = Math.round(G.half + D.mx * G.s);
+  const cy = Math.round(G.half + D.my * G.s);
 
-  // The centroid goes to seven canvas calls; held in tagged fields it is boxed once per redraw
-  // rather than once per call (see S).
-  centroid.x = HALF + S.mx * s; centroid.y = HALF + S.my * s;
-  const cx = centroid.x, cy = centroid.y;
   if (options.ellipse && n >= 3) {
+    let deg = Math.round(D.tilt * DEG) % 180;
+    if (deg < 0) deg += 180;
     c.beginPath();
-    c.ellipse(cx, cy, Math.max(S.major * s, 0.5), Math.max(S.minor * s, 0.5), S.tilt, 0, TAU);
-    c.fillStyle = hlFill;
+    c.ellipse(cx, cy, Math.max(8, Math.round(D.major * G.s)), Math.max(8, Math.round(D.minor * G.s)), TILTS[deg], 0, TAU);
+    c.fillStyle = COL.fill;
     c.fill();
-    c.lineWidth = 3; c.strokeStyle = 'rgb(8 9 10 / .6)'; c.stroke();
-    c.lineWidth = 1.5; c.strokeStyle = hl; c.stroke();
+    c.lineWidth = G.ellipseCasing; c.strokeStyle = COL.casing; c.stroke();
+    c.lineWidth = G.ellipseLine; c.strokeStyle = COL.ellipse; c.stroke();
   }
 
-  // Bias vector from the circle's centre to the centroid, then the centroid mark.
+  // Bias: the vector from the circle's centre to the attempt's average at the plot's true scale
+  // (a few px for most players), ending in a pip, plus a pointer on the bezel in its direction
+  // so the direction reads at any length. Below 0.05 playfield px (the readout's "0.0") only
+  // the pip.
   c.lineCap = 'round';
-  c.beginPath(); c.moveTo(HALF, HALF); c.lineTo(cx, cy);
-  c.lineWidth = 3; c.strokeStyle = 'rgb(8 9 10 / .7)'; c.stroke();
-  c.lineWidth = 1.25; c.strokeStyle = hl; c.stroke();
+  c.lineJoin = 'round';
   c.beginPath();
-  c.moveTo(cx - arm, cy); c.lineTo(cx - gap, cy); c.moveTo(cx + gap, cy); c.lineTo(cx + arm, cy);
-  c.moveTo(cx, cy - arm); c.lineTo(cx, cy - gap); c.moveTo(cx, cy + gap); c.lineTo(cx, cy + arm);
-  c.lineWidth = 3.5; c.strokeStyle = 'rgb(8 9 10 / .8)'; c.stroke();
-  c.lineWidth = 1.5; c.strokeStyle = hl; c.stroke();
-  c.beginPath(); c.arc(cx, cy, pip, 0, TAU); c.fillStyle = hl; c.fill();
+  if (D.bias >= 0.05) {
+    const deg = easing ? directionOf(D.mx, D.my) : sDeg;
+    c.moveTo(G.o, G.o); c.lineTo(cx, cy);
+    c.moveTo(POINTER.lx[deg], POINTER.ly[deg]);
+    c.lineTo(POINTER.tx[deg], POINTER.ty[deg]);
+    c.lineTo(POINTER.rx[deg], POINTER.ry[deg]);
+    c.closePath();
+  }
+  c.moveTo(cx + G.pip, cy);
+  c.arc(cx, cy, G.pip, 0, TAU);
+  c.lineWidth = G.casing; c.strokeStyle = COL.casing; c.stroke();
+  c.lineWidth = G.line; c.strokeStyle = COL.arrow; c.stroke();
+  c.fillStyle = COL.arrow; c.fill();
   c.lineCap = 'butt';
+  c.lineJoin = 'miter';
+}
+
+// ------------------------------------------------------------------ newest hit (DOM ring)
+const LAND_KEYS = [{ transform: 'scale(2.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }];
+const LAND_OPTIONS = { duration: MOTION_MS.fast, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
+const landing = el.ring.animate(LAND_KEYS, LAND_OPTIONS);
+landing.cancel();
+let shownKX = -1, shownKY = -1;
+
+/** Moves the amber ring to the newest hit and lands it (full motion, hits not too dense). */
+function placeRing(now) {
+  dirty.ring = false;
+  if (!n) {
+    if (!el.hit.hidden) el.hit.hidden = true;
+    ringFor = 0;
+    return;
+  }
+  if (ringKX !== shownKX) { shownKX = ringKX; el.hit.style.transform = ringX[ringKX]; }
+  if (ringKY !== shownKY) { shownKY = ringKY; el.hit.style.translate = ringY[ringKY]; }
+  if (el.hit.hidden) el.hit.hidden = false;
+  if (n === ringFor) return;       // re-placed after a resize or CS change: no new hit
+  ringFor = n;
+  if (level === 'full' && view === 'data' && now - hitAt >= SNAP_HIT_MS) {
+    landing.currentTime = 0;
+    landing.play();
+  } else if (landing.playState === 'running') landing.finish();
+  hitAt = now;
 }
 
 // ------------------------------------------------------------------ DOM (write only on change)
-const text = (node, value) => { if (node.textContent !== value) node.textContent = value; };
-const shown = (node, visible) => { if (node.hasAttribute('hidden') === visible) node.toggleAttribute('hidden', !visible); };
-const DIRECTIONS = ['right', 'down-right', 'down', 'down-left', 'left', 'up-left', 'up', 'up-right'];
-const OCTANT = Math.PI / 4;
-// Every arrow rotation and centre percentage as a string, built once: most hits change one.
-const ROTATE = Array.from({ length: 361 }, (_, i) => `rotate(${i - 180}deg)`);   // by deg + 180
-const PERCENT = Array.from({ length: 101 }, (_, i) => String(i));
-const px = v => v.toFixed(1);
-let arrowDeg = null;
-let tone = 'busy';                // status chip as last written (index.html starts it connecting)
-let label = 'Connecting';
-let shownWindow = '';
-// Integer readouts as last written (-1 = no data; direction: DIRECTIONS index, -1 centred,
-// -2 no hits), so a hit that changes none of them writes nothing.
-const last = { have: null, dir: -3, centre: -2, n: -1, inside: -1 };
-
-// The circle the target is scaled to: converted CS and its radius in playfield px.
-function relabel() {
-  csShort = cs === null ? 'CS —' : `CS ${cs.toFixed(1)}`;
-  csFull = cs === null ? 'CS —' : `${csShort} · R ${px(radius)} px`;
-  resultsLabel = `Results · ${csShort}`;
-}
+const fmtBias = numberFormatter('px');
+let shownBias = DASH;
+let arrowShown = false;
+// The readout arrow turns the short way: its angle is kept unwrapped (whole degrees) and the
+// rotate() strings are cached by angle, built once each.
+const TURNS = 3600;
+const ROTATE = new Array(2 * TURNS + 1).fill(null);
+let arrowDeg = null;              // unwrapped degrees as last written
+let biasDir = null;               // 0…359 as last computed
 
 /**
- * A toFixed(1) readout's current tenth: values strictly between `lo` and `hi` print the text last
- * written, so a hit that moves no digit formats nothing. The bounds sit 1e-9 inside the tenth, so
- * rounding at an edge is always left to toFixed; null bounds match nothing (values are ≥ 0).
- */
-const tenth = () => ({ lo: null, hi: null });
-const R = { bias: tenth(), spread: tenth(), major: tenth(), minor: tenth() };
-const inTenth = (r, v) => v > r.lo && v < r.hi;
-
-function holdTenth(r, v) {
-  const k = Math.round(v * 10);
-  const lo = (k - 0.5) / 10 + 1e-9, hi = (k + 0.5) / 10 - 1e-9;
-  if (v > lo && v < hi) { r.lo = lo; r.hi = hi; } else r.lo = r.hi = null;
-}
-
-function dropTenth(r) { r.lo = r.hi = null; }
-
-/**
- * What the box shows: `data` during osu! play; `summary` (readouts only, at the box's foot) on
- * results with a held attempt, so the target never covers the results screen's buttons;
- * `notice` when vosu runs without ENABLE_HIT_OFFSETS; `chip` for connection / no game; else
- * `none` (other rulesets, song select, menus: nothing to add there).
+ * What the box shows: `data` during osu! play, and on results with a held attempt ("Keep on
+ * results"); `notice` when vosu runs without ENABLE_HIT_OFFSETS (and in the replay renderer);
+ * `chip` for connection / no game; else `hidden` (other rulesets, song select, menus).
  */
 function viewFor() {
   if (status !== 'live') return 'chip';
   if (state === undefined) return 'chip';
-  if (mode !== 'osu') return 'none';
+  if (mode !== 'osu') return 'hidden';
   if (state === PLAYING) return extension === 'off' ? 'notice' : 'data';
-  if (state === RESULTS && options.results && n > 0) return 'summary';
-  return 'none';
+  if (state === RESULTS && options.results && n > 0) return 'data';
+  return 'hidden';
 }
 
 function updateDom() {
   dirty.dom = false;
   const next = viewFor();
-  if (next !== view) { view = next; aim.dataset.view = view; }
+  if (next !== view) {
+    view = next;
+    // Hidden keeps the last content while it fades out; data-view only names what is shown.
+    const out = view === 'hidden';
+    if (out !== aim.hasAttribute('data-out')) aim.toggleAttribute('data-out', out);
+    if (!out && aim.dataset.view !== view) aim.dataset.view = view;
+  }
 
-  let nextTone = 'idle', nextLabel;
-  if (status === 'connecting') { nextTone = 'busy'; nextLabel = 'Connecting'; }
-  else if (status === 'offline') { nextTone = 'error'; nextLabel = 'vosu offline'; }
-  else if (state === undefined) nextLabel = 'No game';
-  else if (state === PLAYING) { nextTone = 'play'; nextLabel = extension === 'off' ? '' : small ? csShort : csFull; }
-  else nextLabel = resultsLabel;
-  if (nextTone !== tone) { tone = nextTone; el.status.dataset.tone = tone; }
-  if (nextLabel !== label) { label = nextLabel; text(el.statusText, label); }
-  if (view !== 'data' && view !== 'summary') return;
-
-  if (windowLabel !== shownWindow) { shownWindow = windowLabel; text(el.window, windowLabel); }
+  if (view === 'chip') {
+    const label = status === 'connecting' ? 'Connecting' : status === 'live' ? 'No game' : 'vosu offline';
+    const node = $('status');
+    if (node.textContent !== label) node.textContent = label;
+    return;
+  }
+  if (view !== 'data') return;
 
   const have = n > 0;
-  if (have !== last.have) { last.have = have; readouts.classList.toggle('is-empty', !have); }
-  const bias = S.bias;
-  if (!have) { dropTenth(R.bias); text(el.bias, '—'); }
-  else if (!inTenth(R.bias, bias)) { holdTenth(R.bias, bias); text(el.bias, px(bias)); }
-  let dir = have ? -1 : -2;
-  if (have && bias >= 0.05) {
-    const angle = Math.atan2(S.my, S.mx);
-    const deg = Math.round(angle * 180 / Math.PI);
-    if (deg !== arrowDeg) { arrowDeg = deg; el.biasArrow.style.transform = ROTATE[deg + 180]; }
-    dir = (Math.round(angle / OCTANT) + 8) % 8;
+  const text = have ? fmtBias(S.bias) : DASH;
+  if (text !== shownBias) {
+    if ((shownBias === DASH) !== (text === DASH)) el.bias.classList.toggle('kit-dash', text === DASH);
+    shownBias = text;
+    biasText.data = text;
   }
-  if (dir !== last.dir) {
-    last.dir = dir;
-    shown(el.biasArrow, dir >= 0);
-    text(el.biasDir, dir >= 0 ? DIRECTIONS[dir] : dir === -1 ? 'centred' : '');
-  }
-  const centre = have ? Math.round(inside / n * 100) : -1;
-  if (centre !== last.centre) { last.centre = centre; text(el.centre, have ? PERCENT[centre] : '—'); }
-  if (n !== last.n || inside !== last.inside) {
-    last.n = n; last.inside = inside;
-    // n changed, so the text did: write without reading the old one back. Integers print through
-    // toFixed(0), the same text as String(n) without V8's number-string cache (a full GC flushes
-    // it and the next miss rebuilds it as one 64 KB block).
-    el.centreSub.textContent = have ? inside.toFixed(0) + ' of ' + n.toFixed(0) : '';
-  }
-  if (have && n >= 2) {
-    if (!inTenth(R.spread, S.spread)) { holdTenth(R.spread, S.spread); text(el.spread, px(S.spread)); }
-    if (!inTenth(R.major, S.major) || !inTenth(R.minor, S.minor)) {
-      holdTenth(R.major, S.major); holdTenth(R.minor, S.minor);
-      text(el.spreadSub, `${px(S.major)} × ${px(S.minor)}`);
+  const pointing = have && sDeg >= 0;
+  if (pointing && sDeg !== biasDir) {
+    biasDir = sDeg;
+    let next = sDeg;
+    if (arrowDeg !== null && arrowShown) {
+      next = arrowDeg + (sDeg - ((arrowDeg % 360) + 360) % 360 + 540) % 360 - 180;
+      if (next > TURNS || next < -TURNS) next = sDeg;   // after ten turns one way, start over
     }
-  } else {
-    dropTenth(R.spread); dropTenth(R.major); dropTenth(R.minor);
-    text(el.spread, '—');
-    text(el.spreadSub, '');
+    if (next !== arrowDeg) {
+      arrowDeg = next;
+      el.biasArrow.style.transform = ROTATE[next + TURNS] ??= `rotate(${next}deg)`;
+    }
   }
+  if (pointing !== arrowShown) { arrowShown = pointing; el.biasArrow.toggleAttribute('hidden', !pointing); }
 }
 
-function frame() {
+function frame(now) {
   raf = 0;
   if (dirty.size) resize();
   if (dirty.place) placeAll();
   if (dirty.reticle) { drawReticle(); dirty.reticle = false; }
   drawTrail();
-  if (dirty.live) drawLive();
+  if (dirty.recent) drawRecent();
   if (dirty.dom) updateDom();
+  if (easing) { easing = stepEase(now); dirty.stats = true; }
+  if (dirty.stats) drawStats();
+  if (dirty.ring) placeRing(now);
+  if (easing) schedule();
 }
 
 // ------------------------------------------------------------------ settings & boot
-const BACKINGS = new Set(['none', 'scrim', 'panel']);
 const ALIGNS = new Set(['left', 'center', 'right']);
 
 settings(options, next => {
-  const backing = BACKINGS.has(next.backing) ? next.backing : 'none';
-  const backingChanged = backing !== options.backing;
-  const accentChanged = next.accent !== options.accent;
-  Object.assign(options, next, { backing, align: ALIGNS.has(next.align) ? next.align : 'center' });
+  const backingWas = options.backing;
+  const tintWas = options.mapTint;
+  Object.assign(options, next, { align: ALIGNS.has(next.align) ? next.align : 'center' });
+  level = applyKitSettings(aim, options);
+  options.backing = aim.dataset.backing;
   const match = /(\d+)/.exec(options.dots);
   const nextLimit = /all/i.test(options.dots) || !match ? Infinity : Math.max(1, Number(match[1]));
-  if (nextLimit !== limit) { limit = nextLimit; dirty.trail = true; }
-  if (aim.dataset.backing !== backing) aim.dataset.backing = backing;
+  if (nextLimit !== limit) { limit = nextLimit; dirty.trail = dirty.recent = true; }
   if (aim.dataset.align !== options.align) aim.dataset.align = options.align;
-  if (backingChanged) dirty.reticle = true;
-  if (accentChanged) loadPalette();
-  dirty.live = dirty.dom = true;
+  if (options.backing !== backingWas) dirty.reticle = true;
+  if (options.mapTint !== tintWas) loadPalette();
+  if (level === 'off' && easing) snapStats();
+  dirty.stats = dirty.dom = true;
   layoutBox();
 });
 
+readColours();
 new ResizeObserver(layoutBox).observe(document.documentElement);
 matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', layoutBox);
 document.fonts?.ready.then(layoutBox);

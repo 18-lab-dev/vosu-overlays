@@ -5,44 +5,27 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aim scatter</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="overlay.js"></script>
 </head>
 <body>
-<main id="aim" class="aim" data-view="none" data-orient="vertical" data-align="center" data-backing="none" aria-label="Aim scatter">
-  <header class="head" id="head">
-    <span class="title">Aim</span>
-    <span class="status" id="status" data-tone="busy"><i class="dot" aria-hidden="true"></i><span id="status-text">Connecting</span></span>
-  </header>
-  <div class="target" id="target">
-    <canvas id="reticle" aria-hidden="true"></canvas>
-    <canvas id="trail" aria-hidden="true"></canvas>
-    <canvas id="live" role="img" aria-label="Cursor offset from each hit circle's centre"></canvas>
+<main id="aim" class="aim kit kit-enter" data-view="chip" data-out data-orient="vertical" data-align="center" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Aim scatter">
+  <div class="plot" id="plot">
+    <div class="target" id="target">
+      <canvas id="reticle" aria-hidden="true"></canvas>
+      <canvas id="trail" aria-hidden="true"></canvas>
+      <canvas id="recent" aria-hidden="true"></canvas>
+      <canvas id="stats" role="img" aria-label="Cursor offset from each hit circle's centre, with the average offset as an arrow"></canvas>
+      <i class="hit" id="hit" aria-hidden="true" hidden><i class="hit__ring" id="hit-ring"></i></i>
+    </div>
+    <p class="bias" id="bias-row">
+      <span class="kit-label bias__label">Aim bias</span>
+      <span class="kit-value bias__value"><svg id="bias-arrow" class="bias__arrow" viewBox="0 0 16 16" aria-hidden="true" hidden><path d="M2.5 8h10M8.5 3.5 13 8l-4.5 4.5"/></svg><span id="bias" class="kit-dash">—</span><span class="kit-unit">px</span></span>
+    </p>
   </div>
-  <p class="notice" id="notice">Set <b>ENABLE_HIT_OFFSETS</b> = true in vosu</p>
-  <div class="legend" id="legend" aria-label="Dot colour is timing error">
-    <span class="legend__early">Early</span>
-    <i class="legend__ramp" aria-hidden="true"></i>
-    <span class="legend__late">Late</span>
-    <span class="legend__window" id="window">± — ms</span>
-  </div>
-  <dl class="readouts" id="readouts">
-    <div class="readout">
-      <dt>Bias</dt>
-      <dd><b id="bias">—</b><small>px</small></dd>
-      <dd class="readout__sub"><svg id="bias-arrow" class="arrow" viewBox="0 0 10 10" aria-hidden="true" hidden><path d="M1.5 5h6.5M5.4 2.4 8 5 5.4 7.6"/></svg><span id="bias-dir"></span></dd>
-    </div>
-    <div class="readout">
-      <dt>Centre</dt>
-      <dd><b id="centre">—</b><small>%</small></dd>
-      <dd class="readout__sub" id="centre-sub"></dd>
-    </div>
-    <div class="readout">
-      <dt>Spread<span class="long"> 1<span class="lc">σ</span></span></dt>
-      <dd><b id="spread">—</b><small>px</small></dd>
-      <dd class="readout__sub" id="spread-sub"></dd>
-    </div>
-  </dl>
+  <p class="kit-text notice" id="notice"><span class="notice__long">Set <span class="kit-code">ENABLE_HIT_OFFSETS</span> to true in vosu</span><span class="notice__short">Hit offsets are off in vosu</span></p>
+  <p class="kit-caption status" id="status">Connecting</p>
 </main>
 </body>
 </html>

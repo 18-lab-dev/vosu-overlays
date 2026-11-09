@@ -1,6 +1,6 @@
 name = Aim scatter
 author = 18-LAB
-version = 0.3.0
-description = osu! aim target: every circle hit plotted at the cursor's offset from centre, coloured early to late, with centroid, 1σ spread ellipse, aim bias and centre share. Column or strip, re-flowing to its box. Shown in play and on results. Needs vosu ENABLE_HIT_OFFSETS.
+version = 0.4.0
+description = osu! aim target: every circle hit plotted at the cursor's offset from centre, with the attempt's spread ellipse and its aim bias as an arrow and a distance. Column or strip, re-flowing to its box. Shown in play and on results. Needs vosu ENABLE_HIT_OFFSETS.
 resolution = [256,264]
 placement = {"osu":["right-24","bottom-240",256,264]}

@@ -1,153 +1,97 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-/* tokens.css sets color-scheme: dark; a differing embedder scheme would paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
 
 /*
  * The page is the overlay's own box; hosts (OBS, vosulay, the replay renderer) size and place it.
- * overlay.js picks the arrangement from the box's aspect and sets --s (graphics/number scale),
- * --t (label scale, floored for legibility) and --d (target diameter) on resize.
+ * overlay.js picks the arrangement from the box's aspect and sets --u (the kit scale, 1 at the
+ * 256×264 default box), --d (target diameter) and --ring (newest-hit ring radius) on resize.
+ * data-view is what the box holds: data (play, and results with "Keep on results"), notice
+ * (vosu without hit offsets, the replay renderer) or chip (connection / no game). data-out
+ * (kit-enter) hides it on other rulesets and screens; the content stays while it fades out.
  */
 .aim {
-  --s: 1; --t: 1; --d: 220px;
-  --hl: var(--map-accent, var(--accent));
-  --lift: 0 1px 2px rgb(0 0 0 / .75), 0 0 6px rgb(0 0 0 / .45);
-  --gap: calc(6px * var(--s));
+  --u: 1; --d: 192px; --ring: 4.7px;
   position: absolute;
   inset: 0;
-  padding: calc(6px * var(--s));
   display: grid;
   align-content: center;
-  row-gap: var(--gap);
-  color: var(--fg);
-  font: 400 calc(14px * var(--t))/1.2 var(--font-body);
-  text-shadow: var(--lift);
-  user-select: none;
-  isolation: isolate;
-  contain: strict;
-  opacity: 1;
-  transition: opacity 200ms var(--ease-draft);
+  justify-content: center;
+  padding: var(--pad);
+  contain: layout style paint;
 }
+.aim[data-align="left"] { justify-content: start; }
+.aim[data-align="right"] { justify-content: end; }
+/* Enter eases in from 4 px below (kit-enter); leaving accelerates out. */
+.aim[data-out] { transition-timing-function: var(--ease-in); }
 
-.head { grid-area: head; }
-.target { grid-area: target; }
-.notice { grid-area: notice; }
-.legend { grid-area: legend; }
-.readouts { grid-area: readouts; }
-
-/* Vertical column: status, target, legend, readouts. Alignment places the target in the column. */
-.aim[data-orient="vertical"] {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "head" "target" "notice" "legend" "readouts";
+/* One-line views wrap their text, not the whole box: backing and marks hug the line. */
+.aim:is([data-view="chip"], [data-view="notice"]) {
+  inset: 0 0 auto 0;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
-.aim[data-orient="vertical"][data-align="left"] .target { justify-self: start; }
-.aim[data-orient="vertical"][data-align="center"] .target { justify-self: center; }
-.aim[data-orient="vertical"][data-align="right"] .target { justify-self: end; }
+.aim:is([data-view="chip"], [data-view="notice"])[data-align="left"] { margin-inline: 0 auto; }
+.aim:is([data-view="chip"], [data-view="notice"])[data-align="right"] { margin-inline: auto 0; }
 
-/* Horizontal strip: target beside the text column; right alignment mirrors it. */
-.aim[data-orient="horizontal"] {
-  column-gap: calc(18px * var(--s));
-  grid-template-columns: var(--d) minmax(0, 1fr);
-  grid-template-areas: "target head" "target notice" "target readouts" "target legend";
-}
-.aim[data-orient="horizontal"][data-align="right"] {
-  grid-template-columns: minmax(0, 1fr) var(--d);
-  grid-template-areas: "head target" "notice target" "readouts target" "legend target";
-}
-.aim[data-orient="horizontal"] .target { align-self: center; }
-.aim[data-orient="horizontal"][data-view="notice"],
-.aim[data-orient="horizontal"][data-view="summary"],
-.aim[data-orient="horizontal"][data-view="chip"] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "notice" "readouts"; }
+.aim:not([data-view="data"]) .plot,
+.aim:not([data-view="notice"]) .notice,
+.aim:not([data-view="chip"]) .status { display: none; }
 
-/* Views: data (play), summary (results), notice (extension off), chip (connection / no game), none. */
-.aim[data-view="none"] { opacity: 0; }
-.aim[data-view="chip"] { align-content: start; }
-.aim[data-view="chip"] .target,
-.aim[data-view="chip"] .legend,
-.aim[data-view="chip"] .readouts,
-.aim[data-view="chip"] .notice,
-.aim[data-view="notice"] .target,
-.aim[data-view="notice"] .legend,
-.aim[data-view="notice"] .readouts,
-.aim[data-view="data"] .notice,
-.aim[data-view="summary"] .notice,
-.aim[data-view="summary"] .target,
-.aim[data-view="summary"] .legend { display: none; }
-/* Results: readouts only, at the box's foot, clear of the results screen's buttons above. */
-.aim[data-view="summary"] { align-content: end; }
+.notice, .status { margin: 0; }
+/* Half-size boxes (renderer cells) cannot fit the setting's name: a shorter line instead. */
+.notice__short, .aim.is-small .notice__long { display: none; }
+.aim.is-small .notice__short { display: inline; }
 
-/* Small boxes (multiplayer cells): drop secondary lines, keep the numbers. */
-.aim.is-small .readout__sub,
-.aim.is-small .legend__window,
-.aim.is-small .long { display: none; }
-
-/* Optional backings. Default none: the target's own lens (canvas) carries contrast. */
-.aim[data-backing="scrim"] { background: radial-gradient(closest-side, rgb(8 9 10 / .62), rgb(8 9 10 / .44) 60%, rgb(8 9 10 / 0)); }
-.aim[data-backing="panel"] {
-  --lift: none;
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong);
-  border-top: 2px solid var(--hl);
-  border-radius: var(--radius);
-}
-
-/* Labels: mono caps, the family's data voice; ≥ 12 px at the default size. */
-.head, .legend, .readout dt, .readout__sub, .readout small, .notice {
-  font-family: var(--font-mono);
-  font-size: calc(12px * var(--t));
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  font-variant-numeric: tabular-nums;
-}
-
-.head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; white-space: nowrap; line-height: 1.2; }
-.title { color: var(--fg-dim); }
-.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--fg-dim); }
-.status .dot { width: calc(7px * var(--t)); height: calc(7px * var(--t)); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px rgb(0 0 0 / .4); }
-.status[data-tone="play"] .dot { display: none; }
-.status[data-tone="busy"] .dot { background: var(--caution); }
-.status[data-tone="error"] .dot { background: var(--danger); }
+/* Column: target over the bias line, both the target's width. */
+.plot { display: grid; grid-template-columns: var(--d); row-gap: var(--s-2); }
+/* Strip: target beside the bias block; right alignment mirrors it. */
+.aim[data-orient="horizontal"] .plot { grid-template-columns: var(--d) auto; column-gap: var(--s-5); align-items: center; }
+.aim[data-orient="horizontal"][data-align="right"] .plot { grid-template-columns: auto var(--d); }
+.aim[data-orient="horizontal"][data-align="right"] .target { order: 1; }
 
 .target { position: relative; width: var(--d); height: var(--d); }
 .target canvas { position: absolute; left: 0; top: 0; width: var(--d); height: var(--d); display: block; }
 
-.notice { margin: 0; color: var(--fg); text-transform: none; letter-spacing: .02em; white-space: nowrap; }
-.notice b { color: var(--caution); font-weight: 500; }
-
-.legend {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--fg-dim);
-  line-height: 1;
+/* Newest hit: an amber ring placed by transform and landed by a Web Animation (overlay.js). */
+.hit { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.hit[hidden] { display: none; }
+.hit__ring {
+  position: absolute;
+  left: calc(var(--ring) * -1);
+  top: calc(var(--ring) * -1);
+  width: calc(var(--ring) * 2);
+  height: calc(var(--ring) * 2);
+  border: max(1.5px, calc(var(--u) * 1.5px)) solid var(--you);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(var(--backing-rgb) / .7), inset 0 0 0 1px rgb(var(--backing-rgb) / .5);
+  will-change: transform, opacity;
 }
-.legend__early { color: var(--signal); }
-.legend__late { color: var(--accent); }
-.legend__window { text-transform: none; letter-spacing: .02em; }
-.legend__ramp {
-  position: relative;
-  height: 4px;
-  border-radius: 1px;
-  background: linear-gradient(90deg, var(--signal), var(--fg) 50%, var(--accent));
-  box-shadow: 0 1px 2px rgb(0 0 0 / .6);
-}
-.legend__ramp::after { content: ""; position: absolute; left: calc(50% - .5px); top: -3px; width: 1px; height: 10px; background: var(--fg); }
 
-.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(12px * var(--s)); margin: 0; }
-.readout { min-width: 0; padding-top: calc(6px * var(--s)); border-top: 1px solid rgb(235 232 225 / .28); }
-.readout dt { color: var(--fg-dim); }
-.readout dd { margin: 0; white-space: nowrap; }
-.readout dd b { font: 600 calc(30px * var(--s))/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.readout dd:first-of-type { margin-top: calc(3px * var(--s)); }
-.readout small { margin-left: 3px; color: var(--fg-dim); text-transform: none; letter-spacing: .02em; }
-.readout__sub { display: flex; align-items: center; gap: 4px; min-height: 1.2em; margin-top: 2px !important; color: var(--fg-dim); text-transform: none; letter-spacing: 0; }
-.readout:first-child dd b { color: var(--hl); }
-.readouts.is-empty small { visibility: hidden; }
-.readouts.is-empty dd b, .readouts.is-empty .readout:first-child dd b { color: var(--fg-dim); }
-.arrow { width: 1em; height: 1em; flex: none; fill: none; stroke: var(--hl); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.arrow[hidden] { display: none; }
-.lc { text-transform: none; }
+/* The one readout: aim bias as a direction arrow and a distance. */
+.bias { display: flex; align-items: baseline; justify-content: space-between; column-gap: var(--s-2); margin: 0; min-width: 0; }
+.aim[data-orient="horizontal"] .bias { flex-direction: column; align-items: start; row-gap: var(--s-1); }
+.aim[data-orient="horizontal"][data-align="right"] .bias { align-items: end; }
+.aim.is-small .bias__label { display: none; }
+.aim.is-small .bias { justify-content: center; }
+.bias__value { display: inline-flex; align-items: baseline; }
+.bias__arrow {
+  display: inline-block;
+  align-self: center;
+  width: .6em;
+  height: .6em;
+  margin-right: .16em;
+  fill: none;
+  stroke: var(--text-1);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+  transition: transform var(--dur-base) var(--ease-out);
+  will-change: transform;
+}
+.bias__arrow[hidden] { display: none; }
+
+/* Unknown (no hits yet): a dash without a unit. */
+.kit-dash + .kit-unit { display: none; }

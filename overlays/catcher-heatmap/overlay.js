@@ -2,9 +2,10 @@
 // Catcher heatmap: where the osu!catch catcher spends its time this attempt, as a top-down
 // 0–512 playfield strip. Time-weighted from vosu's /play/catcher samples on the map clock.
 // The page is the overlay's box: hosts (OBS, vosulay, the replay renderer) place and size it,
-// and the layout re-flows to that box (vertical column or horizontal band).
+// and the layout re-flows to that box (vertical column or horizontal band). Built on the 18-LAB
+// kit (docs/overlay-system.md): heat in neutrals, the catcher in amber ("you").
 import {
-  subscribe, settings, activeMode, isPlaying, formatDuration, mapPalette, applyPalette,
+  subscribe, settings, activeMode, isPlaying, numberFormatter, applyKitSettings, MOTION_MS, DASH,
 } from './vosu-overlay.js';
 
 const FIELD = 512;
@@ -14,14 +15,21 @@ const MAX_STEP_MS = 3000;        // larger clock gaps are seeks/hitches: resync,
 const RETRY_JUMP_MS = 1500;      // clock jumping back this far mid-play = a new attempt
 const TEXT_INTERVAL_MS = 200;    // readouts don't need 60 Hz; keeps layout/style idle
 const RESULTS = 7;
-// Design boxes (u = 1): the vertical column, the band with 2×2 readouts, and the ticker band
-// with readouts in one row.
-const VERTICAL = { w: 240, h: 232 };
-const BLOCK = { w: 420, h: 128 };
-const TICKER = { w: 560, h: 96 };
+// Design boxes (u = 1, padding included): the column (the R4 slot) and the band.
+const VERTICAL = { w: 256, h: 264 };
+const HORIZONTAL = { w: 420, h: 128 };
 const HORIZONTAL_ASPECT = 2;     // auto orientation: wider than 2:1 lays out as a band
-const TICKER_ASPECT = 3.4;       // bands wider than this put the readouts in one row
-const COMPACT_BELOW = 0.8;       // u below this drops non-data words (multiplayer cells)
+const COMPACT_BELOW = 0.8;       // u below this drops the scope caption (multiplayer cells)
+// Balance word: a side is "heavy" when it holds this share of the time or more, and stays heavy
+// until it drops BALANCE_HOLD points below.
+const HEAVY_FROM = 56;
+const BALANCE_HOLD = 3;
+// New hottest spot: the peak bin moved at least this far from the last acknowledged one, after
+// the attempt settled, and not more often than every PEAK_GAP_MS.
+const PEAK_SHIFT_PX = 48;
+const PEAK_SETTLE_MS = 5000;
+const PEAK_HALF_PX = 16;
+const PEAK_GAP_MS = 1500;
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', selMode: '/settings/mode/number',
@@ -37,9 +45,7 @@ const plotBox = $('plotBox');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  clock: $('clock'), dash: $('dash'),
-  cog: $('cog'), cogSide: $('cogSide'), spread: $('spread'), dashShare: $('dashShare'),
-  left: $('left'), right: $('right'), status: $('status'), statusText: $('statusText'),
+  dashShare: $('dashShare'), left: $('left'), right: $('right'), balance: $('balance'), status: $('status'),
 };
 
 // ---------------------------------------------------------------- attempt accumulator
@@ -52,7 +58,6 @@ const hist = new Float64Array(FIELD);
 const att = {
   total: 0,      // ms recorded
   sumX: 0,       // ∫x dt
-  sumX2: 0,      // ∫x² dt
   dashTime: 0,
   leftTime: 0,   // ms in columns left of centre
 };
@@ -66,7 +71,7 @@ let rebinAll = true;
 
 function resetAttempt() {
   hist.fill(0);
-  att.total = att.sumX = att.sumX2 = att.dashTime = att.leftTime = 0;
+  att.total = att.sumX = att.dashTime = att.leftTime = 0;
   prevT = NaN;
   rebinAll = true;
 }
@@ -79,12 +84,13 @@ const clampX = x => (x < 0 ? 0 : x > FIELD ? FIELD : x);
  * edge is boxed), and the dash and left-half sums add on every call, scaled by 0 or 1, so a first
  * dash or first visit left of centre never meets an addition without type feedback (which would
  * drop the function back to the baseline tier, where every double is boxed).
+ * Dash share (the same rule as catcher-trail, its declared alternative): time of segments whose
+ * start sample is dashing over all counted time.
  */
 function accumulate(a, b, t0, t1, dashing) {
   const dt = t1 - t0;
   att.total += dt;
   att.sumX += dt * (a + b) / 2;
-  att.sumX2 += dt * (a * a + a * b + b * b) / 3;
   att.dashTime += dt * (dashing ? 1 : 0);
   const lo = a < b ? a : b;
   const hi = a < b ? b : a;
@@ -120,6 +126,7 @@ let playing = false;
 let checksum;
 let catcherX = NaN;   // NaN = no live catcher sample
 let dashingNow = false;
+let dashEnded = false; // a dash ended since the last render (its afterglow starts there)
 let catchHalf = 12;   // half the catch range in playfield px (24 px marker while unknown)
 let playSince = 0;
 let missing = false;
@@ -129,9 +136,10 @@ let textDue = true;
 let textTimer = 0;
 let lastTextAt = -TEXT_INTERVAL_MS;   // whole ms (rAF time | 0)
 let layoutDue = true;
+let motion = 'full';
 
 const opts = {
-  orientation: 'auto', align: 'right', backing: 'none', accent: 'map',
+  orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim',
   bins: 64, intensity: 1, showMarker: true, showOnResults: true,
 };
 
@@ -149,7 +157,7 @@ function onFrame(values, changed) {
   if (changed.has(P.checksum)) {
     const next = values[P.checksum];
     if (next !== undefined && checksum !== undefined && next !== checksum) { resetAttempt(); visualChange = true; }
-    if (next !== undefined && next !== checksum) { checksum = next; loadPalette(); }
+    if (next !== undefined) checksum = next;
   }
   if (state === undefined && att.total > 0) { resetAttempt(); visualChange = true; } // osu! closed
   if (nowPlaying && !playing) { resetAttempt(); playSince = performance.now(); missing = false; visualChange = true; }
@@ -172,6 +180,7 @@ function onFrame(values, changed) {
   const cx = clampX(x);
   const dashing = values[P.dashing] === true;
   if (cx !== catcherX || dashing !== dashingNow) visualChange = true;
+  if (dashingNow && !dashing) dashEnded = true;
   catcherX = cx;
   dashingNow = dashing;
 
@@ -209,54 +218,32 @@ function onStatus(next, detail) {
 }
 
 // ---------------------------------------------------------------- colour
-// Cool steel heat ramp (graphite → --signal → --j-max): data, not identity. The live catcher and
-// dash state carry the highlight colour (the map's tonal accent, or 18-LAB amber).
-const RAMP = [[0, 30, 33, 37], [0.18, 38, 55, 74], [0.45, 63, 100, 140], [0.72, 127, 166, 207], [1, 235, 232, 225]];
-const LUT = Array.from({ length: 256 }, (_, i) => {
-  const u = i / 255;
-  let s = 1;
-  while (RAMP[s][0] < u) s++;
-  const [u0, r0, g0, b0] = RAMP[s - 1];
-  const [u1, r1, g1, b1] = RAMP[s];
-  const f = (u - u0) / (u1 - u0 || 1);
-  return `rgb(${Math.round(r0 + (r1 - r0) * f)} ${Math.round(g0 + (g1 - g0) * f)} ${Math.round(b0 + (b1 - b0) * f)})`;
-});
-const BAR_FLOOR = 46; // weakest bar still reads against the ground
-
+// Heat is data, not identity: a warm neutral ramp from graphite to --text-1, so no bin reads as a
+// judgement (blue = 300, yellow = 50) or as the map. The catcher is you: --you (18-LAB amber),
+// outlined while walking, solid while dashing.
 const css = getComputedStyle(root);
 const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-const AMBER = token('--accent', '#ff963f');
+const RAMP = [[0, 40, 39, 37], [0.35, 92, 90, 85], [0.7, 163, 160, 153], [1, 239, 236, 229]];
+const LUT = Array.from({ length: 256 }, (_, i) => {
+  const v = i / 255;
+  let s = 1;
+  while (RAMP[s][0] < v) s++;
+  const [v0, r0, g0, b0] = RAMP[s - 1];
+  const [v1, r1, g1, b1] = RAMP[s];
+  const f = (v - v0) / (v1 - v0 || 1);
+  return `rgb(${Math.round(r0 + (r1 - r0) * f)} ${Math.round(g0 + (g1 - g0) * f)} ${Math.round(b0 + (b1 - b0) * f)})`;
+});
+const BAR_FLOOR = 56; // weakest bar still reads against the backing
 const C = {
-  hl: AMBER,
-  hlSoft: 'rgb(255 150 63 / .22)',
-  fg: token('--j-max', '#ebe8e1'),
-  tick: 'rgb(235 232 225 / .55)',
-  rail: 'rgb(235 232 225 / .3)',
-  gridMajor: 'rgb(235 232 225 / .12)',
-  gridMinor: 'rgb(235 232 225 / .05)',
-  halo: 'rgb(10 11 12 / .8)',
+  you: token('--you', '#ff963f'),
+  youSoft: 'rgb(255 150 63 / .22)',
+  fg: token('--text-1', '#efece5'),
+  tick: token('--hair-strong', 'rgb(239 236 229 / .4)'),
+  rail: token('--hair', 'rgb(239 236 229 / .22)'),
+  gridMajor: 'rgb(239 236 229 / .14)',
+  gridMinor: 'rgb(239 236 229 / .06)',
+  halo: 'rgb(11 12 13 / .8)',
 };
-
-function setHighlight(hex) {
-  C.hl = hex;
-  const n = Number.parseInt(hex.slice(1), 16);
-  C.hlSoft = `rgb(${n >> 16} ${(n >> 8) & 255} ${n & 255} / .22)`;
-}
-
-// Map tint: loaded per checksum off the hot path; null (no usable background) keeps amber.
-let paletteFor = null;
-function loadPalette() {
-  const want = opts.accent === 'map' && checksum ? checksum : null;
-  if (want === paletteFor) return;
-  paletteFor = want;
-  if (!want) { applyPalette(root, null); setHighlight(AMBER); markDirty(false); return; }
-  mapPalette(want).then(palette => {
-    if (paletteFor !== want) return;
-    applyPalette(root, palette);
-    setHighlight(palette?.accent || AMBER);
-    markDirty(false);
-  });
-}
 
 // ---------------------------------------------------------------- layout (follows the page's box)
 // Orientation from the box's aspect (or the setting); --u scales type and spacing so the design
@@ -266,15 +253,11 @@ function layout() {
   const w = innerWidth;
   const h = innerHeight;
   const orient = opts.orientation === 'auto' ? (w / h > HORIZONTAL_ASPECT ? 'horizontal' : 'vertical') : opts.orientation;
-  const ticker = orient === 'horizontal' && w / h > TICKER_ASPECT;
-  const base = orient === 'vertical' ? VERTICAL : ticker ? TICKER : BLOCK;
+  const base = orient === 'vertical' ? VERTICAL : HORIZONTAL;
   u = Math.min(3, Math.max(0.4, Math.min(w / base.w, h / base.h)));
   root.dataset.orient = orient;
-  root.toggleAttribute('data-ticker', ticker);
   root.dataset.align = opts.align;
-  root.dataset.accent = opts.accent;
-  hud.dataset.backing = opts.backing;
-  root.style.setProperty('--u', u.toFixed(3));
+  hud.style.setProperty('--u', u.toFixed(3));
   root.toggleAttribute('data-compact', u < COMPACT_BELOW);
 }
 addEventListener('resize', () => { layoutDue = true; markDirty(true); });
@@ -292,9 +275,10 @@ const laneY = { ...LANE, tickMinor: 0 };          // lane edges in device px
 const gridX = new Int32Array(FIELD / 64 + 1);      // every 64 playfield px
 const binEdge = new Int32Array(MAX_BINS + 1);
 let hair = 1;      // grid, ticks, halo, plate outline, bar gap, shortest bar, centre rule
-let rule2 = 2;     // catcher rule
+let rule2 = 2;     // catcher rule, peak cap
 let cgHalf = 4;    // centre-of-gravity marker half width
 let barGap = 0;
+let peakHalf = 0; // hot-spot flash half width (PEAK_HALF_PX)
 
 function size(entries) {
   const box = entries?.[0]?.contentRect;
@@ -321,6 +305,7 @@ function geometry() {
   const bins = opts.bins;
   for (let i = 0; i <= bins; i++) binEdge[i] = Math.round(i * cw / bins);
   barGap = cw / bins >= 4 * k ? hair : 0;
+  peakHalf = X(PEAK_HALF_PX) | 0;
   reshadeAll = true;   // bar heights follow the strip height
 }
 
@@ -343,7 +328,7 @@ function drawGrid() {
     ctx.fillStyle = i === 4 ? C.gridMajor : C.gridMinor;
     ctx.fillRect(gridX[i] - (hair >> 1), top, hair, bottom - top);
   }
-  // Rail under the catcher lane, 64 px ticks, majors at the edges and centre.
+  // Rail under the catcher lane, 64 px ticks, majors at the edges and centre (the left/right split).
   const rail = laneY.plateBottom + hair;
   ctx.fillStyle = C.rail;
   ctx.fillRect(0, rail, cw, hair);
@@ -356,14 +341,14 @@ function drawGrid() {
 
 // ---------------------------------------------------------------- heat (cached per bin)
 // Bins are re-summed only where samples landed and re-shaded only when they or the peak change,
-// so a frame that only moves the catcher (or a repaint for a palette or status) does no heat
-// maths. A bin is always summed over its columns in order, exactly as a full rebin would.
-// Running values live in typed arrays and object fields, not loop variables: optimised code
-// boxes a double carried across a loop edge.
+// so a frame that only moves the catcher (or a repaint for a status) does no heat maths. A bin is
+// always summed over its columns in order, exactly as a full rebin would. Running values live in
+// typed arrays and object fields, not loop variables: optimised code boxes a double carried across
+// a loop edge.
 const view = new Float64Array(MAX_BINS);
 const binShade = new Uint8Array(MAX_BINS);   // LUT index of each bin's floor band
 const binBar = new Int32Array(MAX_BINS);     // bar height in device px, 0 = no time
-const heat = { max: 0, gamma: 1 };
+const heat = { max: 0, gamma: 1, peak: -1, rebinned: true };
 let reshadeAll = true;
 
 function updateHeat() {
@@ -371,7 +356,8 @@ function updateHeat() {
   const per = FIELD / bins;
   let lo = 0;
   let hi = bins - 1;
-  if (rebinAll) heat.max = 0;
+  heat.rebinned = rebinAll;
+  if (rebinAll) { heat.max = 0; heat.peak = -1; }
   else if (touchLo <= touchHi) { lo = (touchLo / per) | 0; hi = (touchHi / per) | 0; }
   else hi = -1;
   const peak = heat.max;
@@ -379,7 +365,7 @@ function updateHeat() {
   for (let i = lo; i <= hi; i++) {
     view[i] = 0;
     for (let c = i * per, end = c + per; c < end; c++) view[i] += hist[c];
-    if (view[i] > heat.max) heat.max = view[i];
+    if (view[i] > heat.max) { heat.max = view[i]; heat.peak = i; }
   }
   rebinAll = false;
   touchLo = FIELD;
@@ -433,66 +419,148 @@ function drawCentreOfGravity() {
   ctx.fill();
 }
 
-function drawCatcher() {
-  vline(Math.round(catcherX / FIELD * cw) | 0, C.hl, false, rule2);
-  const x0 = Math.max(0, Math.round((catcherX - catchHalf) / FIELD * cw) | 0);
-  const x1 = Math.min(cw, Math.round((catcherX + catchHalf) / FIELD * cw) | 0);
+/** The catch-range plate's device-px edges for playfield x `at` (reused scratch, no allocation). */
+const plate = { x0: 0, x1: 0 };
+function plateAt(at) {
+  plate.x0 = Math.max(0, Math.round((at - catchHalf) / FIELD * cw) | 0);
+  plate.x1 = Math.min(cw, Math.round((at + catchHalf) / FIELD * cw) | 0);
+}
+
+/** The catcher at playfield x `at`: amber position rule and catch-range plate, outlined while walking, solid while dashing. */
+function drawCatcher(at, solid) {
+  vline(Math.round(at / FIELD * cw) | 0, C.you, false, rule2);
+  plateAt(at);
+  const x0 = plate.x0;
+  const w = plate.x1 - x0;
   const top = laneY.plateTop;
   const h = laneY.plateBottom - top;
   // Dashing fills the plate solid; otherwise a soft fill with an outline. One shared fill call,
   // so a first dash runs only code that has already run (no deopt back to the baseline tier).
-  ctx.fillStyle = dashingNow ? C.hl : C.hlSoft;
-  ctx.fillRect(x0, top, x1 - x0, h);
-  if (dashingNow) return;
-  ctx.fillStyle = C.hl;
-  ctx.fillRect(x0, top, x1 - x0, hair);
-  ctx.fillRect(x0, top + h - hair, x1 - x0, hair);
+  ctx.fillStyle = solid ? C.you : C.youSoft;
+  ctx.fillRect(x0, top, w, h);
+  if (solid) return;
+  ctx.fillStyle = C.you;
+  ctx.fillRect(x0, top, w, hair);
+  ctx.fillRect(x0, top + h - hair, w, hair);
   ctx.fillRect(x0, top, hair, h);
-  ctx.fillRect(x1 - hair, top, hair, h);
+  ctx.fillRect(x0 + w - hair, top, hair, h);
+}
+
+/** The dash fill at `alpha` over the plate drawn by the last drawCatcher (the afterglow). */
+function drawPlateFill(alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = C.you;
+  ctx.fillRect(plate.x0, laneY.plateTop, plate.x1 - plate.x0, laneY.plateBottom - laneY.plateTop);
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- motion (canvas)
+// Everything runs on rAF timestamps (the replay renderer's virtual clock) and only while it is
+// moving: render() asks for another frame while one of these is in flight, then stops.
+//   dash afterglow  the solid plate fades back to the outline over --dur-fast after a dash (full)
+//   catcher exit    the marker fades over --dur-base when the catcher leaves (results)  (full, reduced)
+//   new hot spot    an amber cap over the new hottest spot fades over --dur-slow (full)
+// Times are whole rAF milliseconds and each effect has an on flag, so a frame without one in
+// flight does no floating-point work (no boxed doubles in code V8 has not optimised yet).
+const fx = {
+  glowOn: false,     // dash afterglow in flight
+  dashEndAt: 0,      // rAF ms of the last dash end
+  markerAt: NaN,     // playfield x last drawn (NaN: none on screen)
+  fading: false,     // the marker is fading out
+  goneAt: 0,         // rAF ms the marker left
+  peakOn: false,     // hot-spot flash in flight
+  peakAt: -100000,   // rAF ms of the last hot-spot flash
+  peakBin: -1,       // bin flashed
+  shownPeak: -1,     // peak bin last seen
+  anchor: -1e4,      // playfield x of the last acknowledged hot spot
+};
+/** Alpha 1 → 0 over `duration` ms from `start`, along --ease-out (quart): (1 − progress)⁴. */
+const fade = (ms, start, duration) => {
+  const q = 1 - (ms - start) / duration;
+  return q * q * q * q;
+};
+
+/** Notes a move of the hottest bin; flashes it when it is a real shift (full motion only). */
+function trackPeak(ms) {
+  const bin = heat.peak;
+  if (bin === fx.shownPeak) return;
+  fx.shownPeak = bin;
+  if (bin < 0) return;
+  const at = (bin + 0.5) * FIELD / opts.bins;
+  const settled = !heat.rebinned && att.total >= PEAK_SETTLE_MS;
+  const shift = Math.abs(at - fx.anchor) >= PEAK_SHIFT_PX;
+  if (!settled || shift) fx.anchor = at;
+  if (settled && shift && motion === 'full' && ms - fx.peakAt >= PEAK_GAP_MS) { fx.peakAt = ms; fx.peakBin = bin; fx.peakOn = true; }
+}
+
+/** Amber cap over the new hot spot (at least 32 playfield px wide, so it reads at any bin count) and
+ *  a soft amber wash down to the floor, fading; clears fx.peakOn when done. */
+function drawPeakFlash(ms) {
+  const bin = fx.peakBin;
+  if (ms - fx.peakAt >= MOTION_MS.slow || bin >= opts.bins || binBar[bin] === 0) { fx.peakOn = false; return; }
+  const h = binBar[bin];
+  const centre = (binEdge[bin] + binEdge[bin + 1]) >> 1;
+  const half = Math.max((binEdge[bin + 1] - binEdge[bin]) >> 1, peakHalf);
+  const x0 = Math.max(0, centre - half);
+  const x1 = Math.min(cw, centre + half);
+  const top = laneY.histBottom - h;
+  ctx.globalAlpha = fade(ms, fx.peakAt, MOTION_MS.slow);
+  ctx.fillStyle = C.youSoft;
+  ctx.fillRect(x0, top, x1 - x0, h);
+  ctx.fillStyle = C.you;
+  ctx.fillRect(x0, Math.max(0, top - rule2), x1 - x0, rule2);
+  ctx.globalAlpha = 1;
 }
 
 // ---------------------------------------------------------------- DOM readouts
-// Each readout keeps the number it shows and writes only when that number changes. Every value is
-// a whole number within the playfield (centre 0–512, σ ≤ 256, shares 0–100, side ±256), so the
-// strings are built once here: no formatting, and no trip through V8's number-string cache.
-const BLANK = -(2 ** 30);   // no number on screen: '—' (nothing for the clock and side)
-const NUMBERS = Array.from({ length: FIELD + 1 }, (_, n) => String(n));
-const SIDES = Array.from({ length: FIELD + 1 }, (_, i) => (i === HALF ? 'mid' : `${Math.abs(i - HALF)} ${i < HALF ? 'L' : 'R'}`));
-const READS = [el.cog, el.spread, el.dashShare, el.left, el.right];
-const COG = 0;
-const SPREAD = 1;
-const DASH_SHARE = 2;
-const LEFT = 3;
-const RIGHT = 4;
-const shownRead = new Int32Array(READS.length).fill(BLANK);
-let shownSecs = BLANK;
-let shownSide = BLANK;
-// The values as whole numbers, derived on every render: that runs at frame rate, so V8 optimises
-// it within seconds and keeps its doubles unboxed, while writeText (≤ 5 Hz, left in the boxing
-// baseline tier for minutes) only compares integers.
-const readNum = new Int32Array(READS.length);
-let readSecs = 0;
-let readSide = 0;
+// Each readout keeps the number it shows and writes only when that number changes; the shared
+// formatter returns the same string object until the shown value changes.
+const BLANK = -1;
+const fmtDash = numberFormatter('percent');
+const fmtLeft = numberFormatter('percent');
+const fmtRight = numberFormatter('percent');
+const BALANCE = ['Right-heavy', 'Even', 'Left-heavy'];
+const shown = new Int32Array(4).fill(-2);   // dash, left, right, balance index
+// Whole numbers derived on every render (frame rate, so V8 keeps them unboxed); writeText only compares.
+const readNum = new Int32Array(4);
+let empty = null;
 
-function setRead(i, n) {
-  if (shownRead[i] === n) return;
-  shownRead[i] = n;
-  READS[i].textContent = n === BLANK ? '—' : NUMBERS[n];
-}
+// Re-shows the balance word when it changes side; created once and restarted.
+const balanceIn = el.balance.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.base, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+balanceIn.cancel();
 
-/** Readout numbers from the attempt sums (only while time is recorded). */
+/** Readout numbers from the attempt sums (only while time is recorded). The balance word keeps its
+ *  side until the share drops BALANCE_HOLD below the threshold, so it does not flicker at 55/56. */
 function deriveReadouts() {
   const total = att.total;
-  const mean = att.sumX / total;
-  const sigma = Math.sqrt(Math.max(0, att.sumX2 / total - mean * mean));
   const left = Math.round(att.leftTime / total * 100) | 0;
-  readSecs = Math.floor(total / 1000) | 0;
-  readSide = Math.round(mean - HALF) | 0;
-  readNum[COG] = Math.round(mean) | 0;
-  readNum[SPREAD] = Math.round(sigma) | 0;
-  readNum[DASH_SHARE] = Math.round(att.dashTime / total * 100) | 0;
-  readNum[LEFT] = left;
-  readNum[RIGHT] = 100 - left;
+  const right = 100 - left;
+  const was = readNum[3];
+  readNum[0] = Math.round(att.dashTime / total * 100) | 0;
+  readNum[1] = left;
+  readNum[2] = right;
+  readNum[3] = left >= HEAVY_FROM - (was === 2 ? BALANCE_HOLD : 0) ? 2 : right >= HEAVY_FROM - (was === 0 ? BALANCE_HOLD : 0) ? 0 : 1;
+}
+
+function writeText(timed) {
+  if (timed !== !empty) { empty = !timed; hud.toggleAttribute('data-empty', empty); }
+  if (!timed) {
+    if (shown[0] !== BLANK) {
+      shown[0] = shown[1] = shown[2] = shown[3] = BLANK;
+      el.dashShare.textContent = DASH; el.left.textContent = DASH; el.right.textContent = DASH;
+      el.balance.textContent = '';
+    }
+    return;
+  }
+  if (readNum[0] !== shown[0]) { shown[0] = readNum[0]; el.dashShare.textContent = fmtDash(readNum[0]); }
+  if (readNum[1] !== shown[1]) { shown[1] = readNum[1]; el.left.textContent = fmtLeft(readNum[1]); }
+  if (readNum[2] !== shown[2]) { shown[2] = readNum[2]; el.right.textContent = fmtRight(readNum[2]); }
+  if (readNum[3] !== shown[3]) {
+    const first = shown[3] < 0;
+    shown[3] = readNum[3];
+    el.balance.textContent = BALANCE[readNum[3]];
+    if (!first && motion !== 'off') { balanceIn.currentTime = 0; balanceIn.play(); }
+  }
 }
 
 /** What the box shows: the strip during catch play, the held attempt on results, else nothing. */
@@ -503,7 +571,7 @@ function currentView() {
   return 'hidden';
 }
 
-/** The one tiny line for connection / no-data / missing-extension states. */
+/** The one line for connection / no-data / missing-extension states. */
 function statusLine() {
   if (status === 'offline') return 'offline';
   if (status === 'connecting') return 'connecting';
@@ -511,26 +579,11 @@ function statusLine() {
   if (playing && mode === 'fruits' && missing) return 'missing';
   return 'hidden';
 }
-const STATUS_TEXT = { offline: 'vosu offline', connecting: 'connecting', osu: 'osu! not running', missing: 'No catcher data — needs vosu', hidden: '' };
-const STATUS_DOT = { offline: 'offline', connecting: 'connecting', osu: 'idle', missing: 'idle', hidden: 'hidden' };
-
-function writeText(timed) {
-  if (!timed) {
-    if (shownSecs !== BLANK) { shownSecs = BLANK; el.clock.textContent = ''; }
-    for (let i = 0; i < READS.length; i++) setRead(i, BLANK);
-    if (shownSide !== BLANK) { shownSide = BLANK; el.cogSide.textContent = ''; }
-    return;
-  }
-  // Whole seconds in, so formatDuration's floor lands on the same second.
-  if (readSecs !== shownSecs) { shownSecs = readSecs; el.clock.textContent = formatDuration(readSecs * 1000); }
-  if (readSide !== shownSide) { shownSide = readSide; el.cogSide.textContent = SIDES[readSide + HALF]; }
-  for (let i = 0; i < READS.length; i++) setRead(i, readNum[i]);
-}
+const STATUS_TEXT = { offline: 'vosu offline', connecting: 'Connecting', osu: 'osu! not running', missing: 'No catcher data (needs vosu)', hidden: '' };
 
 // ---------------------------------------------------------------- render loop (runs only when dirty)
 let viewName = '';
 let lineName = '';
-let dashOn = null;
 
 function markDirty(text) {
   if (text) textDue = true;
@@ -558,25 +611,47 @@ function render(now) {
   const line = statusLine();
   if (line !== lineName) {
     lineName = line;
-    el.status.dataset.state = STATUS_DOT[line];
-    if (line !== 'hidden') el.statusText.textContent = STATUS_TEXT[line];
+    el.status.dataset.state = line === 'hidden' ? 'hidden' : 'shown';
+    if (line !== 'hidden') el.status.textContent = STATUS_TEXT[line];
     el.status.title = statusDetail;
   }
-  const on = name === 'live' && dashingNow;
-  if (on !== dashOn) { dashOn = on; el.dash.toggleAttribute('data-on', on); }
+  // Whole milliseconds keep the timing arithmetic (text throttle, effects) in small integers.
+  const ms = now | 0;
+  if (dashEnded) { dashEnded = false; fx.dashEndAt = ms; fx.glowOn = motion === 'full'; }
   const timed = att.total > 0;
+  let moving = false;
   if (name !== 'hidden' && cw > 0) {
     updateHeat();
+    trackPeak(ms);
     ctx.clearRect(0, 0, cw, ch);
     drawGrid();
     drawHeat();
+    if (fx.peakOn) { drawPeakFlash(ms); moving = fx.peakOn; }
     if (timed) drawCentreOfGravity();
-    if (opts.showMarker && name === 'live' && !Number.isNaN(catcherX)) drawCatcher();
+    const live = opts.showMarker && name === 'live' && !Number.isNaN(catcherX);
+    if (live) {
+      if (dashingNow) { fx.glowOn = false; drawCatcher(catcherX, true); }
+      else if (fx.glowOn && ms - fx.dashEndAt < MOTION_MS.fast) {
+        // Afterglow: the solid fill fades back to the outline.
+        drawCatcher(catcherX, false);
+        drawPlateFill(fade(ms, fx.dashEndAt, MOTION_MS.fast));
+        moving = true;
+      } else { fx.glowOn = false; drawCatcher(catcherX, false); }
+      fx.markerAt = catcherX;
+      fx.fading = false;
+    } else if (!Number.isNaN(fx.markerAt)) {
+      // The catcher left (results, pause without samples): fade it out where it was.
+      if (!fx.fading) { fx.fading = true; fx.goneAt = ms; }
+      if (motion !== 'off' && ms - fx.goneAt < MOTION_MS.base) {
+        ctx.globalAlpha = fade(ms, fx.goneAt, MOTION_MS.base);
+        drawCatcher(fx.markerAt, false);
+        ctx.globalAlpha = 1;
+        moving = true;
+      } else fx.markerAt = NaN;
+    }
   }
   if (timed) deriveReadouts();
   // Text at ≤ 5 Hz; a trailing timer flushes the final values when samples stop (pause, results).
-  // Whole milliseconds keep the throttle arithmetic in small integers.
-  const ms = now | 0;
   if (textDue || ms - lastTextAt >= TEXT_INTERVAL_MS) {
     textDue = false;
     lastTextAt = ms;
@@ -586,6 +661,7 @@ function render(now) {
   } else if (!textTimer) {
     textTimer = setTimeout(flushText, TEXT_INTERVAL_MS);
   }
+  if (moving) markDirty(false);
 }
 
 // ---------------------------------------------------------------- wiring
@@ -595,8 +671,8 @@ subscribe(Object.values(P), onFrame, { onStatus });
 settings({ ...opts }, s => {
   opts.orientation = ['horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto';
   opts.align = s.align === 'left' ? 'left' : 'right';
-  opts.backing = ['none', 'scrim', 'panel'].includes(s.backing) ? s.backing : 'none';
-  opts.accent = s.accent === '18-lab' ? '18-lab' : 'map';
+  motion = applyKitSettings(hud, s);
+  root.dataset.motion = motion;   // the status line sits outside the kit root
   opts.bins = BIN_CHOICES.includes(s.bins) ? s.bins : 64;
   opts.intensity = Math.min(4, Math.max(0.25, s.intensity));
   heat.gamma = 1 / opts.intensity;
@@ -604,7 +680,5 @@ settings({ ...opts }, s => {
   opts.showMarker = s.showMarker;
   opts.showOnResults = s.showOnResults;
   layoutDue = true;
-  loadPalette();
   markDirty(true);
 });
-

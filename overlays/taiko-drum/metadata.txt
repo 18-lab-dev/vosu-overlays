@@ -2,5 +2,5 @@ name = Taiko drum
 author = 18-LAB
 version = 0.3.0
 description = osu!taiko drum input as one strip under the lane: four zones that light on press, per-zone counts, live KPS and peak, hand balance, recent hits by hand, alternation rate and same-hand repeats.
-resolution = [1180,96]
-placement = {"taiko":["left+40","top+596"]}
+resolution = [560,96]
+placement = {"taiko":["left+320","lane-bottom+24",560,96]}

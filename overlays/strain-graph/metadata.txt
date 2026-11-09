@@ -2,5 +2,5 @@ name = Strain graph
 author = 18-LAB
 version = 0.3.0
 description = Difficulty strain over the whole map with a live playhead: played portion lit, the rest dimmed, kiai and breaks marked. Combined or stacked per-skill, every ruleset. Re-flows to its box: a wide strip (time left→right) or a tall side strip (time running up, for mania). Song select previews the map; results stay clear.
-resolution = [344,112]
-placement = {"osu":["right-24","top+132"],"fruits":["right-24","top+132"],"taiko":["right-24","bottom-24",760,120],"mania":["right-24","bottom-32",112,560]}
+resolution = [256,96]
+placement = {"osu":["right-24","top+360",256,96],"fruits":["right-24","top+360",256,96],"taiko":["right-528","top+144",480,112],"mania":["stage-right+72","bottom-72",112,560]}

@@ -2,5 +2,5 @@ name = Taiko pace
 author = 18-LAB
 version = 0.3.0
 description = osu!taiko accuracy pace strip: live and max achievable accuracy, the OKs and misses a target accuracy can still absorb, GREAT/OK/MISS, UR and pp.
-resolution = [1100,150]
-placement = {"taiko":["left+160","top+624"]}
+resolution = [280,80]
+placement = {"taiko":["left+904","lane-bottom+24",280,80]}

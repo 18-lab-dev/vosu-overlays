@@ -2,5 +2,5 @@ name = Now playing ticker
 author = 18-LAB
 version = 0.3.0
 description = The current map during gameplay in one line, for any ruleset: artist, title, difficulty, star rating, mods and mapper with a play-progress hairline, tinted to the map. Re-flows to a two-line stack or a side column when its box is taller or upright.
-resolution = [720,56]
-placement = {"osu":["left+764","top+8"],"fruits":["left+764","top+8"],"taiko":["right-24","bottom-28"],"mania":["stage-left-24","top+24",440,76]}
+resolution = [720,32]
+placement = {"osu":["hud-gap","top+4",720,32],"fruits":["hud-gap","top+4",720,32],"taiko":["hud-gap","top+4",720,32],"mania":["stage-left-24","top+24",432,32]}

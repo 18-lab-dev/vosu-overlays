@@ -4,8 +4,10 @@
 Packages must be self-contained, so each overlay folder carries its own copy of the shared files:
 vosu-overlay.js (client), m3.js (colour bundle for mapPalette()), tokens.css plus fonts/ (the
 18-LAB tokens and fonts; vosu serves them at /assets/, but the vosu-tools replay renderer and
-tosu do not). An overlay opts in per top-level entry by having a file or folder of that name;
-overlays that never adopted one (for example ratings-timeline) are left alone.
+tosu do not) and kit.css (the overlay system: type, colour roles, backings, signature, motion;
+docs/overlay-system.md). An overlay opts in per top-level entry by having a file or folder of that
+name; overlays that never adopted one (for example ratings-timeline) are left alone. kit.css is
+required: every overlay that carries vosu-overlay.js gets it.
 
 --check also fails when an overlay still loads vosu's /assets/ instead of its own copies.
 --tokens <vosu>/assets/server regenerates shared/tokens.css and shared/fonts/ from vosu.
@@ -22,6 +24,15 @@ HEADER = ("/* Bundled copy of vosu's assets/server/tokens.css with font URLs mad
           " * the same under hosts that do not serve vosu's /assets/ (vosu-tools replay renderer, tosu).\n"
           " * Regenerate with scripts/sync_shared.py --tokens <vosu>/assets/server; do not edit by hand. */\n")
 ASSET_REFERENCE = re.compile(r'''(?:href|src)\s*=\s*["']/assets/|url\(\s*["']?/assets/''')
+# Shared entries every overlay built on the shared client must carry, whether or not it has one yet.
+REQUIRED = {'kit.css'}
+
+
+def wanted(overlay, entry):
+    """True when `overlay` should carry a copy of the shared `entry`."""
+    if (overlay / entry.name).exists():
+        return True
+    return entry.name in REQUIRED and (overlay / 'vosu-overlay.js').exists()
 
 
 def regenerate_tokens(source):
@@ -45,7 +56,7 @@ def main():
     stale = []
     for overlay in sorted(p for p in (ROOT / 'overlays').iterdir() if p.is_dir()):
         for entry in sorted(SHARED.iterdir()):
-            if not (overlay / entry.name).exists():
+            if not wanted(overlay, entry):
                 continue
             sources = sorted(f for f in entry.rglob('*') if f.is_file()) if entry.is_dir() else [entry]
             expected = {f.relative_to(SHARED) for f in sources}

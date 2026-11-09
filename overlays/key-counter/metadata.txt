@@ -2,5 +2,5 @@ name = Key counter
 author = 18-LAB
 version = 0.3.0
 description = Key caps for every ruleset that light on press, with per-key counts and share bars, total taps, and keys per second with a 10 s history. Lays out for any box: a row (mania caps follow the stage's column proportions) or a column. On the results screen it adds the attempt's peak and average KPS, which osu! does not show.
-resolution = [720,88]
-placement = {"osu":["right-24","bottom-24",140,316],"fruits":["right-24","bottom-24",140,316],"taiko":["right-24","bottom-24",720,88],"mania":["right-24","bottom-40",400,150]}
+resolution = [256,96]
+placement = {"osu":["left+24","bottom-128",256,96],"fruits":["left+24","bottom-248",256,96],"taiko":["left+320","lane-bottom+24",560,96],"mania":["right-24","bottom-72",256,96]}

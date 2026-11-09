@@ -1,0 +1,217 @@
+// Copyright (c) 2026 18-LAB. MIT.
+// node --test shared/  — the kit helpers: number conventions, unknown values, KPS, map time, beat clock.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  DASH, UNKNOWN, known, isKnown, formatNumber, numberFormatter, NUMBER_FORMATS,
+  createKps, KPS_WINDOW_MS, createMapClock, createBeatClock, motionLevel, applyKitSettings,
+} from './vosu-overlay.js';
+
+test('number conventions: comma grouping, fixed decimals per quantity, real minus, signed deltas', () => {
+  assert.equal(formatNumber(1395), '1,395');
+  assert.equal(formatNumber(3683232), '3,683,232');
+  assert.equal(formatNumber(999), '999');
+  assert.equal(formatNumber(1000), '1,000');
+  assert.equal(formatNumber(1075.34, 'pp'), '1,075');
+  assert.equal(formatNumber(7.006, 'stars'), '7.01');
+  assert.equal(formatNumber(99.6, 'accuracy'), '99.60');
+  assert.equal(formatNumber(87.44, 'ur'), '87.4');
+  assert.equal(formatNumber(-1.44, 'ms'), '\u22121.4');
+  assert.equal(formatNumber(3.2, 'ms'), '+3.2');
+  assert.equal(formatNumber(0.04, 'ms'), '\u00b10.0');
+  assert.equal(formatNumber(-0.04, 'ms'), '\u00b10.0');
+  assert.equal(formatNumber(-88938, 'delta'), '\u221288,938');
+  assert.equal(formatNumber(12, 'delta'), '+12');
+  assert.equal(formatNumber(-3, 'count'), '\u22123');
+  assert.equal(formatNumber(9, 'stat'), '9');
+  assert.equal(formatNumber(10.333, 'stat'), '10.3');
+  assert.equal(formatNumber(1.5, 'rate'), '1.5');
+  assert.equal(formatNumber(0.75, 'rate'), '0.75');
+  assert.equal(formatNumber(1, 'rate'), '1');
+  assert.equal(formatNumber(12.34, 'ratio'), '12.3');
+  assert.equal(formatNumber(Infinity, 'ratio'), '\u221e');
+  assert.equal(formatNumber(0.7, 'px'), '0.7');
+  assert.throws(() => formatNumber(1, 'nope'), TypeError);
+  for (const kind of Object.keys(NUMBER_FORMATS)) assert.equal(typeof formatNumber(1234.5, kind), 'string');
+});
+
+test('unknown is never 0: absent, null, non-finite and "zero means not computed" render as a dash', () => {
+  for (const value of [undefined, null, NaN, Infinity, '12']) assert.equal(formatNumber(value), DASH);
+  assert.ok(Number.isNaN(UNKNOWN));
+  assert.equal(known(0), 0);
+  assert.ok(Number.isNaN(known(0, true))); // e.g. the replay renderer's pp fc / maxAchievable
+  assert.ok(Number.isNaN(known(null)));
+  assert.ok(Number.isNaN(known(undefined)));
+  assert.equal(known(412.5, true), 412.5);
+  assert.equal(isKnown(0), true);
+  assert.equal(isKnown(UNKNOWN), false);
+  assert.equal(formatNumber(known(0, true), 'pp'), DASH);
+});
+
+test('numberFormatter returns the same string until the shown value changes', () => {
+  const format = numberFormatter('accuracy');
+  const a = format(99.601);
+  assert.equal(a, '99.60');
+  assert.equal(format(99.6049), a);
+  assert.ok(format(99.6049) === a, 'unchanged value keeps the same string object');
+  assert.equal(format(99.61), '99.61');
+  assert.equal(format(undefined), DASH);
+  const counts = numberFormatter('count');
+  assert.equal(counts(1395), '1,395');
+  assert.ok(counts(1395) === counts(1395.2));
+});
+
+/** keys.all as vosu sends it: one entry per key with count and the latest press time (map ms). */
+function keys(...entries) {
+  return entries.map(([count, pressedAt]) => ({ name: 'B', isPressed: false, count, pressedAt, releasedAt: pressedAt + 30 }));
+}
+
+test('KPS counts presses in the last real second of gameplay time, then decays as they age out', () => {
+  const kps = createKps();
+  const state = [[0, null], [0, null]];
+  kps.ingest(keys(...state), 0, 1); // baseline
+  let t = 1000;
+  for (let i = 0; i < 10; i++) {
+    t += 100; // ten presses 100 ms apart, alternating keys
+    state[i % 2] = [state[i % 2][0] + 1, t];
+    kps.ingest(keys(...state), t, 1);
+  }
+  assert.equal(kps.at(t), 10);
+  assert.equal(kps.peak, 10);
+  assert.equal(kps.total, 10);
+  assert.equal(kps.expiresAt, 1100 + KPS_WINDOW_MS);
+  assert.equal(kps.at(t + 450), 6); // window (1450, 2450]: presses at 1100…1400 left it
+  assert.equal(kps.at(t + 2000), 0);
+  assert.equal(kps.peak, 10, 'peak holds');
+});
+test('KPS window is one second of real time: under DT it spans 1.5 s of map time', () => {
+  const kps = createKps();
+  kps.ingest(keys([0, null]), 0, 1.5);
+  for (let i = 1; i <= 15; i++) kps.ingest(keys([i, i * 100]), i * 100, 1.5);
+  assert.equal(kps.at(1500), 15);
+  assert.equal(kps.at(1600), 14);
+});
+
+test('KPS: attaching mid-attempt, bursts of missed data and retries never invent a peak', () => {
+  const kps = createKps();
+  kps.ingest(keys([400, 60000]), 60000, 1); // attached late: baseline only
+  assert.equal(kps.at(60000), 0);
+  kps.ingest(keys([430, 60016]), 60016, 1); // +30 in one sample: missed data
+  assert.equal(kps.at(60016), 0);
+  assert.equal(kps.total, 430);
+  kps.ingest(keys([431, 60100]), 60100, 1);
+  assert.equal(kps.at(60100), 1);
+  kps.ingest(keys([0, null]), 0, 1); // retry: counts fell
+  assert.equal(kps.peak, 0);
+  assert.equal(kps.at(0), 0);
+  kps.ingest(keys([1, 500]), 500, 1);
+  assert.equal(kps.at(500), 1);
+});
+
+test('KPS without keys.all (tosu) is unknown, not zero', () => {
+  const kps = createKps();
+  kps.ingest(undefined, 1000, 1);
+  assert.ok(Number.isNaN(kps.at(1000)));
+  assert.equal(formatNumber(kps.at(1000), 'kps'), DASH);
+});
+
+test('map time: first to last object in real time, lead-in at zero, rate-aware, extrapolated between samples', () => {
+  const clock = createMapClock();
+  clock.sample(500, 1.5, 1500, 151500, 160000, 0);
+  assert.equal(clock.total(), 100000);
+  assert.equal(clock.elapsed(500), 0); // lead-in
+  assert.equal(clock.elapsed(31500), 20000);
+  assert.equal(clock.progress(76500), 0.5);
+  assert.equal(clock.elapsed(999999), 100000);
+  assert.equal(clock.now(50), 500, 'first sample: not known to be moving');
+  clock.sample(530, 1.5, 1500, 151500, 160000, 20);
+  assert.equal(clock.now(60), 530 + 40 * 1.5);
+  assert.equal(clock.now(10000), 530 + 120 * 1.5, 'extrapolation is capped');
+  clock.sample(530, 1.5, 1500, 151500, 160000, 40);
+  assert.equal(clock.now(100), 530, 'a clock that stopped is not extrapolated');
+});
+
+test('map time without objects falls back to the audio length, and without either is unknown', () => {
+  const clock = createMapClock();
+  clock.sample(30000, null, 0, 0, 120000, 0);
+  assert.equal(clock.total(), 120000);
+  assert.equal(clock.progress(30000), 0.25);
+  clock.sample(30000, 1, 0, 0, 0, 0);
+  assert.ok(Number.isNaN(clock.total()));
+  assert.ok(Number.isNaN(clock.elapsed(30000)));
+});
+
+test('beat clock: one /json/sc load per checksum, phase against map time, segments by red line', async () => {
+  const loads = [];
+  let changed = 0;
+  const beat = createBeatClock({
+    onChange: () => changed++,
+    load: async checksum => { loads.push(checksum); return [{ startTime: 10000, beatLength: 250 }, { startTime: 1000, beatLength: 500 }, { startTime: 5, beatLength: -100 }]; },
+  });
+  assert.equal(beat.at(2000), false, 'no beat before the points arrive');
+  beat.setMap('a');
+  beat.setMap('a');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(loads, ['a']);
+  assert.equal(changed, 1);
+  assert.equal(beat.at(2250), true);
+  assert.equal(beat.index, 2);
+  assert.equal(beat.phase, 0.5);
+  assert.equal(beat.at(10125), true);
+  assert.equal(beat.index, 0);
+  assert.equal(beat.phase, 0.5);
+  assert.equal(beat.beatLength, 250);
+  assert.equal(beat.at(1500), true, 'walks back to the earlier segment');
+  assert.equal(beat.beatLength, 500);
+  assert.equal(beat.at(750), true);
+  assert.equal(beat.index, -1, 'before the first red line beats count backwards');
+  beat.setMap('b');
+  beat.setMap('a');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(loads, ['a', 'b'], 'cached per checksum');
+  assert.equal(beat.at(2250), true);
+});
+
+test('beat clock without /json/sc (tosu, replay renderer) reports kiai only', async () => {
+  const beat = createBeatClock({ load: async () => null });
+  beat.setMap('x');
+  beat.setKiai(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(beat.hasBeat, false);
+  assert.equal(beat.at(5000), false);
+  assert.equal(beat.kiai, true);
+});
+
+test('beat clock asks /json/sc and rejects an answer for another map', async () => {
+  const original = globalThis.fetch;
+  try {
+    let md5 = 'other';
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ md5, mapTimingPoints: [{ startTime: 0, beatLength: 400 }] }) });
+    const beat = createBeatClock();
+    beat.setMap('mine');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(beat.hasBeat, false, 'answer for another map is ignored');
+    md5 = 'mine';
+    await new Promise(resolve => setTimeout(resolve, 1100)); // one retry
+    assert.equal(beat.hasBeat, true);
+    globalThis.fetch = async () => ({ ok: false });
+    const tosu = createBeatClock();
+    tosu.setMap('t');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(tosu.hasBeat, false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('motion and kit settings normalise to data attributes', () => {
+  assert.equal(motionLevel('reduced'), 'reduced');
+  assert.equal(motionLevel('off'), 'off');
+  assert.equal(motionLevel(undefined), 'full');
+  assert.equal(motionLevel('bogus'), 'full');
+  const element = { dataset: {} };
+  assert.equal(applyKitSettings(element, { motion: 'off', backing: 'panel', mapTint: false }), 'off');
+  assert.deepEqual({ ...element.dataset }, { motion: 'off', backing: 'panel', mapTint: 'off' });
+  applyKitSettings(element, {});
+  assert.deepEqual({ ...element.dataset }, { motion: 'full', backing: 'scrim', mapTint: 'on' });
+});

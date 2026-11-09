@@ -12,6 +12,7 @@
 //   (hitOffsets, keyHitErrors); compat=tosu drops every vosu-only field (keys.all, catcher, …).
 //
 // Overlays: http://127.0.0.1:<port>/<overlay-id>/   Control page: /__dev/   All overlays live: /__dev/gallery
+// Kit demo (shared/kit.css, docs/overlay-system.md): /__dev/kit/   Placement proof: /__dev/stage?id=*&boxes=1
 // Live control: GET /__dev/scenario?mode=mania&state=play&keys=7&freeze=60000 (any subset; resets).
 //               GET /__dev/settings?id=<overlay>&<uniqueID>=<value>  pushes updateSettings live.
 // /assets/* (18-LAB tokens and fonts) is read from $VOSU_ASSETS (a vosu checkout's
@@ -31,17 +32,24 @@ const VOSU_URL = process.env.VOSU_URL || 'http://127.0.0.1:24050';
 const VOSU_ASSETS = process.env.VOSU_ASSETS || '';
 // Optional directory of 1920×1080 captures, e.g. renders of your own skin: gameplay frames
 // (osu.png, taiko.png, fruits.png, mania-<keys>k.png), songselect.png and results-<mode>.png.
+// With client=lazer the stage looks for the same name with a -lazer suffix first (osu-lazer.png,
+// mania-7k-lazer.png, …; e.g. the clean replay-renderer frames); gameplay without one falls back to
+// the lazer wireframe, menus and results to the stable capture (no playfield there).
 // The stage draws the one matching the scenario's state and ruleset over the background in place
 // of the wireframe, so overlays are judged against real HUD and screen placement.
 const STAGE_BACKDROPS = process.env.VOSU_STAGE_BACKDROPS || '';
 
 function backdropFile() {
   if (!STAGE_BACKDROPS) return null;
-  const name = config.state === 'menu' ? 'songselect.png'
-    : config.state === 'results' ? `results-${config.mode}.png`
-    : config.mode === 'mania' ? `mania-${config.keys}k.png` : `${config.mode}.png`;
-  const file = join(STAGE_BACKDROPS, name);
-  return existsSync(file) ? file : null;
+  const name = config.state === 'menu' ? 'songselect'
+    : config.state === 'results' ? `results-${config.mode}`
+    : config.mode === 'mania' ? `mania-${config.keys}k` : config.mode;
+  const names = config.client !== 'lazer' ? [name] : config.state === 'menu' || config.state === 'results' ? [`${name}-lazer`, name] : [`${name}-lazer`];
+  for (const candidate of names) {
+    const file = join(STAGE_BACKDROPS, `${candidate}.png`);
+    if (existsSync(file)) return file;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- deterministic randomness
@@ -532,7 +540,11 @@ function overlayMeta(id) {
   return meta;
 }
 
-/** The mania stage's left edge and width on the 1920×1080 stage, from the backdrop skin.ini when present. */
+/**
+ * The mania stage's left edge and width on the 1920×1080 stage, from the backdrop skin.ini when
+ * present. osu!stable puts the left edge at ColumnStart (default 136 of 480 lines, so the default
+ * skin's stage sits left of centre); osu!lazer centres the stage.
+ */
 function maniaStage(keys) {
   let start = 136, widths = Array(keys).fill(30), gaps = Array(Math.max(0, keys - 1)).fill(0);
   const file = STAGE_BACKDROPS && join(STAGE_BACKDROPS, 'skin.ini');
@@ -553,71 +565,107 @@ function maniaStage(keys) {
     }
   }
   const unit = 2.25;
-  return { x: start * unit, w: (widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0)) * unit };
+  const w = (widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0)) * unit;
+  return { x: config.client === 'lazer' ? (1920 - w) / 2 : start * unit, w };
+}
+
+// Where each client draws gameplay on a 1920×1080 screen (docs/overlay-system.md "Placement").
+// osu!/catch playfield: stable 512×384 at 2.25 from y 126 (56 of 480 lines); lazer 8 osu! px
+// higher in the 4:3 box (y 108). Objects reach 82 px past the playfield edge (CS 4 circle radius).
+// taiko lane: stable lines 216–416 of 768 (y 304–585); lazer as the replay renderer draws it with
+// the owner's layout (review/*-clean-*.png: y 604–886). Stock lazer puts the lane where stable does,
+// so lane anchors that clear both clear stock lazer too.
+const PLAYFIELD = { stable: { x: 384, y: 126, w: 1152, h: 864 }, lazer: { x: 384, y: 108, w: 1152, h: 864 } };
+const OBJECT_REACH = 82;
+const TAIKO_LANE = { stable: { x: 0, y: 304, w: 1920, h: 281 }, lazer: { x: 0, y: 604, w: 1920, h: 282 } };
+// Centre of the top HUD gap: stable default HP bar ends at 735 and the score starts at 1515;
+// lazer's Argon wedge ends at 534 and its accuracy/pp column starts at 1690.
+const HUD_GAP = { stable: 1125, lazer: 1112 };
+
+/** The current ruleset's busy region (playfield, lane or stage) for the scenario's client. */
+function busyRect() {
+  const client = config.client === 'lazer' ? 'lazer' : 'stable';
+  if (config.mode === 'taiko') return TAIKO_LANE[client];
+  if (config.mode === 'mania') { const stage = maniaStage(config.keys); return { x: stage.x, y: 0, w: stage.w, h: 1080 }; }
+  return PLAYFIELD[client];
 }
 
 /**
  * Resolves a metadata `placement` anchor for one axis to the page's top-left coordinate.
- * Numbers are the page's left/top edge. Strings: `left+N`, `right-N`, `center±N`, `top+N`,
- * `bottom-N` (screen edges); mania x also `stage-left-N` (page's right edge N px left of the
- * stage), `stage-right+N` (page's left edge N px right of the stage), `stage-center±N`.
+ * Numbers are the page's left/top edge. Strings (docs/overlay-system.md "Anchors"):
+ *   x: `left+N`, `right-N`, `center±N` (screen), `hud-gap±N` (page centred in the top HUD gap),
+ *      `stage-left-N` (page's right edge N px left of the mania stage), `stage-right+N` (page's left
+ *      edge N px right of it), `stage-center±N`;
+ *   y: `top+N`, `bottom-N`, `center±N` (screen), `lane-top-N` (page's bottom edge N px above the
+ *      taiko lane / playfield), `lane-bottom+N` (page's top edge N px below it).
+ * Stage, lane and HUD anchors resolve per client (scenario `client=stable|lazer`).
  */
 function resolveAnchor(anchor, size, axis) {
   if (typeof anchor === 'number') return anchor;
   const full = axis === 'x' ? 1920 : 1080;
-  const match = /^(stage-left|stage-right|stage-center|left|right|top|bottom|center)([+-]\d+(?:\.\d+)?)?$/.exec(String(anchor ?? 'left'));
+  const match = /^(stage-left|stage-right|stage-center|lane-top|lane-bottom|hud-gap|left|right|top|bottom|center)([+-]\d+(?:\.\d+)?)?$/.exec(String(anchor ?? 'left'));
   if (!match) return 0;
   const offset = Number(match[2] ?? 0);
-  const stage = axis === 'x' && match[1].startsWith('stage') ? maniaStage(config.keys) : null;
+  const busy = /^(stage|lane)/.test(match[1]) ? busyRect() : null;
   switch (match[1]) {
     case 'left': case 'top': return offset;
     case 'right': case 'bottom': return full + offset - size;
     case 'center': return (full - size) / 2 + offset;
-    case 'stage-left': return stage.x + offset - size;
-    case 'stage-right': return stage.x + stage.w + offset;
-    case 'stage-center': return stage.x + (stage.w - size) / 2 + offset;
+    case 'hud-gap': return HUD_GAP[config.client === 'lazer' ? 'lazer' : 'stable'] - size / 2 + offset;
+    case 'stage-left': return busy.x + offset - size;
+    case 'stage-right': return busy.x + busy.w + offset;
+    case 'stage-center': return busy.x + (busy.w - size) / 2 + offset;
+    case 'lane-top': return busy.y + offset - size;
+    case 'lane-bottom': return busy.y + busy.h + offset;
   }
   return 0;
 }
 
 /**
- * Approximate osu!stable 1920×1080 gameplay layout for the current ruleset, drawn as the busy
- * regions an overlay must leave alone: playfield/stage with stand-in objects, and default HUD
- * elements. Approximate by design (skins and lazer move things); overlays stay user-positionable.
+ * Approximate 1920×1080 gameplay layout for the current ruleset and client, drawn as the busy
+ * regions an overlay must leave alone: playfield/lane/stage with stand-in objects, and the default
+ * HUD (stable's default skin; lazer's default Argon layout, whose song progress runs along the
+ * bottom edge). Approximate by design: skins and lazer layouts move the HUD. `objects = false`
+ * leaves the stand-in objects out (for drawing the regions over a backdrop).
  */
-function layoutSvg() {
+function layoutSvg(objects = true) {
   const box = (x, y, w, h, label, strong) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="rgb(255 255 255 / ${strong ? 0.05 : 0.03})" stroke="rgb(255 255 255 / .28)" stroke-dasharray="6 6"/><text x="${x + 8}" y="${y + 20}" fill="rgb(255 255 255 / .45)" font-size="14" font-family="monospace">${label}</text>`;
-  const hud = [
-    box(16, 12, 720, 34, 'HP bar'),
-    box(1500, 8, 404, 70, 'score'),
-    box(1640, 82, 264, 40, 'accuracy · progress'),
-    box(16, 970, 260, 96, 'combo'),
-  ];
+  const lazer = config.client === 'lazer';
   const mode = config.mode;
+  const hud = lazer
+    ? [box(16, 8, 534, 116, 'argon score · health'), box(1690, 20, 214, 116, 'accuracy · pp'), box(96, 1016, 1728, 56, 'song progress'), box(0, 330, 40, 420, 'hit error'), box(1880, 330, 40, 420, 'hit error')]
+    : [box(16, 12, 720, 34, 'HP bar'), box(1500, 8, 404, 70, 'score'), box(1640, 82, 264, 40, 'accuracy · progress')];
+  // Combo bottom-left: stable osu!/catch (taiko's is in the drum, mania's in the stage); lazer osu!/taiko
+  // (lazer's catch combo rides the catcher).
+  if (lazer ? mode === 'osu' || mode === 'taiko' : mode === 'osu' || mode === 'fruits') hud.push(lazer ? box(50, 897, 250, 90, 'combo') : box(16, 970, 260, 96, 'combo'));
   const parts = [];
+  const art = objects ? parts : []; // stand-in hit objects, notes and catcher
+  const busy = busyRect();
   if (mode === 'osu' || mode === 'fruits') {
-    parts.push(box(384, 126, 1152, 864, mode === 'osu' ? 'playfield (512×384 @ 2.25)' : 'playfield', true));
+    parts.push(box(busy.x, busy.y, busy.w, busy.h, mode === 'osu' ? `playfield (512×384 @ 2.25${lazer ? ', lazer' : ''})` : 'playfield', true));
+    parts.push(`<rect x="${busy.x - OBJECT_REACH}" y="${busy.y - OBJECT_REACH}" width="${busy.w + 2 * OBJECT_REACH}" height="${busy.h + 2 * OBJECT_REACH}" fill="none" stroke="rgb(255 255 255 / .16)" stroke-dasharray="2 6"/>`);
     if (mode === 'osu') {
       // CS 4 circle radius: (54.4 − 4.48·4) playfield px × 2.25 ≈ 82 px.
-      for (let i = 0; i < 9; i++) parts.push(`<circle cx="${560 + ((i * 263) % 800)}" cy="${260 + ((i * 197) % 560)}" r="82" fill="rgb(255 255 255 / .10)" stroke="rgb(255 255 255 / .55)" stroke-width="6"/>`);
-      hud.push(box(1840, 470, 72, 150, 'keys'), box(760, 1048, 400, 26, 'hit error'), box(0, 300, 230, 400, 'leaderboard'));
+      for (let i = 0; i < 9; i++) art.push(`<circle cx="${560 + ((i * 263) % 800)}" cy="${busy.y + 134 + ((i * 197) % 560)}" r="82" fill="rgb(255 255 255 / .10)" stroke="rgb(255 255 255 / .55)" stroke-width="6"/>`);
+      if (!lazer) hud.push(box(1840, 470, 72, 150, 'keys (replays)'), box(760, 1048, 400, 26, 'hit error'), box(0, 300, 230, 400, 'leaderboard'));
+      else hud.push(box(50, 162, 230, 400, 'leaderboard'));
     } else {
-      for (let i = 0; i < 14; i++) parts.push(`<circle cx="${520 + ((i * 331) % 880)}" cy="${170 + ((i * 89) % 640)}" r="${i % 3 ? 26 : 12}" fill="rgb(255 255 255 / .35)"/>`);
-      parts.push(`<rect x="880" y="900" width="200" height="60" rx="10" fill="rgb(255 255 255 / .25)"/><text x="900" y="940" fill="rgb(0 0 0 / .6)" font-size="16" font-family="monospace">catcher</text>`);
+      for (let i = 0; i < 14; i++) art.push(`<circle cx="${520 + ((i * 331) % 880)}" cy="${busy.y + 44 + ((i * 89) % 640)}" r="${i % 3 ? 26 : 12}" fill="rgb(255 255 255 / .35)"/>`);
+      art.push(`<rect x="880" y="${busy.y + busy.h - 90}" width="200" height="60" rx="10" fill="rgb(255 255 255 / .25)"/><text x="900" y="${busy.y + busy.h - 50}" fill="rgb(0 0 0 / .6)" font-size="16" font-family="monospace">catcher</text>`);
     }
   } else if (mode === 'taiko') {
-    // Stable taiko lane: lines 216–416 of 768.
-    parts.push(box(0, 304, 1920, 281, 'taiko lane', true), box(0, 304, 300, 281, 'drum'));
-    for (let i = 0; i < 10; i++) parts.push(`<circle cx="${420 + i * 150}" cy="444" r="${i % 4 ? 46 : 66}" fill="${i % 3 ? 'rgb(235 69 44 / .7)' : 'rgb(68 141 171 / .7)'}" stroke="white" stroke-width="5"/>`);
-    parts.push(box(40, 80, 300, 210, 'mascot'));
+    parts.push(box(busy.x, busy.y, busy.w, busy.h, `taiko lane${lazer ? ' (lazer, replay renderer)' : ''}`, true), box(0, busy.y, 300, busy.h, 'drum'));
+    const mid = busy.y + busy.h / 2;
+    for (let i = 0; i < 10; i++) art.push(`<circle cx="${420 + i * 150}" cy="${mid}" r="${i % 4 ? 46 : 66}" fill="${i % 3 ? 'rgb(235 69 44 / .7)' : 'rgb(68 141 171 / .7)'}" stroke="white" stroke-width="5"/>`);
+    parts.push(lazer ? box(0, 330, 300, 280, 'mascot') : box(40, 80, 300, 210, 'mascot'));
   } else {
-    const width = config.keys * 67.5;
-    // Stable places the stage's left edge at ColumnStart (default 136 of 480 lines), not centred.
-    const x = 136 * 2.25;
-    parts.push(box(x, 0, width, 1080, `${config.keys}K stage (67.5 px columns)`, true), box(x + width + 8, 120, 26, 760, 'HP'));
-    for (let i = 0; i < 26; i++) parts.push(`<rect x="${x + 4 + (i * 3 % config.keys) * 67.5}" y="${((i * 157) % 860)}" width="59" height="${i % 7 ? 26 : 140}" rx="4" fill="rgb(255 255 255 / .55)"/>`);
-    parts.push(`<rect x="${x}" y="904" width="${width}" height="6" fill="rgb(255 255 255 / .6)"/>`, box(x, 930, width, 140, 'keys / receptors'));
-    hud.splice(3, 1);
+    const { x, w: width } = busy;
+    const column = width / config.keys;
+    parts.push(box(x, 0, width, 1080, `${config.keys}K stage (${lazer ? 'lazer, centred' : 'stable, ColumnStart'})`, true));
+    if (!lazer) parts.push(box(x + width + 8, 120, 26, 760, 'HP'));
+    for (let i = 0; i < 26; i++) art.push(`<rect x="${x + 4 + (i * 3 % config.keys) * column}" y="${((i * 157) % 860)}" width="${column - 8}" height="${i % 7 ? 26 : 140}" rx="4" fill="rgb(255 255 255 / .55)"/>`);
+    art.push(`<rect x="${x}" y="904" width="${width}" height="6" fill="rgb(255 255 255 / .6)"/>`);
+    parts.push(box(x, 930, width, 140, 'keys / receptors'));
     parts.push(box(x + width / 2 - 90, 420, 180, 70, 'combo'));
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" style="position:absolute;inset:0">${parts.join('')}${hud.join('')}</svg>`;
@@ -626,18 +674,23 @@ function layoutSvg() {
 /**
  * Overlays as their hosts show them. Screen mode (default): a 1920×1080 stand-in osu! screen
  * (dimmed map background, then the skin backdrop or the ruleset wireframe) with each overlay page
- * at its metadata `placement` for the current ruleset (resolveAnchor), or at `x`,`y` when given.
+ * at its metadata `placement` for the current ruleset and client (resolveAnchor), or at `x`,`y`.
  * Cell mode (`cell=WxH`): one vosu-tools replay-renderer cell, the playfield scaled as the renderer
  * scales it (fill the cell's height, or its width when narrower), the page at `x`,`y` in the cell.
- * `id` may list several overlays. `w`/`h` override the page size, `layout=0` hides the wireframe,
- * `guide=1` draws the focus ellipse (keep each page's centre outside it), `dim` sets background dim.
- * The resolved boxes are embedded as JSON (#placements) for dev/shoot.mjs.
+ * `id` may list several overlays, or `*` for every overlay with a placement for the ruleset.
+ * `w`/`h` override the page size. `layout`: unset = skin backdrop when available, else wireframe;
+ * 1 = wireframe; 2 = backdrop with the wireframe's regions and default HUD on top (no stand-in
+ * objects); 0 = map background only. `boxes=1` outlines
+ * and labels each page's box (placement proofs), `content=0` leaves the pages out, `guide=1` draws
+ * the focus ellipse, `dim` sets background dim. The resolved boxes are embedded as JSON
+ * (#placements, for dev/shoot.mjs) with the ruleset's busy region (#geometry).
  */
 function stagePage(id, params) {
   const dim = Number(params.get('dim') ?? 0.55);
   const cell = /^(\d+)x(\d+)$/.exec(params.get('cell') ?? '');
   const [W, H] = cell ? [Number(cell[1]), Number(cell[2])] : [1920, 1080];
-  const boxes = id.split(',').filter(Boolean).map(one => {
+  const ids = id === '*' ? overlayIds().filter(one => overlayMeta(one).placement[config.mode]) : id.split(',').filter(Boolean);
+  const boxes = ids.map(one => {
     const meta = overlayMeta(one);
     // A placement entry may carry its own page size ([x, y, w, h]) for rulesets whose suggested
     // form factor differs from the default `resolution` (e.g. a vertical strip beside a mania stage).
@@ -652,18 +705,23 @@ function stagePage(id, params) {
     const focus = !cell && ((cx - W / 2) / (W / 2)) ** 2 + ((cy - H / 2) / (H / 2)) ** 2 <= 1;
     return { id: one, x: Math.round(x), y: Math.round(y), width, height, centreInFocus: focus };
   });
-  const frames = boxes.map(b => `<iframe src="/${b.id}/" style="left:${b.x}px;top:${b.y}px;width:${b.width}px;height:${b.height}px" allowtransparency="true"></iframe>`).join('');
+  const frames = params.get('content') === '0' ? '' : boxes.map(b => `<iframe src="/${b.id}/" style="left:${b.x}px;top:${b.y}px;width:${b.width}px;height:${b.height}px" allowtransparency="true"></iframe>`).join('');
   const mode = params.get('layout');
   let layout;
   if (cell) {
     layout = cellSvg(W, H);
   } else {
-    // layout: unset → skin backdrop when available, else wireframe; 1 → wireframe; 0 → map background only.
-    const backdrop = backdropFile() && mode === null ? `<img src="/__dev/backdrop?${encodeURIComponent(config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
-    layout = backdrop || (mode === '0' ? '' : layoutSvg());
+    const file = backdropFile();
+    const backdrop = file && (mode === null || mode === '2') ? `<img src="/__dev/backdrop?${encodeURIComponent(config.client + config.state + config.mode + config.keys)}" style="position:absolute;inset:0;width:1920px;height:1080px">` : '';
+    layout = mode === '2' ? backdrop + layoutSvg(false) : backdrop || (mode === '0' ? '' : layoutSvg());
   }
+  const outline = params.get('boxes') === '1' ? `<svg style="position:absolute;inset:0;z-index:3;pointer-events:none;font:600 15px monospace" width="${W}" height="${H}">${boxes.map((b, i) => {
+    const hue = (i * 47) % 360;
+    return `<rect x="${b.x + 1}" y="${b.y + 1}" width="${b.width - 2}" height="${b.height - 2}" fill="hsl(${hue} 80% 55% / .16)" stroke="hsl(${hue} 85% 62%)" stroke-width="2"/><rect x="${b.x + 2}" y="${b.y + 2}" width="${Math.min(b.width - 4, 9 * (b.id.length + 10))}" height="20" fill="rgb(0 0 0 / .72)"/><text x="${b.x + 6}" y="${b.y + 17}" fill="hsl(${hue} 90% 72%)">${b.id} ${b.width}×${b.height}</text>`;
+  }).join('')}</svg>` : '';
   const guide = params.get('guide') === '1' ? `<svg style="position:absolute;inset:0;z-index:2;pointer-events:none" width="${W}" height="${H}"><ellipse cx="${W / 2}" cy="${H / 2}" rx="${W / 2 - 2}" ry="${H / 2 - 2}" fill="none" stroke="rgb(239 91 79 / .9)" stroke-width="3" stroke-dasharray="14 8"/>${boxes.map(b => `<circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="6" fill="${b.centreInFocus ? '#ef5b4f' : '#6fbf8e'}"/>`).join('')}</svg>` : '';
-  return `<!doctype html><meta charset=utf-8><title>${id} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:${W}px;height:${H}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}${guide}<script type="application/json" id="placements">${JSON.stringify(boxes)}</script>`;
+  const geometry = { client: config.client, mode: config.mode, keys: config.keys, busy: busyRect(), reach: config.mode === 'osu' || config.mode === 'fruits' ? OBJECT_REACH : 0 };
+  return `<!doctype html><meta charset=utf-8><title>${ids.join(',')} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:${W}px;height:${H}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}${outline}${guide}<script type="application/json" id="placements">${JSON.stringify(boxes)}</script><script type="application/json" id="geometry">${JSON.stringify(geometry)}</script>`;
 }
 
 /** One replay-renderer cell's playfield, scaled as the renderer scales it (README "playfield.scale"). */
@@ -721,7 +779,7 @@ function overlayIds() {
 function controlPage() {
   const links = overlayIds().map(id => `<li><a href="/${id}/" target="_blank">${id}</a> · <a href="/__dev/stage?id=${id}" target="_blank">stage</a></li>`).join('');
   const presets = ['osu', 'taiko', 'fruits', 'mania'].flatMap(mode => ['play', 'menu', 'results'].map(state => `<a href="/__dev/scenario?mode=${mode}&state=${state}">${mode}/${state}</a>`)).join(' · ');
-  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p><a href="/__dev/gallery">Gallery of every overlay</a></p><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">osu! closed</a> · <a href="/__dev/scenario?state=down">vosu down</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a></p><ul>${links}</ul></body>`;
+  return `<!doctype html><meta charset=utf-8><title>mock vosu</title><body style="font:14px system-ui;background:#111214;color:#ebe8e1;padding:24px"><h1>mock vosu</h1><p><a href="/__dev/gallery">Gallery of every overlay</a> · <a href="/__dev/kit/">Overlay kit demo</a> · <a href="/__dev/stage?id=*&boxes=1">Placement proof</a></p><p>Current: <code>${JSON.stringify(config)}</code></p><p>${presets} · <a href="/__dev/scenario?state=offline">osu! closed</a> · <a href="/__dev/scenario?state=down">vosu down</a> · <a href="/__dev/scenario?ext=0">no vosu extensions</a> · <a href="/__dev/scenario?keys=7">7K</a> · <a href="/__dev/scenario?client=lazer">lazer</a> · <a href="/__dev/scenario?client=stable">stable</a></p><ul>${links}</ul></body>`;
 }
 
 function file(id, rest) {
@@ -733,6 +791,24 @@ function file(id, rest) {
     const html = readFileSync(path, 'utf8').replace(/<head[^>]*>/i, match => `${match}<script>window.COUNTER_PATH=${JSON.stringify(id)};</script>`);
     return new Response(html, { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
   }
+  return new Response(Bun.file(path), { headers: { 'content-type': TYPES[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store' } });
+}
+
+/**
+ * The overlay kit demo (dev/kit.html, docs/overlay-system.md) at /__dev/kit/: the page loads the
+ * shared files by relative URL (tokens.css, kit.css, fonts/, vosu-overlay.js), served from shared/,
+ * and backdrops from /__dev/kit/bg/<file> (a PNG or JPEG in $VOSU_STAGE_BACKDROPS).
+ */
+function kitFile(rest) {
+  if (!rest) return new Response(Bun.file(join(ROOT, 'dev', 'kit.html')), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
+  const background = /^bg\/([\w.-]+\.(?:png|jpe?g))$/.exec(rest);
+  if (background) {
+    const path = STAGE_BACKDROPS && join(STAGE_BACKDROPS, background[1]);
+    return path && existsSync(path) ? new Response(Bun.file(path), { headers: { 'content-type': TYPES[extname(path)] || 'image/jpeg', 'cache-control': 'no-store' } }) : new Response('no backdrop', { status: 404 });
+  }
+  const shared = join(ROOT, 'shared');
+  const path = normalize(join(shared, rest));
+  if (!path.startsWith(shared) || !existsSync(path) || statSync(path).isDirectory()) return new Response('not found', { status: 404 });
   return new Response(Bun.file(path), { headers: { 'content-type': TYPES[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store' } });
 }
 
@@ -790,6 +866,8 @@ Bun.serve({
     }
     if (path === '/__dev/' || path === '/__dev' || path === '/') return new Response(controlPage(), { headers: { 'content-type': TYPES['.html'] } });
     if (path === '/__dev/stage') return new Response(stagePage(url.searchParams.get('id') || '', url.searchParams), { headers: { 'content-type': TYPES['.html'], 'cache-control': 'no-store' } });
+    if (path === '/__dev/kit') return Response.redirect(`/__dev/kit/${url.search}`, 302);
+    if (path.startsWith('/__dev/kit/')) return kitFile(decodeURIComponent(path.slice('/__dev/kit/'.length)));
     if (path === '/__dev/backdrop') {
       const file = backdropFile();
       return file ? new Response(Bun.file(file), { headers: { 'content-type': 'image/png', 'cache-control': 'no-store' } }) : new Response('no backdrop', { status: 404 });

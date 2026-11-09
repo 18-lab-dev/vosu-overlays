@@ -1,0 +1,223 @@
+/* Copyright (c) 2026 18-LAB. MIT.
+ * 18-LAB overlay kit: the shared type scale, colour roles, backings, signature, spacing and motion
+ * of the official overlays. Spec: docs/overlay-system.md. Source of truth: shared/kit.css; every
+ * overlay folder carries a byte-identical copy (scripts/sync_shared.py), so edit the shared file.
+ *
+ * Load after tokens.css (fonts and base tokens) and before the overlay's own style.css:
+ *   <link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="kit.css"><link rel="stylesheet" href="style.css">
+ * Put `class="kit"` on the element that fills the overlay's box and set `data-backing`,
+ * `data-motion` and `data-map-tint` on it (applyKitSettings() in vosu-overlay.js does this).
+ * Every size is `px × --u`: --u is the overlay's unitless scale (1 at its default box).
+ */
+
+/* ------------------------------------------------------------------ roles */
+:root {
+  /* Text levels, warm-tinted (no pure white). All three pass 4.5:1 for 14 px text on the scrim
+     over an undimmed white background. */
+  --text-1: #efece5;  /* values, titles */
+  --text-2: #d3cfc6;  /* labels, units, secondary text */
+  --text-3: #ada99f;  /* captions, dash for unknown */
+  --hair: rgb(239 236 229 / .22);         /* hairlines, tracks, unplayed outlines */
+  --hair-strong: rgb(239 236 229 / .4);   /* axes, panel border */
+
+  /* 18-LAB amber: "you" and the signature. Your row, your hero number's mark, lit keys (as an
+     underline), the registration marks. Never a judgement and never the map. */
+  --you: #ff963f;
+  --on-you: #1a1007;
+
+  /* The map: identity only (progress, title rule, strain fill, map-derived graphics). Follows the
+     map's Material 3 tone (applyPalette sets --map-accent on .kit or <html>); neutral without one
+     or with mapTint off. --map itself is declared with the scaled values below, on :root and .kit. */
+  --map-neutral: #c9c4ba;
+
+  /* Game colours: only for what they mean in the game. */
+  --j-max: #efece5;    /* MAX / 320 / geki */
+  --j-great: #7fa6cf;  /* 300 / GREAT */
+  --j-good: #6fbf8e;   /* 200 / GOOD (mania), katu */
+  --j-ok: #b8b5ad;     /* 100 / OK */
+  --j-meh: #dcc35a;    /* 50 / MEH: yellow, kept clear of amber "you" */
+  --j-miss: #ef5b4f;   /* MISS, slider break, FAIL */
+  --early: #69b7d6;
+  --late: #e58aa6;
+  --don: #e8573e;
+  --kat: #4f9fc4;
+
+  /* Backing fill; the scrim keeps 80 % over the content and feathers in the padding. */
+  --backing-rgb: 11 12 13;
+
+  /* Screen-level gutter between overlays and from the screen edge (placements); does not scale. */
+  --page-gutter: 24px;
+
+  /* Motion. --ease-draft (tokens.css) for state changes, --ease-out for arrivals and values
+     settling, --ease-in for exits. data-motion scales them (below). */
+  --dur-fast: 120ms;    /* flashes, presses, small value nudges */
+  --dur-base: 240ms;    /* enter/exit, value settles, reorders */
+  --dur-slow: 400ms;    /* one-time reveals (results), map change */
+  --dur-ambient: 1600ms; /* kiai breathing; only while kiai is on */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+/* Values that depend on --u or --map-accent. Custom properties resolve where they are declared, so
+   these are declared on .kit too: set --u (unitless) and applyPalette() on the .kit element or <html>. */
+:root, .kit {
+  --map: var(--map-accent, var(--map-neutral));
+  /* Contrast shadow for text without a backing. */
+  --shade: 0 0 calc(var(--u, 1) * 1px) rgb(0 0 0 / .9), 0 calc(var(--u, 1) * 1px) calc(var(--u, 1) * 3px) rgb(0 0 0 / .7);
+  /* Spacing on a 4 px base. */
+  --s-1: calc(var(--u, 1) * 4px);
+  --s-2: calc(var(--u, 1) * 8px);
+  --s-3: calc(var(--u, 1) * 12px);
+  --s-4: calc(var(--u, 1) * 16px);
+  --s-5: calc(var(--u, 1) * 24px);
+  --s-6: calc(var(--u, 1) * 32px);
+  --pad: var(--s-4);      /* inner padding of a backed overlay */
+  --feather: var(--s-3);  /* scrim edge fade, inside --pad */
+}
+
+/* ------------------------------------------------------------------ root */
+/* tokens.css sets color-scheme: dark; when the embedding page's scheme differs, Chromium paints an
+   opaque backdrop behind the iframe. Normal keeps the source transparent. */
+html[data-theme] { color-scheme: normal; }
+
+.kit {
+  position: relative;
+  isolation: isolate;
+  color: var(--text-1);
+  font: 500 calc(var(--u, 1) * 16px)/1.25 var(--font-body);
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+.kit[data-map-tint="off"] { --map: var(--map-neutral); }
+
+/* Backings. scrim (default): a dark field at 80 % under the content that fades out across the
+   padding, so it has no hard edge. panel: a solid graphite panel with a hairline. none: the text
+   floats on the game with a contrast shadow (dimmed backgrounds only). */
+.kit:is([data-backing="scrim"], [data-backing="panel"]) { padding: var(--pad); }
+.kit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.kit[data-backing="scrim"]::before {
+  background: rgb(var(--backing-rgb) / .8);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--feather), #000 calc(100% - var(--feather)), transparent);
+  mask-composite: intersect;
+}
+.kit[data-backing="panel"]::before {
+  background: rgb(var(--backing-rgb) / .9);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  border-radius: 2px;
+}
+.kit[data-backing="none"] { text-shadow: var(--shade); }
+
+/* Signature: amber registration marks at the box's top-left and bottom-right corners, the same on
+   every overlay (2 px stroke, 12 px arms, on the corner). Drawn by .kit::after; do not use it. */
+.kit::after {
+  --arm: calc(var(--u, 1) * 12px);
+  --stroke: max(2px, calc(var(--u, 1) * 2px));
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--you), var(--you)) left top / var(--arm) var(--stroke) no-repeat,
+    linear-gradient(var(--you), var(--you)) left top / var(--stroke) var(--arm) no-repeat,
+    linear-gradient(var(--you), var(--you)) right bottom / var(--arm) var(--stroke) no-repeat,
+    linear-gradient(var(--you), var(--you)) right bottom / var(--stroke) var(--arm) no-repeat;
+}
+.kit[data-view="hidden"]::after, .kit[data-signature="off"]::after { display: none; }
+
+/* ------------------------------------------------------------------ type
+   Sizes at --u = 1 on a 1080p canvas. Nothing a viewer needs to read is below 14 px (≈ 9 px on a
+   720p stream). One hero per overlay. Labels are sentence case in Barlow, never mono caps. */
+.kit-hero {
+  font: 600 calc(var(--u, 1) * 52px)/1 var(--font-display);
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.kit-value {
+  font: 600 calc(var(--u, 1) * 32px)/1 var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.kit-title {
+  font: 600 calc(var(--u, 1) * 20px)/1.2 var(--font-body);
+  color: var(--text-1);
+}
+.kit-text {
+  font: 500 calc(var(--u, 1) * 16px)/1.25 var(--font-body);
+  color: var(--text-2);
+}
+.kit-label {
+  font: 500 calc(var(--u, 1) * 14px)/1.15 var(--font-body);
+  letter-spacing: .01em;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.kit-caption {
+  font: 400 calc(var(--u, 1) * 14px)/1.2 var(--font-body);
+  color: var(--text-3);
+}
+/* Units follow their number: lowercase in markup (px ms pp kps bpm), 40 % of the number, never
+   below 14 px. `%`, `×` and `★` attach without the gap (.kit-unit.tight). */
+.kit-unit {
+  margin-left: .2em;
+  font: 500 max(calc(var(--u, 1) * 14px), .4em)/1 var(--font-body);
+  letter-spacing: .01em;
+  color: var(--text-2);
+}
+.kit-unit.tight { margin-left: .04em; }
+/* Codes stay in caps because they are caps in the game: mods (HDDT), keys (K1, M2), FAIL. */
+.kit-code {
+  font: 500 calc(var(--u, 1) * 14px)/1 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+/* Decorative only (axis ticks a viewer never needs to read); the one role allowed below 14 px. */
+.kit-tick {
+  font: 400 calc(var(--u, 1) * 11px)/1 var(--font-mono);
+  color: var(--text-3);
+}
+/* The small decimal after a hero (1,075.3): same baseline, 60 % size, label colour. */
+.kit-frac { font-size: .6em; color: var(--text-2); letter-spacing: 0; }
+.kit-dash { color: var(--text-3); }
+
+/* ------------------------------------------------------------------ colour helpers */
+.kit-you { color: var(--you); }
+.kit-map { color: var(--map); }
+/* Lit / pressed: an amber underline and amber numeral; the body stays graphite. */
+.kit-lit { box-shadow: inset 0 calc(var(--u, 1) * -2px) 0 var(--you); color: var(--you); }
+/* Your row (leaderboard), your cell: raised graphite plus the amber leading rule. */
+.kit-own { background: rgb(239 236 229 / .08); box-shadow: inset calc(var(--u, 1) * 2px) 0 0 var(--you); }
+.kit-rule { height: 1px; background: var(--hair); border: 0; margin: 0; }
+.kit-track { height: max(2px, calc(var(--u, 1) * 3px)); background: var(--hair); overflow: hidden; }
+.kit-track > i { display: block; height: 100%; background: var(--map); transform-origin: 0 50%; }
+
+/* ------------------------------------------------------------------ motion
+   full: everything. reduced: values and enter/exit still ease; pulses, flashes and ambience stop.
+   off: instant (v3 behaviour). Overlays read the same levels in JS (motionLevel, MOTION_MS). */
+[data-motion="reduced"] { --dur-ambient: 0ms; }
+[data-motion="off"] { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms; }
+[data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+/* Mark event and ambient animations with these classes so reduced and off drop them. */
+[data-motion="reduced"] :is(.kit-pulse, .kit-flash, .kit-ambient),
+[data-motion="off"] :is(.kit-pulse, .kit-flash, .kit-ambient) { animation: none !important; }
+
+/* Shared transitions: an element entering or leaving, and a value settling. */
+.kit-enter { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.kit-enter[data-out] { opacity: 0; transform: translateY(calc(var(--u, 1) * 4px)); }

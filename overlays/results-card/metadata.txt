@@ -2,5 +2,5 @@ name = Results timing
 author = 18-LAB
 version = 0.3.0
 description = Results-screen addition with only what osu! leaves out there: UR, timing mean, early/late split and a hit-error histogram captured during the attempt, plus pp and the if-FC gap. Re-flows to its box (one row when wide, stacked when tall); renders nothing outside the results screen.
-resolution = [840,112]
-placement = {"osu":["right-20","top+8"],"taiko":["right-20","top+8"],"fruits":["right-20","top+8"],"mania":["right-20","top+8"]}
+resolution = [840,96]
+placement = {"osu":["right-24","top+24",840,96],"taiko":["right-24","top+24",840,96],"fruits":["right-24","top+24",840,96],"mania":["right-24","top+24",840,96]}

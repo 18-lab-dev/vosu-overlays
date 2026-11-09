@@ -1,9 +1,10 @@
 [
- {"uniqueID":"target","type":"number","title":"Target accuracy / %","description":"Accuracy the budgets protect, 50–100. OK budget = OKs still allowed if every other remaining note is a GREAT; a miss costs two OKs.","value":99},
- {"uniqueID":"orientation","type":"options","title":"Orientation","options":["auto","horizontal","vertical"],"description":"auto follows the page's shape: a two-row strip for wide boxes, one line for short ones (under about 100 px, e.g. a 4-player replay cell), a column for tall ones.","value":"auto"},
- {"uniqueID":"align","type":"options","title":"Alignment","options":["left","center","right"],"description":"left: accuracy on the left, OK budget on the right. right: mirrored, for a page on the right of the screen. center applies to the column layout.","value":"left"},
- {"uniqueID":"backing","type":"options","title":"Backing","options":["none","scrim","panel"],"description":"none: text floats on the game with a light shadow. scrim: a soft shade that fades out around the readout. panel: a graphite panel.","value":"none"},
- {"uniqueID":"accent","type":"options","title":"Accent colour","options":["map","18-lab"],"description":"map: the OK budget and headroom band take the current map's tonal accent (from its background). 18-lab: always amber. Judgement colours never change.","value":"map"},
- {"uniqueID":"showPp","type":"checkbox","title":"Show pp","description":"Current and full-combo pp.","value":true},
- {"uniqueID":"showUr","type":"checkbox","title":"Show unstable rate","value":true}
+ {"uniqueID":"target","type":"number","title":"Target accuracy / %","description":"Accuracy the budget protects, 50–100. OKs left = OKs you can still take if every other remaining note is a GREAT; a miss costs two OKs.","value":99},
+ {"uniqueID":"orientation","type":"options","title":"Orientation","options":["auto","horizontal","vertical"],"description":"auto follows the page's shape: a row for wide boxes (the 280×80 chip), a column for tall ones.","value":"auto"},
+ {"uniqueID":"align","type":"options","title":"Alignment","options":["left","center","right"],"description":"left: gauge and budget on the left. right: mirrored, for a page on the right of the screen. center: centred in the box.","value":"left"},
+ {"uniqueID":"motion","type":"options","title":"Motion","options":["full","reduced","off"],"description":"full = the gauge eases, the budget ticks down and the spent part flashes its judgement colour. reduced = the gauge and enter/exit still ease; no tick or flash. off = everything instant.","value":"full"},
+ {"uniqueID":"backing","type":"options","title":"Backing","options":["scrim","panel","none"],"description":"scrim = a dark field with soft edges that keeps small text readable on bright maps. panel = a solid graphite panel. none = text straight on the game with a contrast shadow; only for a dimmed background.","value":"scrim"},
+ {"uniqueID":"hudFields","type":"checkbox","title":"Show what osu!'s HUD shows","description":"Also show accuracy and the GREAT/OK/MISS counts, which osu!'s own HUD already shows. The OK and miss budgets are always shown. In the 280×80 chip only what fits one line shows.","value":false},
+ {"uniqueID":"showUr","type":"checkbox","title":"Unstable rate","description":"The unstable rate (the same number as results-card).","value":false},
+ {"uniqueID":"showPp","type":"checkbox","title":"pp","description":"Current and if-FC pp (the same numbers as pp-counter).","value":false}
 ]

@@ -1,159 +1,123 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
-/* tokens.css sets color-scheme: dark; a host page with another scheme would paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
+/* Built on the overlay kit (kit.css, docs/overlay-system.md): type roles, colour roles, backing,
+   signature and motion tokens come from there; this file only lays the chip out. */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 p { margin: 0; }
-b { font-weight: inherit; }
-
-/* The page is the overlay's box: hosts (OBS, vosulay, the replay renderer) place and size it.
-   overlay.js picks a layout from the box's shape and sets --u, the type/graphics scale. */
-#stage {
-  --u: 1;
-  --hl: var(--map-accent, var(--accent));
-  --lift: 0 1px 2px rgb(0 0 0 / .65);
-  position: relative;
-  width: 100%; height: 100%;
-  display: flex; align-items: center;
-  color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased;
-  text-shadow: var(--lift);
-}
-#stage[data-accent="18-lab"] { --hl: var(--accent); }
-
-.lbl {
-  font: 500 max(10px, calc(12px * var(--u)))/1.15 var(--font-mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  white-space: nowrap;
-  user-select: none;
-}
-
-/* Status: dot + a few words. */
-.chip {
-  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-  display: inline-flex; align-items: center; gap: 8px;
-  font: 500 13px/14px var(--font-mono); letter-spacing: .02em; color: var(--fg-dim);
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 160ms var(--ease-draft);
-}
-.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: var(--lift); }
-#stage[data-status="offline"] .chip i { background: var(--danger); }
-#stage[data-view="chip"] .chip { opacity: 1; }
-#stage[data-align="right"] .chip { left: auto; right: 0; }
-
-.pace {
-  position: relative;
-  isolation: isolate;
-  contain: layout style;
-  width: 100%;
-  display: grid;
-  opacity: 0; transform: translateY(6px);
-  transition: opacity 200ms var(--ease-draft), transform 200ms var(--ease-draft);
-}
-#stage[data-view="pace"] .pace { opacity: 1; transform: none; }
-
-/* Backing: none (default) floats on the game; scrim adds a soft local shade; panel a graphite panel. */
-#stage[data-backing="scrim"] .pace::before {
-  content: ""; position: absolute; inset: -8% -4%; z-index: -1;
-  background: radial-gradient(closest-side, rgb(9 10 11 / .62), rgb(9 10 11 / .42) 62%, rgb(9 10 11 / 0));
-}
-#stage[data-backing="panel"] { text-shadow: none; }
-#stage[data-backing="panel"] .pace {
-  padding: calc(10px * var(--u)) calc(14px * var(--u));
-  background: rgb(17 18 20 / .86);
-  border: 1px solid var(--rule-strong); border-top: 2px solid var(--hl); border-radius: var(--radius);
-}
-
-/* Readouts */
-.readout { grid-area: acc; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.readout.budget { grid-area: budget; align-items: flex-end; }
-.big {
-  display: flex; align-items: baseline;
-  font: 600 calc(64px * var(--u))/calc(54px * var(--u)) var(--font-display);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--fg);
-  text-shadow: 0 1px 3px rgb(0 0 0 / .6);
-}
-.big small { margin-left: calc(3px * var(--u)); font-size: .42em; line-height: 1; color: var(--fg-dim); }
-.big small:empty { display: none; }
-.big.hl { color: var(--hl); }
-.big.empty { color: var(--fg-dim); font-weight: 400; }
-#budget[data-tone="lost"] .big { color: var(--j-miss); }
-.sub { display: flex; align-items: baseline; gap: calc(8px * var(--u)); white-space: nowrap; }
-.sub b { font: 500 max(11px, calc(14px * var(--u)))/1.1 var(--font-mono); color: var(--fg); font-variant-numeric: tabular-nums; }
-.readout .lbl { margin-bottom: calc(2px * var(--u)); }
-.readout .sub { margin-top: calc(6px * var(--u)); }
-
-.tape { grid-area: tape; display: flex; flex-direction: column; min-width: 0; }
-.tape .target { margin-bottom: calc(4px * var(--u)); }
-#tape { display: block; width: 100%; height: calc(40px * var(--u)); }
-
-/* Counts and stats */
-.row { grid-area: row; display: flex; align-items: baseline; gap: calc(24px * var(--u)); min-width: 0; }
-.cell { display: inline-flex; align-items: baseline; gap: calc(8px * var(--u)); white-space: nowrap; }
-.cell .lbl { display: inline-flex; align-items: center; gap: calc(6px * var(--u)); }
-.cell .lbl i { width: max(2px, calc(3px * var(--u))); height: calc(12px * var(--u)); background: var(--fg-dim); box-shadow: var(--lift); }
-.cell.great .lbl i { background: var(--j-great); }
-.cell.ok .lbl i { background: var(--j-good); }
-.cell.miss .lbl i { background: var(--j-miss); }
-.cell.rest { margin-right: auto; }
-.cell > b { font: 600 calc(28px * var(--u))/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
-.cell.rest > b { color: var(--fg-dim); }
 [hidden] { display: none !important; }
 
-/* strip (default, wide and tall enough): readouts either side of the tape, counts beneath. */
-#stage[data-layout="strip"] .pace {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: "acc tape budget" "row row row";
-  column-gap: calc(32px * var(--u)); row-gap: calc(10px * var(--u));
-  align-items: center;
+/* The page is the overlay's box (hosts place and size it); overlay.js picks the layout from the
+   box's shape and sets --u, 1 at the 280×80 chip. */
+#root {
+  width: 100%;
+  height: 100%;
+  transition: opacity var(--dur-base) var(--ease-out);
 }
-#stage[data-layout="strip"][data-align="right"] .pace { grid-template-areas: "budget tape acc" "row row row"; }
-#stage[data-layout="strip"][data-align="right"] .acc { align-items: flex-end; }
-#stage[data-layout="strip"][data-align="right"] .budget { align-items: flex-start; }
-/* Mirrored: stats move to the left, counts to the right; each group keeps its reading order. */
-#stage[data-layout="strip"][data-align="right"] .cell.stat { order: -1; }
-#stage[data-layout="strip"][data-align="right"] .cell.rest { margin-right: 0; }
-#stage[data-layout="strip"][data-align="right"] .cell.great { margin-left: auto; }
-#stage[data-layout="strip"][data-align="right"] .tape .target { align-self: flex-end; }
+#root[data-view="hidden"] { opacity: 0; transition-timing-function: var(--ease-in); }
 
-/* row (short boxes, e.g. a 4-player taiko cell): one line, values beside their labels' column. */
-#stage[data-layout="row"] .pace {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "acc tape budget row";
-  column-gap: calc(24px * var(--u));
-  align-items: end;
+.pace {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  column-gap: var(--s-3);
+  transition: transform var(--dur-base) var(--ease-out);
 }
-#stage[data-layout="row"] .readout { display: grid; grid-template-columns: auto auto; column-gap: calc(10px * var(--u)); align-items: baseline; }
-#stage[data-layout="row"] .readout > .lbl { grid-column: 1 / -1; }
-#stage[data-layout="row"] .readout .sub { margin-top: 0; }
-#stage[data-layout="row"] .big { font-size: calc(40px * var(--u)); line-height: calc(34px * var(--u)); }
-#stage[data-layout="row"] #tape { height: calc(26px * var(--u)); }
-#stage[data-layout="row"] .tape .target { margin-bottom: calc(2px * var(--u)); }
-#stage[data-layout="row"] .cell { flex-direction: column; align-items: flex-start; gap: calc(2px * var(--u)); }
-#stage[data-layout="row"] .cell > b { font-size: calc(26px * var(--u)); line-height: calc(26px * var(--u)); }
-#stage[data-layout="row"] .cell.rest { margin-right: 0; }
-#stage[data-layout="row"] .row { align-items: flex-end; }
-#stage[data-layout="row"][data-room="stats"] .cell:not(.stat) { display: none; }
-#stage[data-layout="row"][data-room="core"] .row { display: none; }
-#stage[data-layout="row"][data-align="right"] .pace { grid-template-areas: "row budget tape acc"; grid-template-columns: auto auto minmax(0, 1fr) auto; }
+#root[data-view="hidden"] .pace { transform: translateY(calc(var(--u, 1) * 4px)); transition-timing-function: var(--ease-in); }
 
-/* column (tall boxes): stacked. */
-#stage[data-layout="column"] .pace {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "acc acc" "tape tape" "budget budget" "row row";
-  row-gap: calc(16px * var(--u));
+/* Budget gauge: the hero's leading rule, in "you" amber, drains from the top as OKs and misses
+   spend the budget. The ghost is the part just spent, shown in the judgement's colour, fading. */
+.gauge {
+  grid-area: gauge;
+  position: relative;
+  align-self: stretch;
+  width: max(2px, calc(var(--u, 1) * 4px));
+  background: var(--hair);
+  overflow: hidden;
 }
-#stage[data-layout="column"] .readout.budget { align-items: flex-start; }
-#stage[data-layout="column"] .row { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: calc(12px * var(--u)) calc(22px * var(--u)); }
-#stage[data-layout="column"] .cell { flex-direction: column; align-items: flex-start; gap: calc(2px * var(--u)); }
-#stage[data-layout="column"] .cell.rest { margin-right: 0; }
-#stage[data-layout="column"][data-align="right"] :is(.readout, .readout.budget, .tape, .cell) { align-items: flex-end; }
-#stage[data-layout="column"][data-align="right"] .row { justify-content: end; }
-#stage[data-layout="column"][data-align="center"] :is(.readout, .readout.budget, .tape, .cell) { align-items: center; }
-#stage[data-layout="column"][data-align="center"] .row { justify-content: center; }
+.gauge i { position: absolute; inset: 0; transform-origin: 50% 100%; }
+.fill {
+  background: var(--you);
+  transform: scaleY(0);
+  transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-draft);
+}
+.ghost { background: var(--j-ok); opacity: 0; transform: scaleY(0); }
+.ghost[data-kind="miss"] { background: var(--j-miss); }
+
+/* Hero: the OKs left (or, once the target is out of reach, the best accuracy still possible). */
+.hero {
+  grid-area: hero;
+  align-self: center;
+  line-height: calc(var(--u, 1) * 48px);
+  transition: color var(--dur-base) var(--ease-draft);
+}
+.hero .num { display: inline-block; }
+#root:is([data-tone="low"], [data-tone="lost"]) .hero { color: var(--j-miss); }
+#root:is([data-tone="idle"], [data-view="status"]) .hero { color: var(--text-3); }
+#root[data-tone="low"] .fill { background: var(--j-miss); }
+
+/* What the hero means, the miss budget and the target; optional extras on a third line. Numbers
+   in the lines are value-role numerals (20 px, cap height 14) on an 18 px line. */
+.lines {
+  --line: calc(var(--u, 1) * 18px);
+  grid-area: lines;
+  align-self: center;
+  min-width: 0;
+}
+.line {
+  height: var(--line);
+  line-height: var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.line b {
+  font: 600 calc(var(--u, 1) * 20px)/var(--line) var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-1);
+}
+.line .kit-unit { line-height: var(--line); }
+
+/* Extras (hudFields, showUr, showPp): items wrap, and in the chip a line that does not fit is
+   clipped whole rather than cut, so only what fits on one line shows. */
+.extras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--s-3);
+  text-overflow: clip;
+}
+.x { display: inline-flex; align-items: baseline; gap: var(--s-1); white-space: nowrap; }
+.x .kit-unit { margin-left: 0; }
+.x .kit-unit.tight { margin-left: -.15em; }
+.j i {
+  align-self: center;
+  width: max(2px, calc(var(--u, 1) * 3px));
+  height: calc(var(--u, 1) * 12px);
+  background: var(--text-3);
+}
+.j.great i { background: var(--j-great); }
+.j.ok i { background: var(--j-ok); }
+.j.miss i { background: var(--j-miss); }
+
+/* row (the chip, and any wide box): gauge | hero | lines. */
+#root[data-layout="row"] .pace { grid-template: "gauge hero lines" auto / auto auto minmax(0, 1fr); align-content: center; }
+/* The lines end on the hero's baseline: the hero's baseline sits ≈ 3.2 px above its 48 px line's
+   bottom and the last line's ≈ 3.4 px above its 18 px line's, so bottom alignment lines them up
+   (baseline alignment would not: the lines clip their overflow). Three lines (54) make the row
+   overhang the 48 px content box by 3 px each side, inside the padding where the scrim is opaque. */
+#root[data-layout="row"] :is(.hero, .lines) { align-self: end; }
+#root[data-layout="row"][data-align="right"] .pace { grid-template: "lines hero gauge" auto / minmax(0, 1fr) auto auto; }
+#root[data-layout="row"][data-align="right"] .lines { text-align: right; }
+#root[data-layout="row"][data-align="right"] .extras { justify-content: flex-end; }
+#root[data-layout="row"][data-align="center"] .pace { grid-template-columns: auto auto minmax(0, max-content); justify-content: center; }
+
+/* column (tall boxes): gauge beside the hero and its lines, stacked. */
+#root[data-layout="column"] .pace { grid-template: "gauge hero" auto "gauge lines" auto / auto minmax(0, 1fr); align-content: center; row-gap: var(--s-1); }
+#root[data-layout="column"] .lines { align-self: start; }
+#root[data-layout="column"] .line { height: auto; white-space: normal; }
+#root[data-layout="column"] .extras { height: auto; row-gap: var(--s-1); padding-top: var(--s-1); }
+#root[data-layout="column"][data-align="right"] .pace { grid-template: "hero gauge" auto "lines gauge" auto / minmax(0, 1fr) auto; }
+#root[data-layout="column"][data-align="right"] :is(.hero, .lines) { justify-self: end; text-align: right; }
+#root[data-layout="column"][data-align="right"] .extras { justify-content: flex-end; }
+#root[data-layout="column"][data-align="center"] .pace { grid-template-columns: auto max-content; justify-content: center; }

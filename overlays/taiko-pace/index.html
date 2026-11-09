@@ -5,37 +5,28 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Taiko pace</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage" data-view="chip" data-layout="strip" data-align="left" data-backing="none">
-  <p class="chip" id="chip" role="status"><i></i><span id="chipText">Connecting</span></p>
-  <section class="pace" aria-label="osu!taiko accuracy pace">
-    <div class="readout acc">
-      <span class="lbl">Accuracy</span>
-      <span class="big"><span id="acc">—</span><small>%</small></span>
-      <span class="sub"><span class="lbl">Max</span><b id="max">—</b></span>
-    </div>
-    <div class="tape">
-      <span class="sub target"><span class="lbl">Target</span><b id="target">99.00%</b></span>
-      <canvas id="tape" aria-hidden="true"></canvas>
-    </div>
-    <div class="readout budget" id="budget">
-      <span class="lbl" id="budgetLabel">OK budget</span>
-      <span class="big hl"><span id="okBudget">—</span><small id="budgetUnit"></small></span>
-      <span class="sub"><span class="lbl" id="missLabel">Miss budget</span><b id="missBudget">—</b></span>
-    </div>
-    <div class="row">
-      <span class="cell great"><span class="lbl"><i></i>Great</span><b id="great">—</b></span>
-      <span class="cell ok"><span class="lbl"><i></i>OK</span><b id="ok">—</b></span>
-      <span class="cell miss"><span class="lbl"><i></i>Miss</span><b id="miss">—</b></span>
-      <span class="cell rest"><span class="lbl"><i></i>Left</span><b id="remaining">—</b></span>
-      <span class="cell stat" id="urCell"><span class="lbl">UR</span><b id="ur">—</b></span>
-      <span class="cell stat" data-pp><span class="lbl">PP</span><b id="pp">—</b></span>
-      <span class="cell stat" data-pp><span class="lbl">FC</span><b id="fc">—</b></span>
+<main id="root" class="kit" data-view="status" data-layout="row" data-align="left" data-tone="idle" data-backing="scrim" data-motion="full">
+  <section class="pace" role="group" aria-label="osu!taiko OK budget">
+    <span class="gauge" aria-hidden="true"><i class="ghost" id="ghost"></i><i class="fill" id="fill"></i></span>
+    <p class="kit-hero hero"><span class="num" id="heroNum"><span id="hero">—</span><span class="kit-frac" id="heroFrac" hidden></span></span><span class="kit-unit tight" id="heroUnit" hidden>%</span></p>
+    <div class="lines">
+      <p class="kit-label line"><span id="l1">OKs left for</span><span id="targetGroup"> <b id="target">99.00</b><span class="kit-unit tight">%</span></span></p>
+      <p class="kit-caption line"><span id="l2a">or</span><span id="l2Group"> <b id="l2n">—</b><span class="kit-unit tight" id="l2Unit" hidden>%</span></span> <span id="l2b">misses</span></p>
+      <p class="kit-label line extras" id="extras" hidden>
+        <span class="x" data-hud title="Accuracy"><b id="acc">—</b><span class="kit-unit tight">%</span></span>
+        <span class="x j great" data-hud title="Great"><i></i><b id="great">—</b></span>
+        <span class="x j ok" data-hud title="OK"><i></i><b id="ok">—</b></span>
+        <span class="x j miss" data-hud title="Miss"><i></i><b id="miss">—</b></span>
+        <span class="x" id="urItem">UR <b id="ur">—</b></span>
+        <span class="x" id="ppItem"><b id="pp">—</b><span class="kit-unit">pp</span> <span class="if">If FC</span> <b id="fc">—</b></span>
+      </p>
     </div>
   </section>
-</div>
+</main>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

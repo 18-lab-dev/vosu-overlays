@@ -1,6 +1,6 @@
 name = Taiko pace
 author = 18-LAB
-version = 0.3.0
-description = osu!taiko accuracy pace strip: live and max achievable accuracy, the OKs and misses a target accuracy can still absorb, GREAT/OK/MISS, UR and pp.
+version = 0.4.0
+description = osu!taiko OK budget chip: how many OKs (or misses) you can still take and keep your target accuracy, with a gauge that drains as you spend it.
 resolution = [280,80]
 placement = {"taiko":["left+904","lane-bottom+24",280,80]}

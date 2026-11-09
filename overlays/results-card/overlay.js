@@ -1,8 +1,9 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Results timing: on the results screen only, adds what osu! leaves out there: UR, timing mean,
-// early/late split and a hit-error histogram of the attempt just played, plus pp and the if-FC
-// gap (stable's results screen shows no pp; lazer shows pp but no if-FC). Renders nothing in
-// every other state.
+// the early/late split and a hit-error histogram of the attempt just played, plus the if-FC gap
+// (neither client's results screen shows what a full combo would have given; lazer already shows
+// the score's pp, so the card does not repeat it). Renders nothing in every other state, and
+// nothing in a results screen it has nothing to add to (catch with a full combo).
 //
 // vosu re-sends `/play/hitErrorArray` whole on every hit, and still holds the finished attempt
 // while the results screen shows (it clears it only on leaving for song select, menus or a
@@ -10,41 +11,45 @@
 // timing fields get their own subscription, opened on entering the results screen (its first
 // frame carries the whole attempt) and closed on leaving it. Gameplay costs nothing.
 //
-// The page is content-sized: hosts (OBS, vosulay, the replay renderer) place and size it. The
-// layout re-flows to the box it gets: a wide box (or orientation = horizontal) lays the readouts
-// out in one row, a taller one stacks them; the design is then scaled to the box's height or
-// width, whichever binds, and the spare length goes to the histogram.
-import { subscribe, settings, mapPalette, applyPalette, MODES } from './vosu-overlay.js';
+// Motion (setting `motion`): on entering the results screen the card rises in, the histogram's
+// bars grow from the zero line outward, the mean marker drops onto them and the numbers settle,
+// once per results screen. Nothing runs afterwards; reduced keeps the card's enter/exit only.
+//
+// The page is the host's box (OBS, vosulay, the replay renderer size it); the card is
+// content-sized inside it. A wide box (or orientation = horizontal) lays the readouts out in one
+// row, a taller one stacks them; --u scales the design to the box.
+import {
+  subscribe, settings, MODES, known, isKnown, DASH, numberFormatter, mean, unstableRate,
+  applyKitSettings, MOTION_MS,
+} from './vosu-overlay.js';
 
 const RESULTS = 7;
 const READY_FALLBACK_MS = 1500;
 const BINS = 41;
-const AMBER = '#ff963f';
-// Design boxes (CSS px at scale 1) per orientation; metadata.txt's resolution is the horizontal one.
-const DESIGN = { h: { w: 840, h: 112 }, v: { w: 320, h: 300 } };
+const CENTRE_BIN = (BINS - 1) / 2;
+// Design boxes per orientation (--u = 1); metadata.txt's resolution is the row.
+const DESIGN = { h: { w: 840, h: 96 }, v: { w: 320, h: 300 } };
 // Wider than this aspect lays out in a row.
 const ROW_ASPECT = 1.6;
+
+// Reveal timing (ms from the card's first frame). Bars: 300 ms each, 8 ms apart from the zero
+// line outward; the mean marker after the central bars; the numbers settle in reading order.
+const BAR_MS = 300;
+const BAR_STAGGER_MS = 8;
+const MARKER_DELAY_MS = 200;
+const MARKER_MS = MOTION_MS.base;
+const REVEAL_END_MS = Math.max(CENTRE_BIN * BAR_STAGGER_MS + BAR_MS, MARKER_DELAY_MS + MARKER_MS);
+const SETTLE_MS = MOTION_MS.base;
+const SETTLE_DELAYS = { ur: 140, mean: 180, split: 220, gap: 260 };
+const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'; // --ease-out
+const SETTLE_FRAMES = [{ opacity: 0, transform: 'translateY(.16em)' }, { opacity: 1, transform: 'none' }];
 
 const POINTERS = [
   '/state/number', '/resultsScreen/mode/number', '/play/mode/number', '/settings/mode/number',
   '/resultsScreen/score', '/resultsScreen/rank', '/resultsScreen/pp/current', '/resultsScreen/pp/fc',
-  '/beatmap/checksum',
 ];
 // Followed only while the results screen shows.
 const TIMING_POINTERS = ['/play/hitErrorArray', '/beatmap/stats/hitWindow'];
-
-// Hit-window scale per ruleset, innermost judgement first: colour key and hitWindow field.
-const SCALE_COLORS = {
-  osu: ['great', 'good', 'meh'],
-  taiko: ['great', 'good'],
-  mania: ['max', 'great', 'good', 'ok', 'meh'],
-};
-const SCALE_FIELDS = {
-  osu: ['great', 'ok', 'meh'],
-  taiko: ['great', 'ok'],
-  mania: ['perfect', 'great', 'good', 'ok', 'meh'],
-};
-const NO_SCALE = [];
 
 const $ = id => document.getElementById(id);
 const box = $('frame');
@@ -53,29 +58,32 @@ const chip = $('chip');
 const canvas = $('hist');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  ur: $('ur'), mean: $('mean'), early: $('early'), late: $('late'),
-  perf: $('perf'), pp: $('pp'), ifFc: $('ifFc'), ppFc: $('ppFc'), ppGap: $('ppGap'), chipText: $('chipText'),
+  ur: $('ur'), urFrac: $('urFrac'), mean: $('mean'), early: $('early'), late: $('late'),
+  onTime: $('onTime'), onTimeCell: $('onTimeCell'), ifFc: $('ifFc'), gap: $('gap'), chipText: $('chipText'),
 };
 
-const css = getComputedStyle(document.documentElement);
-const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-const COLORS = {
-  bar: token('--fg', '#ebe8e1'), axis: 'rgb(235 232 225 / .45)',
-  max: '#ebe8e1', great: '#7fa6cf', good: '#6fbf8e', ok: '#b8b5ad', meh: '#e8b04a',
-};
-let highlight = AMBER;
+const css = getComputedStyle(card);
+const token = name => css.getPropertyValue(name).trim();
+const COLORS = { bar: token('--text-2'), axis: token('--hair-strong'), base: token('--hair'), mean: token('--you') };
 
-// Page box and the layout derived from it (set from ResizeObserver, applied in rAF).
-let pageWidth = innerWidth;
-let pageHeight = innerHeight;
-let orient = 'h';
-let scale = 1;
-let canvasCssWidth = 0;
-let canvasCssHeight = 0;
+// One settle animation per number group, created once and restarted for each reveal.
+function settleAnimation(node, delay) {
+  const animation = node.animate(SETTLE_FRAMES, { duration: SETTLE_MS, delay, easing: EASE_OUT, fill: 'backwards' });
+  animation.cancel();
+  return animation;
+}
+const settles = [];
+for (const node of card.querySelectorAll('.settle')) {
+  const delay = node.closest('.c-ur') ? SETTLE_DELAYS.ur : node.closest('.c-mean') ? SETTLE_DELAYS.mean
+    : node.closest('.c-fc') ? SETTLE_DELAYS.gap : SETTLE_DELAYS.split;
+  settles.push(settleAnimation(node, delay));
+}
+// The if-FC gap can arrive after the reveal (pp is computed after the score); it settles alone.
+const gapSettle = settleAnimation(el.gap.parentElement, 0);
 
 // --------------------------------------------------------------------- hit-error capture
 // Every timing event of the attempt, appended from the array's new tail only.
-let errors = new Float32Array(4096);
+let errors = new Float64Array(4096);
 let errorCount = 0;
 let seenLength = 0;
 let firstSeen = NaN;
@@ -97,7 +105,7 @@ function ingest(array) {
     const value = array[i];
     if (typeof value !== 'number' || !Number.isFinite(value)) continue;
     if (errorCount === errors.length) {
-      const grown = new Float32Array(errors.length * 2);
+      const grown = new Float64Array(errors.length * 2);
       grown.set(errors);
       errors = grown;
     }
@@ -109,17 +117,18 @@ function ingest(array) {
 }
 
 // ------------------------------------------------------------------------- state
-const DEFAULTS = { orientation: 'auto', align: 'right', backing: 'none', accent: 'map', showHistogram: true, showPp: true, hold: 0 };
+const DEFAULTS = { orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', showHistogram: true, showPp: true, hold: 0 };
 let config = { ...DEFAULTS };
+let motion = 'full';
+let shadowed = false; // backing = none: the histogram gets the text's contrast shadow
 // Copied out of each frame (the shared client reuses its objects).
 let connected = false;
 let state;
 let mode = 'osu';
 let rank;
 let score;
-let pp = null;
-let ppFc = null;
-let checksum = '';
+let pp = NaN;
+let ppFc = NaN;
 // Hit windows (ms, 0 when absent).
 let windowPerfect = 0, windowGreat = 0, windowGood = 0, windowOk = 0, windowMeh = 0;
 
@@ -130,13 +139,15 @@ let holdTimer = 0;
 let readyTimer = 0;
 let expired = false;
 let visible = false;
+let revealed = false;     // the reveal ran for this results screen
+let revealStart = -1;     // rAF time of the reveal's first frame; NaN = starts next frame; -1 = none
 let textDirty = true;
-let histDirty = true;
+let statsDirty = true;    // histogram bins and the split, from the capture and the windows
+let drawDirty = true;     // canvas pixels
 let classDirty = true;
 let layoutDirty = true;
 let frame = 0;
 let chipTimer = 0;
-let palette = null;
 
 function schedule() {
   if (!frame) frame = requestAnimationFrame(render);
@@ -145,13 +156,14 @@ function schedule() {
 function onResultsEntered() {
   enteredAt = performance.now();
   expired = false;
+  revealed = false;
   clearTimeout(readyTimer);
   readyTimer = setTimeout(updateVisibility, READY_FALLBACK_MS);
   armHold();
   resetCapture();
   timingSeen = false;
   textDirty = true;
-  histDirty = true;
+  statsDirty = true;
   timing = subscribe(TIMING_POINTERS, onTimingFrame);
 }
 
@@ -178,7 +190,6 @@ function armHold() {
   holdTimer = setTimeout(onHoldExpired, remaining);
 }
 
-const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const windowOf = value => (typeof value === 'number' && value > 0 ? value : 0);
 
 // Waits for the score and the timing snapshot, so the card appears once, in its final layout.
@@ -188,14 +199,16 @@ function ready() {
 }
 
 const hasTiming = () => errorCount >= 2;
-const hasPp = () => config.showPp && pp !== null;
+// pp the score lost to combo breaks; unknown when either side was not computed (0 = not computed).
+const gapOf = () => (isKnown(pp) && isKnown(ppFc) ? ppFc - pp : NaN);
+const hasGap = () => config.showPp && gapOf() >= 0.5;
 
 function updateVisibility() {
-  // Nothing worth adding (catch without pp, a score opened from song select, …) renders nothing.
-  const next = connected && state === RESULTS && !expired && ready() && (hasTiming() || hasPp());
+  // Nothing worth adding (catch with a full combo, a score opened from song select, …) renders nothing.
+  const next = connected && state === RESULTS && !expired && ready() && (hasTiming() || hasGap());
   if (next === visible) return;
   visible = next;
-  if (visible) { textDirty = true; histDirty = true; }
+  if (visible) { textDirty = true; statsDirty = true; }
   classDirty = true;
   schedule();
 }
@@ -219,18 +232,14 @@ function onFrame(v, changed) {
   }
   if (changed.has('/resultsScreen/mode/number') || changed.has('/play/mode/number') || changed.has('/settings/mode/number')) {
     const nextMode = modeOf(v);
-    if (nextMode !== mode) { mode = nextMode; histDirty = true; }
+    if (nextMode !== mode) { mode = nextMode; statsDirty = true; }
   }
   if (changed.has('/resultsScreen/rank')) rank = v['/resultsScreen/rank'];
   if (changed.has('/resultsScreen/score')) score = v['/resultsScreen/score'];
-  if (changed.has('/resultsScreen/pp/current')) { pp = num(v['/resultsScreen/pp/current']); textDirty = true; }
-  if (changed.has('/resultsScreen/pp/fc')) { ppFc = num(v['/resultsScreen/pp/fc']); textDirty = true; }
-  if (changed.has('/beatmap/checksum')) {
-    const nextChecksum = typeof v['/beatmap/checksum'] === 'string' ? v['/beatmap/checksum'] : '';
-    if (nextChecksum !== checksum) { checksum = nextChecksum; requestPalette(); }
-  }
+  if (changed.has('/resultsScreen/pp/current')) { pp = known(v['/resultsScreen/pp/current'], true); textDirty = true; }
+  if (changed.has('/resultsScreen/pp/fc')) { ppFc = known(v['/resultsScreen/pp/fc'], true); textDirty = true; }
   updateVisibility();
-  if (visible && (textDirty || histDirty)) schedule();
+  if (visible && (textDirty || statsDirty)) schedule();
 }
 
 function onTimingFrame(v, changed) {
@@ -244,42 +253,21 @@ function onTimingFrame(v, changed) {
     windowGood = valid ? windowOf(w.good) : 0;
     windowOk = valid ? windowOf(w.ok) : 0;
     windowMeh = valid ? windowOf(w.meh) : 0;
-    histDirty = true;
+    statsDirty = true;
   }
   if (changed.has('/play/hitErrorArray') && ingest(v['/play/hitErrorArray'])) {
     textDirty = true;
-    histDirty = true;
+    statsDirty = true;
   }
   updateVisibility();
-  if (visible && (textDirty || histDirty)) schedule();
-}
-
-// Map tint: derived once per map off the hot path; the art itself is never shown.
-function requestPalette() {
-  palette = null;
-  applyTint();
-  if (config.accent !== 'map' || !checksum) return;
-  const wanted = checksum;
-  mapPalette(wanted).then(result => {
-    if (wanted !== checksum) return;
-    palette = result;
-    applyTint();
-  });
-}
-
-function applyTint() {
-  const use = config.accent === 'map' ? palette : null;
-  applyPalette(box, use);
-  box.classList.toggle('tint', !!use);
-  const next = use?.accent || AMBER;
-  if (next !== highlight) { highlight = next; histDirty = true; schedule(); }
+  if (visible && (textDirty || statsDirty)) schedule();
 }
 
 // The shared client reports 'live' on every frame, so this returns early unless the status changed.
 let status = '';
 function showChip() {
   chip.dataset.state = status;
-  setText(el.chipText, status === 'offline' ? 'vosu offline' : 'connecting to vosu');
+  setText(el.chipText, status === 'offline' ? 'vosu offline' : 'Connecting to vosu');
   chip.hidden = false;
 }
 
@@ -296,21 +284,24 @@ function onStatus(next) {
 }
 
 settings(DEFAULTS, next => {
-  const accentChanged = next.accent !== config.accent;
   config = { ...next, hold: Math.max(0, Number(next.hold) || 0) };
+  motion = applyKitSettings(card, config);
+  shadowed = card.dataset.backing === 'none';
+  if (motion !== 'full') finishReveal();
   classDirty = true;
-  histDirty = true;
+  statsDirty = true;
   textDirty = true;
   layoutDirty = true;
   armHold();
-  if (accentChanged) requestPalette();
   if (connected) updateVisibility();
   schedule();
 });
 
 subscribe(POINTERS, onFrame, { onStatus });
 
-// The page box decides orientation and scale; the canvas box its backing-store size.
+// The page box decides orientation and --u; the canvas box its backing-store size.
+let pageWidth = innerWidth;
+let pageHeight = innerHeight;
 new ResizeObserver(entries => {
   const rect = entries[0].contentRect;
   pageWidth = rect.width;
@@ -319,6 +310,8 @@ new ResizeObserver(entries => {
   schedule();
 }).observe(document.documentElement);
 
+let canvasCssWidth = 0;
+let canvasCssHeight = 0;
 new ResizeObserver(entries => {
   const rect = entries[0].contentRect;
   canvasCssWidth = rect.width;
@@ -326,23 +319,40 @@ new ResizeObserver(entries => {
   sizeCanvas();
 }).observe(canvas);
 
-// Backing store in device px: layout px × the frame's scale × devicePixelRatio.
+// ------------------------------------------------------------------------ layout
+let orient = '';
+let unit = 0;
+
+function layout() {
+  const width = pageWidth || DESIGN.h.w;
+  const height = pageHeight || DESIGN.h.h;
+  const nextOrient = config.orientation === 'horizontal' ? 'h' : config.orientation === 'vertical' ? 'v'
+    : width / height >= ROW_ASPECT ? 'h' : 'v';
+  const design = DESIGN[nextOrient];
+  const nextUnit = Math.round(Math.min(width / design.w, height / design.h) * 1000) / 1000;
+  if (nextOrient !== orient) { orient = nextOrient; box.dataset.orient = orient; }
+  const align = config.align === 'left' || config.align === 'center' ? config.align : 'right';
+  if (box.dataset.align !== align) box.dataset.align = align;
+  if (nextUnit !== unit) { unit = nextUnit; card.style.setProperty('--u', String(unit)); drawDirty = true; }
+}
+
+// Backing store in device px; the plot's geometry is derived from it in prepareBars().
 function sizeCanvas() {
-  const px = (devicePixelRatio || 1) * scale;
-  const width = Math.round(canvasCssWidth * px);
-  const height = Math.round(canvasCssHeight * px);
+  const ratio = devicePixelRatio || 1;
+  const width = Math.round(canvasCssWidth * ratio);
+  const height = Math.round(canvasCssHeight * ratio);
   if (width === canvas.width && height === canvas.height) return;
   canvas.width = width;
   canvas.height = height;
-  histDirty = true;
+  drawDirty = true;
   schedule();
 }
 
-// ------------------------------------------------------------------------ render
-// Writes only changed strings; "—" (no data) marks the element empty so CSS can quiet it.
+// ------------------------------------------------------------------------ text
+// Writes only changed strings (formatters return the same object for the same shown value).
 function setText(node, text) {
   if (node._text === text) return;
-  if ((node._text === '—') !== (text === '—')) node.classList.toggle('empty', text === '—');
+  if ((node._text === DASH) !== (text === DASH)) node.classList.toggle('kit-dash', text === DASH);
   node._text = text;
   node.textContent = text;
 }
@@ -351,119 +361,69 @@ function setHidden(node, hidden) {
   if (node.hidden !== hidden) node.hidden = hidden;
 }
 
-const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const urWhole = numberFormatter('count');
+const FRACTIONS = ['.0', '.1', '.2', '.3', '.4', '.5', '.6', '.7', '.8', '.9'];
+const msFormat = numberFormatter('ms');
+const gapFormat = numberFormatter('delta');
+const earlyFormat = numberFormatter('percent');
+const lateFormat = numberFormatter('percent');
+const onTimeFormat = numberFormatter('percent');
 
-function layout() {
-  const width = pageWidth || DESIGN.h.w;
-  const height = pageHeight || DESIGN.h.h;
-  orient = config.orientation === 'horizontal' ? 'h' : config.orientation === 'vertical' ? 'v' : width / height >= ROW_ASPECT ? 'h' : 'v';
-  const design = DESIGN[orient];
-  // Scale to the binding dimension; the frame then spans the box in design px, so the other
-  // dimension re-flows (histogram length) rather than letterboxing, up to a cap past which the
-  // readouts would drift apart; any remaining space is left empty and `align` places the frame.
-  scale = Math.min(width / design.w, height / design.h);
-  let frameWidth = width / scale;
-  let frameHeight = height / scale;
-  if (orient === 'h') frameHeight = Math.min(frameHeight, design.h * 1.25);
-  else { frameWidth = Math.min(frameWidth, design.w * 1.5); frameHeight = Math.min(frameHeight, design.h * 1.6); }
-  const align = config.align === 'left' || config.align === 'center' ? config.align : 'right';
-  const spare = width - frameWidth * scale;
-  const x = align === 'left' ? 0 : align === 'center' ? spare / 2 : spare;
-  box.dataset.orient = orient;
-  box.dataset.align = align;
-  box.style.width = `${frameWidth}px`;
-  box.style.height = `${frameHeight}px`;
-  box.style.transform = `translate(${Math.round(x)}px, 0) scale(${scale})`;
-  // Mono labels and units stay at least 9 px on screen in small boxes.
-  box.style.setProperty('--label', `${Math.max(12, 9 / scale).toFixed(2)}px`);
-  box.classList.toggle('compact', scale < 0.75);
-  sizeCanvas();
-}
-
-// Last formatted numbers (NaN = never shown), so strings are built only when a number changes.
-let shownPp = NaN;
-let shownPpFc = NaN;
-let shownGap = NaN;
-let shownUr = NaN;
-let shownMean = NaN;
-let shownEarly = NaN;
-let shownLate = NaN;
+let shownGap = false;
 
 function renderText() {
-  box.classList.toggle('no-timing', !hasTiming());
-  setHidden(el.perf, !hasPp());
-  if (pp === null) { shownPp = NaN; setText(el.pp, '—'); }
-  else {
-    const rounded = Math.round(pp);
-    if (rounded !== shownPp) { shownPp = rounded; setText(el.pp, integer.format(rounded)); }
-  }
-  const gap = pp !== null && ppFc !== null ? ppFc - pp : 0;
-  setHidden(el.ifFc, !(gap >= 0.5));
-  if (gap >= 0.5) {
-    const fc = Math.round(ppFc);
-    if (fc !== shownPpFc) { shownPpFc = fc; setText(el.ppFc, integer.format(fc)); }
-    const shownDiff = fc - Math.round(pp);
-    if (shownDiff !== shownGap) { shownGap = shownDiff; setText(el.ppGap, `+${integer.format(shownDiff)}`); }
-  }
+  const timed = hasTiming();
+  box.classList.toggle('no-timing', !timed);
+  const gap = gapOf();
+  const showGap = hasGap();
+  setHidden(el.ifFc, !showGap);
+  if (showGap) setText(el.gap, gapFormat(gap));
+  // A gap that arrives after the reveal settles in on its own.
+  if (showGap && !shownGap && revealed && motion === 'full' && visible) { gapSettle.currentTime = 0; gapSettle.play(); }
+  shownGap = showGap;
 }
 
-// Histogram scratch, reused for every draw.
+// --------------------------------------------------------------------- statistics
 const bins = new Uint32Array(BINS);
+const barHeight = new Float32Array(BINS); // share of the tallest bar, 0…1
+let average = 0;
+let range = 20;
 
-function windowField(field) {
-  switch (field) {
-    case 'perfect': return windowPerfect;
-    case 'great': return windowGreat;
-    case 'good': return windowGood;
-    case 'ok': return windowOk;
-    case 'meh': return windowMeh;
-    default: return 0;
-  }
-}
-
-function renderTiming() {
+function computeStats() {
   const n = errorCount;
   if (n < 2) return;
-  let sum = 0, early = 0, late = 0, extent = 0;
+  const capture = errors.subarray(0, n);
+  const ur = known(unstableRate(capture));
+  average = known(mean(capture));
+  let early = 0, late = 0, extent = 0;
   for (let i = 0; i < n; i++) {
     const e = errors[i];
-    sum += e;
     if (e < 0) early++; else if (e > 0) late++;
     const a = e < 0 ? -e : e;
     if (a > extent) extent = a;
   }
-  const average = sum / n;
-  let squares = 0;
-  for (let i = 0; i < n; i++) { const d = errors[i] - average; squares += d * d; }
-  const sigma = Math.sqrt(squares / n);
-  const ur = sigma * 10;
-  if (ur !== shownUr) { shownUr = ur; setText(el.ur, ur.toFixed(2)); }
-  if (average !== shownMean) {
-    shownMean = average;
-    setText(el.mean, `${average < 0 ? '−' : average > 0 ? '+' : ''}${Math.abs(average).toFixed(1)}`);
-  }
-  const earlyPercent = Math.round((early / n) * 100);
-  if (earlyPercent !== shownEarly) { shownEarly = earlyPercent; setText(el.early, `${earlyPercent}%`); }
-  const latePercent = Math.round((late / n) * 100);
-  if (latePercent !== shownLate) { shownLate = latePercent; setText(el.late, `${latePercent}%`); }
-  if (!config.showHistogram) return;
 
-  const width = canvas.width;
-  const height = canvas.height;
-  ctx.clearRect(0, 0, width, height);
-  const colors = SCALE_COLORS[mode] || NO_SCALE;
-  const fields = SCALE_FIELDS[mode] || NO_SCALE;
+  // UR as a hero with its decimal as a fraction: 130.2 → "130" + ".2".
+  if (isKnown(ur)) {
+    const key = Math.round(ur * 10);
+    setText(el.ur, urWhole((key - key % 10) / 10));
+    setText(el.urFrac, FRACTIONS[key % 10]);
+  } else { setText(el.ur, DASH); setText(el.urFrac, ''); }
+  setText(el.mean, msFormat(average));
+  splitShares(early, n - early - late, late, n);
+  setText(el.early, earlyFormat(shareEarly));
+  setText(el.late, lateFormat(shareLate));
+  setHidden(el.onTimeCell, shareOnTime === 0);
+  if (shareOnTime) setText(el.onTime, onTimeFormat(shareOnTime));
+
+  // Frame the distribution (±3.5σ around the mean), never tighter than the 300 window nor wider
+  // than the outermost one, so the strip shows shape rather than one spike.
+  const sigma = isKnown(ur) ? ur / 10 : 0;
   let outer = 0;
-  let great = 0;
-  for (let i = 0; i < fields.length; i++) {
-    const value = windowField(fields[i]);
-    if (value > outer) outer = value;
-    if (!great && colors[i] === 'great') great = value;
-  }
-  // Frame the distribution (±3.5σ around the mean), never tighter than the great window nor wider
-  // than the outermost one, so a 300 px strip shows shape rather than one spike.
-  const spread = Math.ceil((3.5 * sigma + Math.abs(average)) / 5) * 5;
-  const range = outer ? Math.min(outer, Math.max(great, spread, 10)) : Math.max(20, Math.ceil(extent / 10) * 10);
+  if (mode === 'osu' || mode === 'taiko') outer = Math.max(windowGreat, windowOk, mode === 'osu' ? windowMeh : 0);
+  else if (mode === 'mania') outer = Math.max(windowPerfect, windowGreat, windowGood, windowOk, windowMeh);
+  const spread = Math.ceil((3.5 * sigma + Math.abs(average || 0)) / 5) * 5;
+  range = outer ? Math.min(outer, Math.max(windowGreat, spread, 10)) : Math.max(20, Math.ceil(extent / 10) * 10);
   bins.fill(0);
   let peak = 0;
   for (let i = 0; i < n; i++) {
@@ -471,66 +431,162 @@ function renderTiming() {
     if (b < 0 || b >= BINS) continue; // outliers stay in UR/mean, not on the frame's edge
     if (++bins[b] > peak) peak = bins[b];
   }
-
-  const dpr = (devicePixelRatio || 1) * scale; // device px per design px
-  const hair = Math.max(1, Math.round(dpr));
-  const strip = Math.round(4 * dpr);
-  const base = height - strip - Math.round(4 * dpr); // bar baseline (device px)
-  const top = Math.round(6 * dpr);
-
-  // Contrast over any map background: the same restrained shadow as the text.
-  ctx.shadowColor = 'rgb(0 0 0 / .55)';
-  ctx.shadowBlur = 2 * dpr;
-  ctx.shadowOffsetY = dpr;
-
-  // Hit-window scale under the bars: innermost judgement drawn last so it stays on top.
-  for (let i = fields.length - 1; i >= 0; i--) {
-    const value = windowField(fields[i]);
-    if (!value) continue;
-    ctx.fillStyle = COLORS[colors[i]];
-    const x0 = Math.round(((range - value) / (2 * range)) * width);
-    ctx.fillRect(x0, height - strip, Math.round(((value + range) / (2 * range)) * width) - x0, strip);
-  }
-
-  // Bars, pixel-snapped with a 1 device-px gutter.
-  const step = width / BINS;
-  ctx.fillStyle = COLORS.bar;
-  ctx.globalAlpha = 0.92;
-  for (let b = 0; b < BINS; b++) {
-    if (!bins[b]) continue;
-    const x0 = Math.round(b * step);
-    const x1 = Math.round((b + 1) * step) - hair;
-    const h = Math.max(hair, Math.round((bins[b] / peak) * (base - top)));
-    ctx.fillRect(x0, base - h, Math.max(1, x1 - x0), h);
-  }
-  ctx.globalAlpha = 1;
-
-  // Baseline and zero line (hairlines).
-  ctx.fillStyle = COLORS.axis;
-  ctx.fillRect(0, base, width, hair);
-  ctx.fillRect(Math.round((range / (2 * range)) * width - hair / 2), 0, hair, base);
-
-  // Mean marker in the highlight colour, with a small cap.
-  const clamped = Math.max(-range, Math.min(range, average));
-  const m = Math.round(((clamped + range) / (2 * range)) * width - hair / 2);
-  ctx.fillStyle = highlight;
-  ctx.fillRect(m, 0, hair * 2, base + hair);
-  const cap = Math.round(4 * dpr);
-  ctx.fillRect(m - cap, 0, cap * 2 + hair * 2, hair * 2);
-  ctx.shadowColor = 'transparent';
+  for (let b = 0; b < BINS; b++) barHeight[b] = peak ? bins[b] / peak : 0;
 }
 
-function render() {
+// Early / on time / late as whole percentages that sum to 100 (largest remainder).
+let shareEarly = 0, shareOnTime = 0, shareLate = 0;
+function splitShares(early, onTime, late, n) {
+  const e = (early * 100) / n, o = (onTime * 100) / n, l = (late * 100) / n;
+  shareEarly = Math.floor(e); shareOnTime = Math.floor(o); shareLate = Math.floor(l);
+  let re = e - shareEarly, ro = o - shareOnTime, rl = l - shareLate;
+  for (let left = 100 - shareEarly - shareOnTime - shareLate; left > 0; left--) {
+    if (re >= rl && re >= ro) { shareEarly++; re = -1; }
+    else if (rl >= ro) { shareLate++; rl = -1; }
+    else { shareOnTime++; ro = -1; }
+  }
+}
+
+// ------------------------------------------------------------------------ drawing
+// Everything a frame needs is precomputed in device px (prepareBars, on data, size or settings
+// changes) and eased through integer tables, so a reveal frame runs on small integers only: no
+// number boxing and no garbage, even in code the engine has not optimised yet (the reveal is
+// over before it would be).
+const EASE_ONE = 1024; // fixed-point 1.0 (>> 10)
+// Expo-out (close to --ease-out) sampled per ms.
+function easeTable(duration) {
+  const table = new Uint16Array(duration + 1);
+  for (let i = 0; i <= duration; i++) table[i] = i >= duration ? EASE_ONE : Math.round(EASE_ONE * (1 - Math.pow(2, (-10 * i) / duration)));
+  return table;
+}
+const BAR_EASE = easeTable(BAR_MS);
+const MARKER_EASE = easeTable(MARKER_MS);
+const AT_REST = 1 << 20; // a reveal time past every delay
+const SHADOW = 'rgb(0 0 0 / .6)';
+const NO_SHADOW = 'transparent';
+// Each bar starts BAR_STAGGER_MS after its inner neighbour: the zero line's bin first.
+const barDelay = new Int32Array(BINS);
+for (let b = 0; b < BINS; b++) barDelay[b] = (b < CENTRE_BIN ? CENTRE_BIN - b : b - CENTRE_BIN) * BAR_STAGGER_MS;
+const barX = new Int32Array(BINS);
+const barW = new Int32Array(BINS);
+const barFull = new Int32Array(BINS); // full height; 0 = empty bin
+let hair = 1;
+let plotBase = 0;
+let zeroX = 0, zeroTop = 0, zeroHeight = 0;
+let hasMarker = false, markerX = 0, markerTop = 0, markerLength = 0, capX = 0, capWidth = 0;
+let shadowBlur = 0, shadowOffset = 0;
+
+// The plot in device px: bars rise from the numerals' baseline (6 design px above the canvas
+// bottom: the zero tick hangs below it) to 6 px under the top, where the mean marker's cap sits.
+function prepareBars() {
+  const width = canvas.width;
+  const height = canvas.height;
+  const dpr = (devicePixelRatio || 1) * (unit || 1); // device px per design px
+  hair = Math.max(1, Math.round(devicePixelRatio || 1));
+  plotBase = height - Math.round(6 * dpr);
+  const plotTop = Math.round(6 * dpr);
+  const rows = Math.max(0, plotBase - plotTop);
+  zeroX = Math.round(width / 2 - hair / 2);
+  zeroTop = plotTop;
+  zeroHeight = height - plotTop;
+  // Pixel-snapped bars with a 1 device-px gutter.
+  const step = width / BINS;
+  for (let b = 0; b < BINS; b++) {
+    const x0 = Math.round(b * step);
+    barX[b] = x0;
+    barW[b] = Math.max(1, Math.round((b + 1) * step) - hair - x0);
+    barFull[b] = bins[b] ? Math.max(hair, Math.round(barHeight[b] * rows)) : 0;
+  }
+  hasMarker = errorCount >= 2 && isKnown(average);
+  if (hasMarker) {
+    const clamped = Math.max(-range, Math.min(range, average));
+    markerX = Math.round(((clamped + range) / (2 * range)) * width - hair);
+    markerTop = plotTop - Math.round(4 * dpr);
+    markerLength = plotBase + hair - markerTop;
+    const cap = Math.round(4 * dpr);
+    capX = markerX - cap;
+    capWidth = cap * 2 + hair * 2;
+  }
+  shadowBlur = 2 * dpr;
+  shadowOffset = dpr;
+}
+
+// Draws the histogram `t` whole ms into the reveal (AT_REST = complete).
+function drawHistogram(t) {
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  if (!width || !height || errorCount < 2 || !config.showHistogram) return;
+  // Contrast over an undimmed map only without a backing (the scrim already gives it).
+  if (shadowed) { ctx.shadowColor = SHADOW; ctx.shadowBlur = shadowBlur; ctx.shadowOffsetY = shadowOffset; }
+
+  // Zero: a hairline behind the bars and a tick hanging below the baseline, where bars never reach.
+  ctx.fillStyle = COLORS.axis;
+  ctx.fillRect(zeroX, zeroTop, hair, zeroHeight);
+  ctx.fillStyle = COLORS.base;
+  ctx.fillRect(0, plotBase, width, hair);
+
+  // Bars grow from the baseline, centre first.
+  ctx.fillStyle = COLORS.bar;
+  for (let b = 0; b < BINS; b++) {
+    const full = barFull[b];
+    if (!full) continue;
+    let k = t - barDelay[b];
+    if (k <= 0) continue;
+    if (k > BAR_MS) k = BAR_MS;
+    let h = (full * BAR_EASE[k]) >> 10;
+    if (h < hair) h = hair;
+    ctx.fillRect(barX[b], plotBase - h, barW[b], h);
+  }
+
+  // Mean marker in amber (your timing): its cap appears, then the line drops onto the bars.
+  let k = t - MARKER_DELAY_MS;
+  if (hasMarker && k > 0) {
+    if (k > MARKER_MS) k = MARKER_MS;
+    ctx.fillStyle = COLORS.mean;
+    ctx.fillRect(capX, markerTop, capWidth, hair * 2);
+    ctx.fillRect(markerX, markerTop, hair * 2, (markerLength * MARKER_EASE[k]) >> 10);
+  }
+  if (shadowed) ctx.shadowColor = NO_SHADOW;
+}
+
+// ------------------------------------------------------------------------ reveal
+function startReveal() {
+  revealed = true;
+  if (motion !== 'full') return;
+  revealStart = NaN;
+  for (let i = 0; i < settles.length; i++) { settles[i].currentTime = 0; settles[i].play(); }
+}
+
+function finishReveal() {
+  if (revealStart === -1) return;
+  revealStart = -1;
+  for (let i = 0; i < settles.length; i++) settles[i].cancel();
+  drawDirty = true;
+}
+
+function render(now) {
   frame = 0;
   if (layoutDirty) { layoutDirty = false; layout(); }
   if (classDirty) {
     classDirty = false;
-    box.dataset.backing = config.backing;
     box.classList.toggle('no-hist', !config.showHistogram);
-    card.classList.toggle('on', visible);
+    if (visible) card.removeAttribute('data-out'); else card.setAttribute('data-out', '');
     card.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    if (!visible) finishReveal();
   }
   if (!connected || !visible) return;
   if (textDirty) { textDirty = false; renderText(); }
-  if (histDirty) { histDirty = false; renderTiming(); }
+  if (statsDirty) { statsDirty = false; computeStats(); drawDirty = true; }
+  const dirty = drawDirty;
+  if (dirty) { drawDirty = false; prepareBars(); }
+  if (!revealed) startReveal();
+  if (revealStart !== -1) {
+    if (revealStart !== revealStart) revealStart = now; // NaN: the reveal's first frame
+    const t = (now - revealStart) | 0;
+    drawHistogram(t);
+    if (t < REVEAL_END_MS) schedule(); else revealStart = -1;
+    return;
+  }
+  if (dirty) drawHistogram(AT_REST);
 }

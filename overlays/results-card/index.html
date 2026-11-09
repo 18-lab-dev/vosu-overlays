@@ -5,33 +5,34 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Results timing</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="frame" class="frame" data-orient="h" data-align="right">
-  <section id="card" class="card" aria-label="Results timing and performance" aria-hidden="true">
+  <section id="card" class="kit card" data-out aria-label="Results timing" aria-hidden="true">
     <div class="cell c-ur timing">
-      <p class="label">UR</p>
-      <b id="ur" class="big">—</b>
+      <p class="kit-label">UR</p>
+      <p class="kit-hero num settle"><span id="ur">—</span><span id="urFrac" class="kit-frac"></span></p>
     </div>
     <div class="cell c-mean timing">
-      <p class="label">Mean</p>
-      <p class="value"><b id="mean">—</b><small>ms</small></p>
+      <p class="kit-label">Mean</p>
+      <p class="kit-value num settle"><span id="mean">—</span><span class="kit-unit">ms</span></p>
     </div>
     <div class="cell c-hist timing">
-      <p class="label axis"><span class="early">Early <b id="early">—</b></span><span class="late"><b id="late">—</b> Late</span></p>
-      <div class="hist"><canvas id="hist" aria-label="Hit error histogram"></canvas></div>
-    </div>
-    <div id="perf" class="cell c-pp">
-      <p class="label"><span class="long">Performance</span><span class="short">pp</span></p>
-      <p class="value"><b id="pp" class="big">—</b><small>pp</small></p>
+      <p class="kit-label split">
+        <span class="settle"><span class="early">Early</span> <b id="early">—</b><span class="kit-unit tight">%</span></span>
+        <span id="onTimeCell" class="settle on-time" hidden><b id="onTime">—</b><span class="kit-unit tight">%</span> on time</span>
+        <span class="settle"><b id="late">—</b><span class="kit-unit tight">%</span> <span class="late">Late</span></span>
+      </p>
+      <div class="hist"><canvas id="hist" aria-label="Hit error histogram, early to the left, late to the right"></canvas></div>
     </div>
     <div id="ifFc" class="cell c-fc">
-      <p class="label">If FC</p>
-      <p class="value"><b id="ppFc">—</b><small id="ppGap"></small></p>
+      <p class="kit-label">If FC</p>
+      <p class="kit-value num settle"><span id="gap">—</span><span class="kit-unit">pp</span></p>
     </div>
   </section>
-  <p id="chip" class="chip" hidden><i></i><span id="chipText">vosu offline</span></p>
+  <p id="chip" class="chip kit-caption" hidden><i></i><span id="chipText">vosu offline</span></p>
 </div>
 <script type="module" src="overlay.js"></script>
 </body>

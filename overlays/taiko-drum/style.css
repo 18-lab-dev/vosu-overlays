@@ -1,179 +1,180 @@
-/* Copyright (c) 2026 18-LAB. MIT. */
-:root { --j-max: #ebe8e1; --j-great: #7fa6cf; --j-good: #6fbf8e; --j-ok: #b8b5ad; --j-meh: #e8b04a; --j-miss: #ef5b4f; }
+/* Copyright (c) 2026 18-LAB. MIT.
+ * Taiko drum on the 18-LAB kit (kit.css): type roles, colour roles, backing, signature and motion
+ * come from the kit; this file only lays the drum out. Every size is px × --u (overlay.js sets --u
+ * from the page box: 1 at the default 560×96 row). */
 
 *, *::before, *::after { box-sizing: border-box; }
-/* tokens.css sets color-scheme: dark; a mismatched embedder would then paint an opaque backdrop. */
-html[data-theme] { color-scheme: normal; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { color: var(--fg); font: 400 14px/1.2 var(--font-body); -webkit-font-smoothing: antialiased; user-select: none; }
+/* The page fills the host's box; the kit root is content-sized inside it, placed by `align`. */
+body { display: flex; align-items: center; justify-content: flex-start; }
+body[data-align="centre"] { justify-content: center; }
+body[data-align="right"] { justify-content: flex-end; }
 
-/* The page is laid out at design size (JS sets width/height in design px) and scaled to the box. */
 #ov {
-  --tint: var(--map-accent, var(--accent));
-  --z0: var(--signal); --z1: var(--danger); --z2: var(--danger); --z3: var(--signal);
-  --d: 76px;
-  position: absolute;
-  left: 0;
-  top: 0;
+  --d: calc(var(--u) * 64px);       /* drum diameter */
+  --col: calc(var(--u) * 52px);     /* one zone count column */
+  --pair: calc(var(--u) * 8px);     /* between the two zones of one hand */
+  --split: calc(var(--u) * 16px);   /* between the hands */
+  --gap: calc(var(--u) * 24px);
+  --count-size: calc(var(--u) * 24px);
+  --bal-size: calc(var(--u) * 20px);
+  flex: none;
+}
+.z0, .z3 { --zone: var(--kat); }
+.z1, .z2 { --zone: var(--don); }
+/* Unknown values are a dash without their unit. */
+.kit-dash + .kit-unit { display: none; }
+
+/* Visibility: the row during taiko play, the chip for connection / missing data. Leaving play
+   fades the whole root out (kit-enter); the last content stays under the fade. */
+.row, .chip { display: none; }
+#ov[data-show="play"] .row { display: flex; }
+#ov:is([data-show="chip"], [data-show="note"]) .chip { display: flex; }
+
+/* ------------------------------------------------------------------ row (horizontal, full) */
+.row { align-items: center; gap: var(--gap); }
+#ov[data-align="right"] .row { flex-direction: row-reverse; }
+.row > * { flex: none; }
+
+/* Drum: a static outline layer and one lit layer per zone. A press only changes a lit layer's
+   opacity (a compositor animation), so the drum never repaints while it plays. */
+.b-drum { position: relative; width: var(--d); height: var(--d); margin-right: calc(var(--u) * -12px); }
+#ov[data-align="right"] .b-drum { margin-right: 0; margin-left: calc(var(--u) * -12px); }
+.b-drum svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.drum-rest path {
+  fill: color-mix(in srgb, var(--zone) 14%, rgb(var(--backing-rgb) / .6));
+  stroke: color-mix(in srgb, var(--zone) 55%, transparent);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.drum-lit { opacity: 0; will-change: opacity; }
+.drum-lit path { fill: var(--zone); stroke: var(--zone); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+
+/* Zone counts in the drum's own left-to-right order (left rim, left centre, right centre, right
+   rim), each marked by its zone colour; the hand split sits under them. */
+.b-counts {
   display: grid;
-  transform-origin: 0 0;
-  contain: layout paint style;
-  text-shadow: 0 1px 2px rgb(0 0 0 / .65);
-}
-#ov > * { grid-area: 1 / 1; }
-#ov[data-accent="18-lab"] { --tint: var(--accent); }
-#ov[data-colour="hands"] { --z0: var(--signal); --z1: var(--signal); --z2: var(--accent); --z3: var(--accent); }
-#ov[data-colour="mono"] { --z0: var(--fg); --z1: var(--fg); --z2: var(--fg); --z3: var(--fg); }
-
-/* Backing: none floats on the game; scrim fades out before the box edge; panel is the graphite card. */
-#ov::before { content: ""; grid-area: 1 / 1; border-radius: var(--radius); pointer-events: none; }
-#ov[data-backing="scrim"]::before { background: radial-gradient(farthest-side, rgb(5 6 7 / .6), rgb(5 6 7 / .35) 65%, rgb(5 6 7 / 0)); }
-#ov[data-backing="panel"]::before { background: rgb(17 18 20 / .86); border: 1px solid var(--rule-strong); border-top: 2px solid var(--tint); }
-
-.label, .hand, .pct, .seq-hands, .chip {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 14px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-.pct { color: var(--fg); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-.num-l, .num-xl {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  white-space: nowrap;
-  line-height: 1;
-}
-/* Every labelled block shares one grid: a 14 px label line, 4 px, a 34 px value line. */
-.num-l { font-size: 24px; line-height: 34px; }
-.num-xl { font-size: 32px; line-height: 34px; }
-.tint { color: var(--tint); }
-.empty { color: var(--fg-dim); }
-.short { display: none; }
-
-/* Visibility: one of the row (gameplay) or the chip (connection / no data). */
-.row, .chip {
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 200ms var(--ease-draft), visibility 0s linear 200ms;
-}
-#ov[data-show="play"] .row,
-#ov[data-show="chip"] .chip,
-#ov[data-show="note"] .chip {
-  opacity: 1;
-  visibility: visible;
-  transition: opacity 200ms var(--ease-draft), visibility 0s;
-}
-
-.block { flex: none; min-width: 0; }
-.b-drum { width: var(--d); height: var(--d); position: relative; }
-.b-drum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.b-counts { display: grid; grid-template-columns: repeat(4, 48px); column-gap: 8px; }
-.zc { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.zt { position: absolute; bottom: -3px; width: 16px; height: 3px; border-radius: 1px; background: var(--z0); box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
-.zt-1 { background: var(--z1); }
-.zt-2 { background: var(--z2); }
-.zt-3 { background: var(--z3); }
-.stat { display: flex; flex-direction: column; gap: 4px; }
-
-.b-hands { display: flex; flex-direction: column; gap: 4px; width: 184px; }
-.hands-row { display: flex; align-items: center; gap: 8px; height: 34px; }
-.side { display: inline-flex; gap: 4px; min-width: 44px; }
-.side:last-child { justify-content: flex-end; }
-.track { position: relative; flex: 1; height: 4px; background: rgb(235 232 225 / .28); border-radius: 1px; overflow: hidden; box-shadow: 0 1px 2px rgb(0 0 0 / .5); }
-.fill { position: absolute; inset: 0; background: var(--tint); transform-origin: 0 50%; transform: scaleX(0); }
-#ov[data-colour="hands"] .track { background: var(--accent); }
-#ov[data-colour="hands"] .fill { background: var(--signal); }
-#ov[data-empty="true"] .track { background: rgb(235 232 225 / .28); }
-.mid { position: absolute; left: calc(50% - 1px); top: 0; width: 2px; height: 4px; background: var(--bg); }
-
-.b-seq { display: flex; align-items: stretch; gap: 8px; height: 30px; margin-top: 20px; }
-.seq-hands { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; line-height: 13px; }
-.b-seq canvas { flex: 1; min-width: 0; height: 100%; display: block; }
-
-/* Horizontal: one row, the drum at the aligned end, the hit strip absorbs spare width. ---- */
-#ov[data-orient="horizontal"] .row { display: flex; align-items: center; gap: 24px; padding: 0 12px; height: 100%; }
-#ov[data-orient="horizontal"][data-align="right"] .row { flex-direction: row-reverse; }
-#ov[data-orient="horizontal"][data-align="centre"] .row { justify-content: center; }
-#ov[data-orient="horizontal"] .b-kps { width: 64px; }
-#ov[data-orient="horizontal"] .b-peak { width: 52px; }
-#ov[data-orient="horizontal"] .b-seq { flex: 1 1 0; min-width: 120px; max-width: 360px; }
-#ov[data-orient="horizontal"] .b-alt { width: 100px; }
-#ov[data-orient="horizontal"] .b-rep { width: 84px; }
-
-/* Compact (short boxes, e.g. a 264 px renderer cell): labels go inline, everything flattens. */
-#ov[data-density="compact"] { --d: 48px; }
-#ov[data-density="compact"] .row { gap: 18px; padding: 0 6px; }
-#ov[data-density="compact"] .b-counts { grid-template-columns: repeat(4, 44px); column-gap: 6px; }
-#ov[data-density="compact"] .zc .label,
-#ov[data-density="compact"] .b-hands > .label,
-#ov[data-density="compact"] :is(.b-alt, .b-rep) > .label:not(.short) { display: none; }
-#ov[data-density="compact"] .short { display: inline; }
-#ov[data-density="compact"] .stat { flex-direction: row; align-items: baseline; gap: 6px; }
-#ov[data-density="compact"] .num-l { font-size: 22px; }
-#ov[data-density="compact"] .num-xl { font-size: 26px; }
-#ov[data-density="compact"] .b-kps { width: 70px; }
-#ov[data-density="compact"] .b-peak { width: 80px; }
-#ov[data-density="compact"] .b-hands { width: 150px; }
-#ov[data-density="compact"] .b-seq { height: 24px; min-width: 100px; margin-top: 0; }
-#ov[data-density="compact"] .b-alt { width: 80px; }
-#ov[data-density="compact"] .b-rep { width: 70px; }
-
-/* Vertical: drum on top, counts under it, stats in two columns. ------------------ */
-#ov[data-orient="vertical"] { --d: 176px; }
-#ov[data-orient="vertical"] .row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-areas: "drum drum" "counts counts" "kps peak" "hands hands" "seq seq" "alt rep";
-  gap: 16px;
-  align-content: center;
-  padding: 16px;
-  width: 296px;
-  align-self: center;
-}
-#ov[data-orient="vertical"][data-align="centre"] .row { justify-self: center; }
-#ov[data-orient="vertical"][data-align="right"] .row { justify-self: end; }
-#ov[data-orient="vertical"] .b-drum { grid-area: drum; justify-self: center; }
-#ov[data-orient="vertical"] .b-counts { grid-area: counts; grid-template-columns: repeat(4, 1fr); margin-top: -4px; }
-#ov[data-orient="vertical"] .b-kps { grid-area: kps; }
-#ov[data-orient="vertical"] .b-peak { grid-area: peak; }
-#ov[data-orient="vertical"] .b-hands { grid-area: hands; width: auto; }
-#ov[data-orient="vertical"] .b-seq { grid-area: seq; height: 26px; margin-top: 0; }
-#ov[data-orient="vertical"] .b-alt { grid-area: alt; }
-#ov[data-orient="vertical"] .b-rep { grid-area: rep; }
-#ov[data-orient="vertical"][data-align="left"] .b-drum { justify-self: start; }
-#ov[data-orient="vertical"][data-align="right"] .b-drum { justify-self: end; }
-#ov[data-orient="vertical"][data-align="right"] .stat { align-items: flex-end; }
-
-#ov[data-stats="false"] :is(.b-kps, .b-peak, .b-hands, .b-seq, .b-alt, .b-rep) { display: none; }
-#ov[data-drop~="rep"] .b-rep, #ov[data-drop~="peak"] .b-peak, #ov[data-drop~="seq"] .b-seq,
-#ov[data-drop~="alt"] .b-alt, #ov[data-drop~="hands"] .b-hands { display: none; }
-
-/* Connection / no-data / missing extension: one small chip. ---------------------- */
-.chip {
-  display: inline-flex;
+  grid-template-columns: var(--col) var(--pair) var(--col) var(--split) var(--col) var(--pair) var(--col);
+  grid-template-rows: auto auto;
+  row-gap: calc(var(--u) * 10px);
   align-items: center;
-  gap: 8px;
-  align-self: center;
-  justify-self: start;
-  margin: 0 12px;
-  padding: 6px 10px;
-  background: rgb(17 18 20 / .78);
-  border-radius: var(--radius);
-  text-transform: none;
-  letter-spacing: .02em;
-  text-shadow: none;
+  justify-items: center;
 }
-#ov[data-align="right"] .chip { justify-self: end; }
-#ov[data-align="centre"] .chip { justify-self: center; }
-.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--fg-dim); }
-.chip[data-tone="offline"] .dot { background: var(--danger); box-shadow: none; }
-.chip[data-tone="connecting"] .dot { background: var(--caution); box-shadow: none; }
-.chip-note { display: none; font-family: var(--font-body); font-size: 13px; }
-.chip-note code { font: 500 12px var(--font-mono); color: var(--caution); }
+.zc { position: relative; padding-bottom: calc(var(--u) * 7px); font-size: var(--count-size); }
+.zc::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - var(--u) * 10px);
+  bottom: 0;
+  width: calc(var(--u) * 20px);
+  height: max(2px, calc(var(--u) * 3px));
+  background: var(--zone);
+}
+.z0.zc { grid-column: 1; }
+.z1.zc { grid-column: 3; }
+.z2.zc { grid-column: 5; }
+.z3.zc { grid-column: 7; }
+.bal { grid-row: 2; font-size: var(--bal-size); }
+.bal-l { grid-column: 1; }
+.bal-r { grid-column: 7; }
+/* The hand split: the left hand's share of all presses, growing from the left under the left
+   hand's counts; the tick marks an even split, under the gap between the hands. */
+.track {
+  grid-row: 2;
+  grid-column: 3 / 6;
+  justify-self: stretch;
+  position: relative;
+  height: max(2px, calc(var(--u) * 3px));
+  background: var(--hair);
+}
+.track::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 0.5px);
+  top: calc(var(--u) * -3px);
+  width: 1px;
+  height: calc(100% + var(--u) * 6px);
+  background: var(--hair-strong);
+}
+#bal-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--text-2);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  transition: transform var(--dur-base) var(--ease-out);
+  will-change: transform;
+}
+
+/* Alternation, the hero: share of consecutive hits on opposite hands. The label tucks into the
+   hero's top leading so both fit the 64 px row. */
+.b-alt { display: flex; flex-direction: column; width: calc(var(--u) * 100px); }
+.b-alt .kit-label { margin-bottom: calc(var(--u) * -8px); }
+#ov[data-align="right"] .b-alt { align-items: flex-end; }
+
+.b-kps { display: none; flex-direction: column; gap: calc(var(--u) * 6px); width: calc(var(--u) * 64px); }
+#ov[data-kps="true"] .b-kps { display: flex; }
+.peak { display: flex; align-items: baseline; gap: calc(var(--u) * 6px); }
+.peak .kit-value { font-size: var(--bal-size); }
+#ov[data-align="right"] .b-kps { align-items: flex-end; }
+
+#ov[data-drop~="kps"] .b-kps, #ov[data-drop~="alt"] .b-alt { display: none; }
+
+/* ------------------------------------------------------------------ compact (short boxes)
+   One line: counts, the hand split beside them, alternation and KPS as inline values. */
+#ov[data-density="compact"] {
+  --pad: var(--s-2);
+  --feather: var(--s-1);
+  --d: calc(var(--u) * 32px);
+  --col: calc(var(--u) * 44px);
+  --pair: calc(var(--u) * 6px);
+  --split: calc(var(--u) * 12px);
+  --gap: calc(var(--u) * 16px);
+  --count-size: calc(var(--u) * 22px);
+}
+#ov[data-density="compact"] .b-counts {
+  grid-template-columns: var(--col) var(--pair) var(--col) var(--split) var(--col) var(--pair) var(--col) var(--gap) calc(var(--u) * 36px) calc(var(--u) * 52px) calc(var(--u) * 36px);
+  grid-template-rows: auto;
+  column-gap: 0;
+}
+#ov[data-density="compact"] .zc { padding-bottom: calc(var(--u) * 5px); }
+#ov[data-density="compact"] .bal { grid-row: 1; }
+#ov[data-density="compact"] .bal-l { grid-column: 9; }
+#ov[data-density="compact"] .bal-r { grid-column: 11; }
+#ov[data-density="compact"] .track { grid-row: 1; grid-column: 10; margin: 0 calc(var(--u) * 6px); }
+#ov[data-density="compact"] .b-alt { flex-direction: row; align-items: baseline; gap: calc(var(--u) * 6px); width: calc(var(--u) * 124px); }
+#ov[data-density="compact"] .b-alt .kit-label { margin: 0; }
+#ov[data-density="compact"] .b-alt .kit-hero { font-size: calc(var(--u) * 24px); }
+#ov[data-density="compact"] .b-kps .peak { display: none; }
+
+/* ------------------------------------------------------------------ vertical (tall boxes)
+   Drum on top, the counts and hand split under it, alternation and KPS at the foot. */
+#ov[data-orient="vertical"] {
+  --d: calc(var(--u) * 112px);
+  --col: calc(var(--u) * 50px);
+  --pair: calc(var(--u) * 6px);
+  --split: calc(var(--u) * 12px);
+  --count-size: calc(var(--u) * 22px);
+}
+#ov[data-show="play"][data-orient="vertical"] .row {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: "drum drum" "counts counts" "alt kps";
+  justify-content: space-between;
+  row-gap: calc(var(--u) * 16px);
+  column-gap: var(--gap);
+}
+#ov[data-orient="vertical"] .b-drum { grid-area: drum; justify-self: center; margin: 0; }
+#ov[data-orient="vertical"] .b-counts { grid-area: counts; }
+#ov[data-orient="vertical"] .b-alt { grid-area: alt; }
+#ov[data-orient="vertical"] .b-kps { grid-area: kps; align-self: end; align-items: flex-end; }
+
+/* ------------------------------------------------------------------ chip
+   Connection state or missing vosu data: one caption line. */
+.chip { align-items: center; gap: var(--s-2); margin: 0; }
+.dot { width: calc(var(--u) * 6px); height: calc(var(--u) * 6px); border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--text-3); }
+.chip[data-tone="offline"] .dot { background: var(--j-miss); box-shadow: none; }
+.chip-note { display: none; }
+.chip-note code { font: 500 calc(var(--u) * 14px)/1 var(--font-mono); color: var(--text-2); }
 #ov[data-show="note"] .chip-note { display: inline; }
-#ov[data-show="note"] .dot, #ov[data-show="note"] #chip-text { display: none; }
+#ov[data-show="note"] :is(.dot, #chip-text) { display: none; }

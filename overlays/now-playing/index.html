@@ -13,8 +13,9 @@
 <section class="kit kit-enter" id="np" data-out data-orient="vertical" data-align="end" data-layout="full" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Now playing">
   <div class="body" id="body">
     <div class="ident" id="ident">
-      <h1 class="title kit-title" id="title"><span data-f="title"></span><span class="joined kit-text" aria-hidden="true"><span class="sep"> · </span><span data-f="artistJoined"></span></span></h1>
-      <p class="meta kit-text"><span class="artist" id="artistLine"><span data-f="artist"></span><span class="suffix" id="suffixWrap"> <span data-f="suffix"></span></span></span><span class="sep" aria-hidden="true"> · </span><span class="diffline"><span class="diff" data-f="version"></span><span class="mapper" id="mapperWrap"><span class="by"> by </span><span data-f="mapper"></span></span></span></p>
+      <h1 class="title kit-title" id="title"><span data-f="title"></span><span class="joined kit-text" id="joined" hidden><span class="sep"> · </span><span data-f="artistJoined"></span></span></h1>
+      <p class="meta kit-text" id="meta"><span class="artist" data-f="artist"></span><span class="suffix" data-f="suffix"></span><span class="sep" data-f="sep"></span><span class="diff" data-f="version"></span></p>
+      <p class="credit kit-caption" id="credit" hidden>mapped by <span class="mapper" data-f="mapper"></span></p>
     </div>
     <div class="prog" id="prog" aria-hidden="true"><div class="track"><i class="fill kit-ambient" id="bar"></i></div></div>
     <div class="nums">

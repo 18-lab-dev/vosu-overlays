@@ -17,28 +17,23 @@ p, h1, dl, dd { margin: 0; }
 #np[data-align="end"] { text-align: right; }
 
 /* ------------------------------------------------------------------ identity
-   Title (two lines at most, ellipsis), then the artist with the title's (…)/[…] suffix, then the
-   difficulty by the mapper. A short artist joins the title's line (data-join) instead of standing
-   alone; when the title needs two lines, artist and difficulty share one line (suffix dropped)
-   so the card keeps its height. */
+   Column: the title (two lines when the card has the height, else one), a short artist joined to
+   it; one line of artist, the title's (…)/[…] suffix and the difficulty; then "mapped by X" as a
+   caption. Strip: the title, then one line ending in "mapped by X". Single lines are fitted in
+   overlay.js with the shared fitFields() (suffix, then difficulty, then artist give way; a mapper
+   of 16 characters or fewer is never cut); the CSS ellipsis below is only a backstop. */
 .ident { min-width: 0; }
 .title {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   overflow-wrap: anywhere;
 }
-.title .joined { display: none; color: var(--text-2); }
+.ident[data-title-lines="1"] .title { -webkit-line-clamp: 1; }
+.title .joined { color: var(--text-2); }
 .title .joined .sep { color: var(--text-3); }
-.ident[data-join] .title .joined { display: inline; }
-.ident[data-join] .meta .artist { display: none; }
-.meta .artist, .meta .diffline { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meta .sep { display: none; color: var(--text-3); }
-.meta .suffix { color: var(--text-3); }
+.meta, .credit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .suffix, .meta .sep { color: var(--text-3); }
 .meta .diff { color: var(--text-1); }
-.meta .by { color: var(--text-3); }
-.ident[data-merge] .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ident[data-merge] .meta :is(.artist, .diffline) { display: inline; }
-.ident[data-merge] .meta .sep { display: inline; }
-.ident[data-merge] .meta .suffix { display: none; }
+.mapper { color: var(--text-2); }
 
 /* ------------------------------------------------------------------ progress
    The map's progress as a hairline in the map colour (createMapClock, the clock strain-graph

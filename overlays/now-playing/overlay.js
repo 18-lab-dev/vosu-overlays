@@ -5,7 +5,7 @@
 // a column in tall boxes, a strip in wide ones, sized to its content.
 import {
   subscribe, settings, activeMode, mapPalette, applyPalette, known, isKnown, numberFormatter, formatNumber,
-  createMapClock, applyKitSettings, MOTION_MS, DASH,
+  createMapClock, applyKitSettings, splitTitle, fitFields, NAME_KEEP, MOTION_MS, DASH,
 } from './vosu-overlay.js';
 
 // Default boxes of the two arrangements (metadata.txt placements); --u is 1 at these. The column
@@ -43,8 +43,9 @@ const CELLS_NARROW = { osu: ['ar', 'cs', 'od'], taiko: ['od', 'hp'], fruits: ['a
 const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'start', mania: 'start' };
 // The clock rate a speed mod implies by itself; a rate chip shows only for other rates.
 const MOD_RATE = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
-// "Song (TV Size)", "Song [Extended]", "Song -Remix-": the suffix moves to the artist line.
-const SUFFIX = /^(.*?\S)\s+((?:[([（［【].*|-[^-]+-))$/u;
+// The identity's fixed words (docs/overlay-system.md "Words": the mapper is "mapped by X").
+const SEP = ' \u00b7 ';
+const CREDIT = 'mapped by ';
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
@@ -53,14 +54,16 @@ const body = $('body');
 const chip = $('chip');
 const ident = $('ident');
 const titleEl = $('title');
+const metaEl = $('meta');
+const creditEl = $('credit');
+const joinedEl = $('joined');
+const numsEl = document.querySelector('.nums');
 const bar = $('bar');
 const prog = $('prog');
 const strain = $('strain');
 const strainFill = $('strainFill');
 const bpmNum = $('bpmNum');
 const statsEl = $('stats');
-const suffixWrap = $('suffixWrap');
-const mapperWrap = $('mapperWrap');
 
 const fields = {};
 for (const el of document.querySelectorAll('[data-f]')) fields[el.dataset.f] = el;
@@ -116,8 +119,7 @@ let shownChecksum;
 let narrow = false; // the column is narrower than four settings need (osu!/catch side column)
 let shownCells = null;
 let paletteFor = '';
-let pickedTitle = null;
-let mergeFor = '';
+let identityFor = '';
 let shownBpm = null;
 let shownMods = null;
 // Progress hairline and live-rating bar: transforms for every step, built on resize, so a step
@@ -214,14 +216,16 @@ function layoutBox() {
     for (let k = 0; k <= steps; k++) barTransforms[k] = `scaleX(${k / steps})`;
   }
   barStep = -1;
-  mergeFor = '';
+  identityFor = '';
   buildTable();
   progressDirty = true;
   schedule();
 }
 addEventListener('resize', layoutBox);
-// The identity's line fit is measured; measure again once the web fonts have arrived.
-document.fonts.ready.then(() => { mergeFor = ''; dirty = true; schedule(); });
+// The identity's lines are fitted by measuring text; fit again once the web fonts have arrived.
+function refitIdentity() { identityFor = ''; dirty = true; schedule(); }
+document.fonts.ready.then(refitIdentity);
+document.fonts.addEventListener('loadingdone', refitIdentity);
 
 // ------------------------------------------------------------------ render
 function render() {
@@ -263,7 +267,6 @@ function renderAll() {
   attr(np, 'data-progress', opts.showProgress ? 'on' : 'off');
   if (!hasMap) { setKiai(false); return; } // keep the last map's text in place while the card fades out
 
-  renderIdentity();
   if (checksum !== shownChecksum) {
     // Fade the identity in on a real map change, not when the source first loads.
     if (checksum && shownChecksum && motion !== 'off') { identityFade.currentTime = 0; identityFade.play(); }
@@ -273,6 +276,7 @@ function renderAll() {
   renderMods();
   renderStats(mode);
   renderLive();
+  renderIdentity(); // last: the strip fits its text beside the numbers
   clock.sample(live.t, values[P.clockRate], values[P.first], values[P.last], values[P.mp3], 0);
   buildTable(); // the span may have moved
   progressDirty = true;
@@ -281,40 +285,77 @@ function renderAll() {
 function renderIdentity() {
   const unicode = opts.unicode;
   const title = (unicode && str(values[P.titleUnicode]).trim()) || str(values[P.title]);
-  if (title !== pickedTitle) {
-    pickedTitle = title;
-    const match = SUFFIX.exec(title);
-    text('title', (match ? match[1] : title) || DASH);
-    text('suffix', match ? match[2] : '');
-    suffixWrap.hidden = !match;
-  }
   const artist = (unicode && str(values[P.artistUnicode]).trim()) || str(values[P.artist]);
-  text('artist', artist);
-  text('artistJoined', artist);
-  text('version', str(values[P.version]));
+  const version = str(values[P.version]);
   const mapper = str(values[P.mapper]);
-  text('mapper', mapper);
-  mapperWrap.hidden = !mapper;
-  // Column: a short artist joins the title's line rather than standing alone ("Last Resort · xi").
-  // Otherwise artist and difficulty share one line in the strip, in compact, and under a
-  // two-line title. Measured once per map, box or layout change.
-  const key = `${orient}|${opts.layout}|${shown.title}|${artist}|${shown.suffix}`;
-  if (key !== mergeFor) {
-    mergeFor = key;
-    let merge = orient === 'horizontal' || opts.layout === 'compact';
-    let join = false;
-    attr(ident, 'data-merge', null);
-    attr(ident, 'data-join', null);
-    if (!merge) {
-      const line = parseFloat(getComputedStyle(titleEl).lineHeight);
-      if (artist && !shown.suffix) {
-        attr(ident, 'data-join', '');
-        join = titleEl.offsetHeight <= line * 1.5;
-        if (!join) attr(ident, 'data-join', null);
-      }
-      if (!join) merge = titleEl.offsetHeight > line * 1.5;
-    }
-    attr(ident, 'data-merge', merge ? '' : null);
+  const strip = orient === 'horizontal';
+  // Fitted once per map, box, layout or (in the strip, which shares its row with them) number change.
+  const key = `${orient}|${opts.layout}|${opts.showStats}|${opts.showProgress}|${innerWidth}x${innerHeight}|${strip ? `${shown.stars}|${shown.bpm}|${shown.mods}` : ''}|${title}|${artist}|${version}|${mapper}`;
+  if (key === identityFor) return;
+  identityFor = key;
+  fitIdentity(title, artist, version, mapper, strip);
+}
+
+const measure = document.createElement('canvas').getContext('2d');
+function fontOf(el) {
+  const s = getComputedStyle(el);
+  return `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+}
+function width(font, value) {
+  measure.font = font;
+  return measure.measureText(value).width;
+}
+
+/**
+ * Lays the identity out with the shared truncation (docs/overlay-system.md "Words"): the title's
+ * (…)/[…] suffix gives way first, then the difficulty name, then the artist; a mapper of 16
+ * characters or fewer is never cut, and the title is cut last (to one line, never below 8).
+ * Three lines in both arrangements: title (with a short artist joined to it), artist · difficulty,
+ * and "mapped by X" as a caption.
+ */
+function fitIdentity(title, artist, version, mapper, strip) {
+  const { main, suffix } = splitTitle(title);
+  const titleFont = fontOf(titleEl);
+  const textFont = fontOf(metaEl);
+  let room = ident.clientWidth;
+  if (strip) {
+    // The strip's identity takes what the numbers leave of the box.
+    room = innerWidth - 2 * parseFloat(getComputedStyle(np).paddingLeft) - numsEl.offsetWidth - parseFloat(getComputedStyle(body).columnGap);
+  }
+
+  // A short artist joins the title's line (no stray "xi" on a line of its own).
+  const joinWidth = artist && !suffix ? width(textFont, SEP + artist) : 0;
+  const join = joinWidth > 0 && width(titleFont, main) + joinWidth <= room;
+  joinedEl.hidden = !join;
+  text('artistJoined', join ? artist : '');
+
+  // One line: artist (+ the title's suffix) · difficulty.
+  const sepFor = t => ((t[0] || t[1]) && t[2] ? SEP : '');
+  const meta = fitFields([
+    { text: join ? '' : artist, order: 2, keep: 8 },
+    { text: join || !suffix ? '' : artist ? ` ${suffix}` : suffix, order: 0, keep: 0 },
+    { text: version, order: 1, keep: 6 },
+  ], t => width(textFont, t[0] + t[1] + sepFor(t) + t[2]) <= room);
+  text('artist', meta[0]);
+  text('suffix', meta[1]);
+  text('sep', sepFor(meta));
+  text('version', meta[2]);
+
+  // "mapped by X" on its own caption line.
+  creditEl.hidden = !mapper;
+  if (mapper) {
+    const captionFont = fontOf(creditEl);
+    text('mapper', fitFields([{ text: mapper, keep: NAME_KEEP }], t => width(captionFont, CREDIT + t[0]) <= room)[0]);
+  }
+
+  // Title: two lines in the column when the card has the height for them, otherwise one line
+  // fitted beside the joined artist.
+  attr(ident, 'data-title-lines', null);
+  text('title', main || DASH);
+  if (strip || np.offsetHeight > innerHeight) {
+    attr(ident, 'data-title-lines', '1');
+    const titleRoom = room - (join ? joinWidth : 0);
+    text('title', fitFields([{ text: main, keep: 8 }], t => width(titleFont, t[0]) <= titleRoom)[0] || DASH);
   }
 }
 

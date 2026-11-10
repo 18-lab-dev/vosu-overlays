@@ -13,10 +13,11 @@ const MAX_ROWS = 16;
 const PRUNE_MS = 800;
 const MIN_U = 0.5;
 const MAX_U = 3;
-// Design geometry in px at --u = 1 (the default 256×400 / 480×72 boxes); style.css carries the
-// same numbers. PAD is the kit's backing padding (none: 0).
+// Design geometry in px at --u = 1 (the 216×400 osu!/catch column; the 256 px mania column and
+// the 480×72 strip are also --u = 1); style.css carries the same numbers. PAD is the kit's
+// backing padding (none: 0).
 const PAD = 16;
-const V = { width: 256, head: 60, one: 28, two: 44, skip: 20 };
+const V = { width: 216, height: 400, head: 60, one: 28, two: 44, three: 60, skip: 20 };
 const H = { height: 72, head: 136, cell: 94, skip: 22 };
 const RV = { height: 116 };
 const RH = { width: 344, below: 20 };
@@ -24,11 +25,13 @@ const RV_BELOW = 88;
 const CHIP_MS = 2400;
 const P = { state: '/state/number', checksum: '/beatmap/checksum', board: '/leaderboard', name: '/play/playerName', score: '/play/score' };
 // Row flags: your row, a direct neighbour of yours, a row with a second line, a second line that
-// shows accuracy and combo (your neighbours'; yours only with hudFields).
+// shows accuracy and combo (your neighbours'; yours only with hudFields), your row's third line
+// (hudFields: accuracy and combo, then the gap).
 const ME = 1;
 const NEAR = 2;
 const TWO = 4;
 const FACTS = 8;
+const THREE = 16;
 const DEFAULTS = {
   style: 'board', orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim',
   rows: 8, showAcc: true, showCombo: true, showMods: true, compact: false, showGap: true, hudFields: false,
@@ -269,6 +272,7 @@ function fillBoard(row, e, index, flags) {
     c.toggle('kit-own', (flags & ME) !== 0);
     c.toggle('near', (flags & NEAR) !== 0);
     c.toggle('two', (flags & TWO) !== 0);
+    c.toggle('three', (flags & THREE) !== 0);
     row.flags = flags;
   }
   const score = e.score;
@@ -449,9 +453,12 @@ function layout() {
   const h = innerHeight || 1;
   horizontal = cfg.orientation === 'horizontal' || (cfg.orientation !== 'vertical' && w > h * 1.6);
   pad = cfg.backing === 'none' ? 0 : PAD;
+  // Vertical: --u follows the width down to the 216 px column, but a wider box (the 256 px mania
+  // column) only widens the name column unless it is also taller than 400 px.
+  const fitV = Math.min(w / V.width, Math.max(1, h / V.height));
   let u;
-  if (style === 'rival') u = horizontal ? Math.min(h / H.height, w / (RH.width + 2 * PAD)) : Math.min(w / V.width, h / (RV.height + 2 * PAD));
-  else u = horizontal ? h / H.height : w / V.width;
+  if (style === 'rival') u = horizontal ? Math.min(h / H.height, w / (RH.width + 2 * PAD)) : Math.min(fitV, h / (RV.height + 2 * PAD));
+  else u = horizontal ? h / H.height : fitV;
   unit = clamp(u, MIN_U, MAX_U);
   // Second lines: yours carries the gap (and, with hudFields, your accuracy and combo); your
   // neighbours' carry accuracy, combo and mods. The strip and compact boards have none.
@@ -462,8 +469,9 @@ function layout() {
     room = Math.floor((w / unit - 2 * pad - H.head - H.skip) / H.cell);
   } else if (style === 'board') {
     const avail = h / unit - 2 * pad - V.head;
-    // Worst case: you and both neighbours on two lines, the skip marker, then one-line entries.
-    const fixed = 3 * V.two + V.skip;
+    // Worst case: you (three lines with hudFields) and both neighbours on two, the skip marker,
+    // then one-line entries.
+    const fixed = 2 * V.two + (cfg.hudFields ? V.three : V.two) + V.skip;
     room = avail >= fixed ? 3 + Math.floor((avail - fixed) / V.one) : Math.floor(avail / V.two);
   }
   rowLimit = clamp(Math.min(Math.round(cfg.rows) || DEFAULTS.rows, room), 1, MAX_ROWS);
@@ -603,7 +611,7 @@ function renderRival(player, now) {
 }
 
 function flagsOf(i, player) {
-  if (i === player) return ownTwo ? (cfg.hudFields ? ME | TWO | FACTS : ME | TWO) : ME;
+  if (i === player) return ownTwo ? (cfg.hudFields ? ME | TWO | FACTS | THREE : ME | TWO) : ME;
   if (player >= 0 && (i === player - 1 || i === player + 1)) return nearTwo ? NEAR | TWO | FACTS : NEAR;
   return 0;
 }
@@ -614,7 +622,7 @@ function putEntry(i) {
   const flags = flagsOf(i, slotPlayer);
   const at = slotOffset * unit;
   board.put(keyOf(order[i], i, slotPlayer), horizontal ? at : 0, horizontal ? 0 : at, order[i], i, flags);
-  slotOffset += horizontal ? H.cell : flags & TWO ? V.two : V.one;
+  slotOffset += horizontal ? H.cell : flags & THREE ? V.three : flags & TWO ? V.two : V.one;
 }
 
 function renderBoard(player, now) {

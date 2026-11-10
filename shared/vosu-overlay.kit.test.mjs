@@ -247,8 +247,7 @@ test('map tint: hues within 30° of amber lose their chroma, others keep it', as
 
 test('key labels: one scheme per ruleset, cached', () => {
   assert.deepEqual(keyLabels('osu', 2).short, ['K1', 'K2']);
-  assert.deepEqual(keyLabels('osu', 4).short, ['K1', 'K2', 'M1', 'M2']);
-  assert.deepEqual(keyLabels('osu', 3).short, ['K1', 'K2', 'SMOKE'], "stable's third osu! key is smoke, not a mouse button");
+  assert.deepEqual(keyLabels('osu', 3).short, ['K1', 'K2', 'SMOKE'], "the third osu! key is smoke, not a mouse button");
   assert.deepEqual(keyLabels('taiko', 4).short, ['L·KAT', 'L·DON', 'R·DON', 'R·KAT']);
   assert.deepEqual(keyLabels('fruits', 3).short, ['LEFT', 'RIGHT', 'DASH']);
   assert.deepEqual(keyLabels('fruits', 1).short, ['DASH']);

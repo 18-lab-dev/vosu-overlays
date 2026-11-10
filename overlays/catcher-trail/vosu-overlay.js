@@ -605,8 +605,8 @@ const KEY_LABELS = new Map();
  * The set's one name for each key, in vosu's `keys.all` order, as `{ short, long }` arrays (frozen,
  * cached per ruleset and count). `short` is for caps (set it in `kit-code`), `long` for labels and
  * accessible names (sentence case).
- *   osu!   lazer sends its key counters K1 K2 M1 M2 (4 keys); stable sends K1 K2 SMOKE (3 keys:
- *          the mouse buttons are folded into K1/K2 and the third key is the smoke key)
+ *   osu!   K1 K2 SMOKE (both clients: keyboard and mouse merge into the two logical buttons; vosu
+ *          README "keys.all order")
  *   taiko  left rim, left centre, right centre, right rim: L·KAT L·DON R·DON R·KAT
  *   catch  LEFT RIGHT DASH (stable reports only DASH: a one-key list is DASH)
  *   mania  1 … N, left to right
@@ -617,8 +617,7 @@ export function keyLabels(ruleset, keyCount) {
   const key = `${ruleset}:${count}`;
   let labels = KEY_LABELS.get(key);
   if (labels) return labels;
-  const named = ruleset === 'osu'
-    ? (count === 3 ? [['K1', 'Key 1'], ['K2', 'Key 2'], ['SMOKE', 'Smoke']] : [['K1', 'Key 1'], ['K2', 'Key 2'], ['M1', 'Mouse 1'], ['M2', 'Mouse 2']])
+  const named = ruleset === 'osu' ? [['K1', 'Key 1'], ['K2', 'Key 2'], ['SMOKE', 'Smoke']]
     : ruleset === 'taiko' ? [['L·KAT', 'Left kat'], ['L·DON', 'Left don'], ['R·DON', 'Right don'], ['R·KAT', 'Right kat']]
     : ruleset === 'fruits' ? (count === 1 ? [['DASH', 'Dash']] : [['LEFT', 'Left'], ['RIGHT', 'Right'], ['DASH', 'Dash']])
     : [];

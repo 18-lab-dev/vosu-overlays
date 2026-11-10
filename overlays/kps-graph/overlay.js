@@ -38,8 +38,8 @@ const note = $('note');
 const plot = canvas.parentElement;
 const el = {
   phase: $('phase'), pLabel: $('pLabel'), pValue: $('pValue'), pUnit: $('pUnit'),
-  aLabel: $('aLabel'), aName: $('aName'), aValue: $('aValue'), aEcho: $('aEcho'),
-  bLabel: $('bLabel'), bName: $('bName'), bValue: $('bValue'),
+  aLabel: $('aLabel'), aName: $('aName'), aValue: $('aValue'), aEcho: $('aEcho'), aSwatch: $('aSwatch'),
+  bLabel: $('bLabel'), bName: $('bName'), bValue: $('bValue'), bSwatch: $('bSwatch'),
   axisL: $('axisL'), axisM: $('axisM'), axisR: $('axisR'),
 };
 const ctx = canvas.getContext('2d', { alpha: true });
@@ -156,9 +156,6 @@ function loadPalette() {
 let cw = 0, ch = 0, nowX = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null, orient = 'v';
 let lastCw = -1, lastCh = -1;
 let box = null;
-let DASH_AVG = [4, 3];
-let DASH_PEAK = [2, 3];
-const DASH_NONE = [];
 new ResizeObserver(([entry]) => {
   box = entry.contentRect;
   dpr = window.devicePixelRatio || 1;
@@ -204,8 +201,7 @@ function measure() {
   G.dpr = dpr; G.cw = cw; G.ch = ch; G.base = ch - 1; G.baseCrisp = crisp(ch - 1); G.band = band;
   G.topD = chartTop * dpr; G.baseD = (ch - 1) * dpr; G.cwD = cw * dpr; G.bandD = Math.round(band * dpr);
   G.wide = 2 * dpr;
-  DASH_AVG = [4 * dpr, 3 * dpr];
-  DASH_PEAK = [2 * dpr, 3 * dpr];
+  drawSwatches();
   strainK = K.labelScale = K.vcScale = K.headScale = K.peakScale = NaN; // laid out for the old box
   if (cw !== lastCw || ch !== lastCh) {
     lastCw = cw; lastCh = ch;
@@ -592,16 +588,15 @@ function stepKiai() {
   return moving;
 }
 
-/** A level line at device row `row` from the band to x1D (device pixels). */
-function drawLevel(row, color, dash, x1D, wide) {
-  ctx.setLineDash(dash);
+/** A level line at device row `row` from the band to x1D (device pixels): the peak 2 px in amber,
+ * the average 1 px warm white. Solid strokes, so their legend samples read as lines, not glyphs. */
+function drawLevel(row, color, x1D, wide) {
   ctx.strokeStyle = color;
   ctx.beginPath();
   if (wide) { ctx.lineWidth = G.wide; deviceFrame(); } else { ctx.lineWidth = 1; crispY(); }
   ctx.moveTo(G.bandD, row); ctx.lineTo(x1D, row);
   frameTransform();
   ctx.stroke();
-  ctx.setLineDash(DASH_NONE);
 }
 
 const PEAK_MARK = new Path2D();
@@ -610,6 +605,40 @@ PEAK_MARK.moveTo(-4.5, -9); PEAK_MARK.lineTo(4.5, -9); PEAK_MARK.lineTo(0, -3.5)
 function drawPeakMark() {
   ctx.fillStyle = C.you;
   ctx.fill(PEAK_MARK);
+}
+
+// Legend samples: a short piece of the chart's own stroke (and, for the peak, its marker), drawn
+// on a small canvas beside the label with the same widths and colours as drawLevel/drawPeakMark.
+// Redrawn only when a label's key or the box changes.
+const SWATCH_W = 18, SWATCH_H = 12, SWATCH_LINE = 10; // css px at --u 1; the line's row
+function drawSwatch(swatch, key) {
+  const s = dpr * (u === u ? u : 1);
+  const w = Math.round(SWATCH_W * s), h = Math.round(SWATCH_H * s);
+  if (swatch.width !== w) swatch.width = w;
+  if (swatch.height !== h) swatch.height = h;
+  const g = swatch.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (key !== 'peak' && key !== 'avg') return;
+  const row = Math.round(SWATCH_LINE * s);
+  g.beginPath();
+  if (key === 'peak') {
+    g.lineWidth = 2 * dpr; g.strokeStyle = C.you;
+    g.moveTo(0, row); g.lineTo(w, row);
+  } else {
+    g.lineWidth = 1; g.strokeStyle = C.avg;
+    g.moveTo(0, row + half); g.lineTo(w, row + half);
+  }
+  g.stroke();
+  if (key === 'peak') {
+    g.setTransform(dpr, 0, 0, dpr, Math.round(w / 2), row);
+    g.fillStyle = C.you;
+    g.fill(PEAK_MARK);
+  }
+}
+function drawSwatches() {
+  drawSwatch(el.aSwatch, el.aLabel.getAttribute('data-key'));
+  drawSwatch(el.bSwatch, el.bLabel.getAttribute('data-key'));
 }
 
 const TAU = Math.PI * 2;
@@ -775,8 +804,8 @@ function renderLive(now) {
   const nowBin = binOf(t);
   const current = keysPresent ? meter.at(t | 0) : UNKNOWN;
   average(false);
-  if (keysPresent && S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.nowD, false);
-  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.you, DASH_PEAK, G.nowD, true);
+  if (keysPresent && S.avg === S.avg) drawLevel(avgRow(), C.avg, G.nowD, false);
+  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.you, G.nowD, true);
 
   // The live head sits on the trace's last mean (or the exact count before the first press).
   // G.headY / G.peakY change only with it or the scale; computed here rather than in helpers,
@@ -902,8 +931,8 @@ function renderStill() {
     if (run) {
       drawGridH(G.cwD);
       average(true);
-      if (S.avg === S.avg) drawLevel(avgRow(), C.avg, DASH_AVG, G.cwD, false);
-      drawLevel(rowOf(peak), C.you, DASH_PEAK, G.cwD, true);
+      if (S.avg === S.avg) drawLevel(avgRow(), C.avg, G.cwD, false);
+      drawLevel(rowOf(peak), C.you, G.cwD, true);
       // Whole attempt, ~2 px per point: the highest window value in each slice, so the envelope
       // meets the peak marker exactly.
       const per = Math.max(1, Math.round(2 / (k * BIN)));
@@ -953,7 +982,10 @@ let shownView = '';
 function labels(phase, p, unit, a, b, aKey, bKey) {
   put(el.phase, phase); put(el.pLabel, p); put(el.pUnit, unit);
   put(el.aName, a); put(el.bName, b);
-  attr(el.aLabel, 'data-key', aKey); attr(el.bLabel, 'data-key', bKey);
+  if (el.aLabel.getAttribute('data-key') !== aKey || el.bLabel.getAttribute('data-key') !== bKey) {
+    attr(el.aLabel, 'data-key', aKey); attr(el.bLabel, 'data-key', bKey);
+    drawSwatches();
+  }
 }
 function showPeak(text) {
   show(el.aValue, text);

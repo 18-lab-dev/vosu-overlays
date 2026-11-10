@@ -58,11 +58,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .label:has(> span:empty) { visibility: hidden; }
 
 .label.a, .label.b { display: inline-flex; align-items: center; gap: var(--s-1); }
-.label i { flex: none; width: calc(var(--u, 1) * 14px); }
-/* The same strokes the chart draws (overlay.js DASH_PEAK / DASH_AVG). */
-.label[data-key="peak"] i { height: 2px; background: repeating-linear-gradient(to right, var(--you) 0 2px, transparent 2px 5px); }
-.label[data-key="avg"] i { height: 1px; background: repeating-linear-gradient(to right, rgb(239 236 229 / .7) 0 4px, transparent 4px 7px); }
-.label[data-key="none"] i { display: none; }
+/* Legend samples: overlay.js draws the chart's own strokes into these (drawSwatch, SWATCH_*). The
+   line sits 10 of 12 px down, under the label's x-height, like an underline sample. */
+.label .swatch { flex: none; display: block; width: calc(var(--u, 1) * 18px); height: calc(var(--u, 1) * 12px); }
+.label[data-key="none"] .swatch { display: none; }
 
 .stat { position: relative; font-size: calc(var(--u, 1) * 28px); }
 /* A new peak: an amber copy of the numeral that fades back to the value (overlay.js FLASH). */

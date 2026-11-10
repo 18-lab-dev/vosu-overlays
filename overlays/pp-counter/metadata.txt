@@ -1,6 +1,6 @@
 name = Performance counter
 author = 18-LAB
 version = 0.4.0
-description = Live pp, a rail from 0 to the map's SS value (max achievable as a band, an if-FC tick; hidden when SS is unknown) and the pp breakdown; after a choke the if-FC value detaches from pp onto its own line. An accuracy→pp ladder in song select and the if-FC gap at results. Unknown values are hidden, never shown as 0. A vertical column, or a horizontal strip in wide boxes. All rulesets.
+description = Live pp, a rail from 0 to the map's SS value (max achievable as a band, an If FC tick; hidden when SS is unknown) and the pp breakdown; after a choke the If FC value detaches from pp onto its own line. An accuracy→pp ladder in song select and the gap to If FC at results. Unknown values are hidden, never shown as 0. A vertical column, or a horizontal strip in wide boxes. All rulesets.
 resolution = [256,144]
 placement = {"osu":["right-24","bottom-72",216,144],"fruits":["right-24","bottom-72",216,144],"taiko":["right-376","bottom-72",336,80],"mania":["right-24","top+144",256,144]}

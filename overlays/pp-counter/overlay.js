@@ -1,10 +1,10 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Performance counter on the 18-LAB overlay kit (docs/overlay-system.md). During play: current pp
 // as the hero, the pp breakdown on the secondary line and a rail from 0 to the map's SS value
-// (current filled in amber, a flat band up to max achievable, a tick at if-FC). Once the full combo is
-// lost, the if-FC value detaches from the hero and takes the secondary line. Song select: the
+// (current filled in amber, a flat band up to max achievable, a tick at If FC). Once the full combo is
+// lost, the If FC value detaches from the hero and takes the secondary line. Song select: the
 // accuracy → pp ladder (osu! never shows pp there). Results: what the results screen lacks.
-// Unknown values (the replay renderer leaves if-FC and max at 0) are hidden, never shown as 0.
+// Unknown values (the replay renderer leaves If FC and max at 0) are hidden, never shown as 0.
 // The page is content-sized: hosts place and size it and the layout re-flows to the box (a column,
 // or a strip in wide boxes). Data handlers only record values; one rAF loop renders and stops once
 // everything has settled.
@@ -15,7 +15,7 @@ import { subscribe, settings, activeMode, known, numberFormatter, applyKitSettin
 const VERTICAL = { w: 216, h: 144 };   // the osu!/catch column; wider boxes (mania 256) keep --u 1
 const HORIZONTAL = { w: 336, h: 80 };
 const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';   // kit --ease-out
-const FC_GAP = 0.5;       // if-FC shows only while it is at least this far above current pp
+const FC_GAP = 0.5;       // If FC shows only while it is at least this far above current pp
 
 const P = {
   state: '/state/number', client: '/client', playMode: '/play/mode/number', setMode: '/settings/mode/number',
@@ -44,9 +44,9 @@ const SELECT_STATES = new Set([5, 6, 13]);
 
 const $ = id => document.getElementById(id);
 const el = {
-  root: $('root'), note: $('note'), fail: $('fail'), heroLabel: $('heroLabel'), heroGap: $('heroGap'),
+  root: $('root'), note: $('note'), fail: $('fail'), heroLabel: $('heroLabel'), heroGap: $('heroGap'), heroGapVal: $('heroGapVal'),
   big: $('big'), int: $('int'), frac: $('frac'), head: document.querySelector('.head'), tagline: document.querySelector('.tagline'),
-  fcRow: $('fcRow'), fcVal: $('fcVal'), fcGap: $('fcGap'), chips: $('chips'),
+  fcRow: $('fcRow'), fcVal: $('fcVal'), fcGap: $('fcGap'), fcGapVal: $('fcGapVal'), chips: $('chips'),
   rail: $('rail'), ss: $('ss'), ssVal: $('ssVal'), ladder: $('ladder'),
 };
 
@@ -69,6 +69,11 @@ function attr(node, name, value) {
 function show(node, visible) {
   if (node.hidden === !visible) return;
   node.hidden = !visible;
+}
+// A gap (+46 pp): the number in its own node, the unit in markup; the whole thing hides when empty.
+function writeGap(wrap, value, s) {
+  text(value, s);
+  show(wrap, s !== '');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -115,7 +120,7 @@ for (let k = 0; k < DIGITS; k++) {
   a.cancel();
   rolls.push(a);
 }
-// The choke: if-FC drops out from under the hero onto its own line, after the breakdown it
+// The choke: If FC drops out from under the hero onto its own line, after the breakdown it
 // replaces has faded (a fifth of the duration, the breakdown's --dur-fast fade-out).
 const DETACH_FROM = 'translateY(-1em) scale(1.12)';
 const detach = el.fcRow.animate([
@@ -141,7 +146,7 @@ for (const c of '0123456789,') CHAR[c.charCodeAt(0)] = c;
 // Settings. `decimals` is an options setting (strings in settings.json); a numeric default coerces
 // either form.
 let opt = {
-  orientation: 'auto', align: 'auto', motion: 'full', backing: 'scrim',
+  orientation: 'auto', align: 'auto', motion: 'full', backing: 'scrim', marks: 'neutral',
   showIfFc: true, showMax: true, showBreakdown: true, showLadder: true, decimals: 1,
 };
 let scale = 10;         // 10 ** decimals
@@ -190,9 +195,9 @@ function fitLadder() {
 document.fonts?.ready.then(() => { ladderFit = true; headKey = -1; modelDirty = true; kick(); });
 
 // Long numbers in narrow boxes: when the hero row (its label FAIL / If FC beside the number) or the
-// if-FC line does not fit, the hero drops its decimals; if the if-FC line still does not fit, its
-// gap caption (+46) drops, then its unit (the hero keeps `pp`). Fields go, sizes stay. Measured
-// only when a label, the number of digits or the box changes.
+// If FC line does not fit, the hero drops its decimals; if it still does not fit, the gap (+46 pp)
+// drops, then the If FC line's unit (the hero keeps `pp`). Fields go, sizes stay. Measured only
+// when a label, the number of digits or the box changes.
 let headGap = 12;
 let headKey = -1;
 function overflows() {
@@ -205,7 +210,8 @@ const FIT_LEVELS = ['data-tight', 'data-no-gap', 'data-no-unit'];
 function fitRow() {
   for (let i = 0; i < FIT_LEVELS.length; i++) attr(el.root, FIT_LEVELS[i], null);
   for (let i = 0; i < FIT_LEVELS.length && overflows(); i++) {
-    if (i > 0 && !fcOn) return;   // later levels only shorten the if-FC line
+    if (i === 1 && !fcOn && el.heroGap.hidden) return;   // no gap to drop
+    if (i === 2 && !fcOn) return;                         // no If FC unit to drop
     attr(el.root, FIT_LEVELS[i], '');
   }
 }
@@ -218,7 +224,7 @@ let online = 'connecting';
 let everLive = false;
 let view = 'offline';
 let choked = false;     // the full combo was lost this attempt
-let fcOn = false;       // the if-FC line is showing
+let fcOn = false;       // the If FC line is showing
 const num = slot => { const v = D[slot]; return typeof v === 'number' && Number.isFinite(v) ? v : NaN; };
 
 const F = new Float64Array(5);
@@ -293,7 +299,7 @@ function derive() {
     failed = D[I.failed] === true;
     H[VALUE] = cur;
     if (fc > 0) text(el.fcVal, ppFmt(fc));
-    text(el.fcGap, '');
+    writeGap(el.fcGap, el.fcGapVal, '');
 
     T[FILL + IN] = cur;
     T[FC + IN] = opt.showIfFc ? fc : NaN;
@@ -315,7 +321,7 @@ function derive() {
     slot = (opt.showIfFc && fc > 0) || chipCount > 0;
   } else if (next === 'results') {
     // osu!stable's results screen shows no pp at all; lazer shows the final pp, so there the hero
-    // is the if-FC value instead.
+    // is the If FC value instead.
     const final = known(D[I.rPp], true), fc = known(D[I.rFc], true), gap = fc - final;
     const lazer = D[I.client] === 'lazer';
     if (gap >= FC_GAP) gapText = gapFmt(gap);
@@ -325,7 +331,7 @@ function derive() {
     } else {
       H[VALUE] = final;
       wantFc = !lazer && gap >= FC_GAP;
-      if (wantFc) { text(el.fcVal, ppFmt(fc)); text(el.fcGap, gapText); gapText = ''; }
+      if (wantFc) { text(el.fcVal, ppFmt(fc)); writeGap(el.fcGap, el.fcGapVal, gapText); gapText = ''; }
     }
     slot = wantFc;
   } else if (next === 'select') {
@@ -339,7 +345,7 @@ function derive() {
   }
   show(el.fail, failed);
   text(el.heroLabel, label);
-  text(el.heroGap, label ? gapText : '');
+  writeGap(el.heroGap, el.heroGapVal, label ? gapText : '');
   attr(el.root, 'data-slot', slot ? null : 'off');
   attr(el.root, 'data-rail', rail ? null : 'off');
   if (wantFc !== fcOn) {
@@ -349,9 +355,10 @@ function derive() {
   }
   writeHero(!changed && motion === 'full');
   const labelled = failed || label !== '';
-  const fcText = cache.get(el.fcVal), gapShown = cache.get(el.fcGap);
+  const fcText = cache.get(el.fcVal), gapShown = cache.get(el.fcGapVal), heroGapShown = cache.get(el.heroGapVal);
   const hk = (labelled ? 1 : 0) | (fcOn ? 2 : 0) | (heroText.length << 2)
-    | ((typeof fcText === 'string' ? fcText.length : 0) << 6) | ((typeof gapShown === 'string' ? gapShown.length : 0) << 10);
+    | ((typeof fcText === 'string' ? fcText.length : 0) << 6) | ((typeof gapShown === 'string' ? gapShown.length : 0) << 10)
+    | ((typeof heroGapShown === 'string' ? heroGapShown.length : 0) << 14);
   if (hk !== headKey) { headKey = hk; fitRow(); }
   railDirty = true;
 }
@@ -417,12 +424,12 @@ function setDigits(s, roll) {
 
 // ---------------------------------------------------------------------------------------------
 // Rail canvas, sized only on resize. Geometry in design units (the canvas is 12 units tall at any
-// scale): bar 3–9, the if-FC tick full height.
+// scale): bar 3–9, the If FC tick full height.
 const ctx = el.rail.getContext('2d', { alpha: true });
 let k = 1;              // device px per design unit
 let cw = 0, ch = 0;
 let railDirty = true;
-// kit.css roles: --you (current), --hair-strong (band to max), --text-1 (if-FC tick), --text-2 (max
+// kit.css roles: --you (current), --hair-strong (band to max), --text-1 (If FC tick), --text-2 (max
 // end), --hair (track).
 const C = {
   you: '#ff963f', band: 'rgb(239 236 229 / 0.4)', tick: '#efece5', end: '#d3cfc6',

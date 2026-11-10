@@ -55,13 +55,13 @@ body[data-align="center"] { justify-content: center; }
 .int > i:empty { display: none; }
 .big[data-empty] { color: var(--text-3); }
 .big[data-empty] :is(.kit-unit, .kit-frac) { visibility: hidden; }
-/* Long numbers that do not fit (overlay.js fitRow): the hero's decimals drop, then the if-FC gap,
-   then the if-FC unit. */
+/* Long numbers that do not fit (overlay.js fitRow): the hero's decimals drop, then the If FC gap,
+   then the If FC unit. */
 .root[data-tight] .big .kit-frac,
-.root[data-no-gap] #fcGap,
+.root[data-no-gap] :is(#fcGap, #heroGap),
 .root[data-no-unit] .fc-row .kit-unit { display: none; }
 
-/* Secondary line: the breakdown, until the full combo is lost; then the if-FC value takes the line
+/* Secondary line: the breakdown, until the full combo is lost; then the If FC value takes the line
    (detaching from the hero, overlay.js). Both sit in one grid cell so nothing reflows. */
 .second { display: grid; align-items: center; width: 100%; height: calc(var(--u) * 32px); }
 .second > * { grid-area: 1 / 1; min-width: 0; }
@@ -91,7 +91,7 @@ body[data-align="center"] { justify-content: center; }
 .chips .kit-value { font-size: calc(var(--u) * 20px); color: var(--text-2); }
 
 /* Rail: 0 → the map's SS value, current pp filled amber (you), a flat --hair-strong band up to max
-   achievable, a tick at if-FC. The SS value labels the right end. Hidden when SS is unknown. */
+   achievable, a tick at If FC. The SS value labels the right end. Hidden when SS is unknown. */
 .meter { display: flex; align-items: center; column-gap: var(--s-2); width: 100%; height: calc(var(--u) * 14px); }
 #rail { display: block; flex: 1 1 0; min-width: 0; height: calc(var(--u) * 12px); }
 .ss { display: inline-flex; align-items: baseline; column-gap: var(--s-1); line-height: 1; }

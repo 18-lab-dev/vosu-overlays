@@ -14,6 +14,7 @@ import {
 const COLUMN_W = 216;  // vertical box width at --u = 1, with the tape
 const STRIP_W = 256;   // caps-only box width at --u = 1
 const ROW_H = 96;      // horizontal box height at --u = 1
+const ROWS_RATIO = 1.5; // auto orientation: rows only when the box is at least this much wider than tall
 const U_MIN = 0.5;
 const U_MAX = 1.6;
 const PAD = 16;         // kit --pad (scrim, panel); none has no padding
@@ -35,7 +36,8 @@ const COUNT_ROW = 14;   // count size in rows (four taiko rows of 14.5 px share 
 const RING = 256;       // remembered presses per lane
 const spans = new Int32Array(RING * 2); // per frame, per lane: device-pixel ends of the bars on the tape
 const EXTRAPOLATE = 100; // ms of wall time the clock may run past its last sample
-const LINE = 2;        // catch direction holds: a line this many design px wide, centred in the lane
+const LINE = 4;        // catch: presses are a segment this many design px wide, centred in the lane
+const CATCH_PACE = 0.25; // catch holds last seconds: its tape runs at a quarter of the speed setting
 const FAST_ON = 16;     // above this KPS press feedback snaps (no release fade) …
 const FAST_OFF = 12;    // … until it drops below this
 const PEAK_MIN = 5;     // peaks below this are the attempt warming up, not news
@@ -239,10 +241,11 @@ let swapTimer = 0;
 let view = 'none';      // 'play' | 'results' | 'idle' | 'nogame' | 'none'
 
 // Colour roles from kit.css, read once per layout (canvas needs them as strings).
-const role = { bar: 'rgba(239,236,229,0.4)', you: '#ff963f', don: '#e8573e', kat: '#4f9fc4', display: '"Barlow Condensed"' };
+const role = { body: 'rgba(239,236,229,0.22)', bar: 'rgba(239,236,229,0.4)', you: '#ff963f', don: '#e8573e', kat: '#4f9fc4', display: '"Barlow Condensed"' };
 function readRoles() {
   const style = getComputedStyle(root);
   const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+  role.body = read('--hair', role.body);
   role.bar = read('--hair-strong', role.bar);
   role.you = read('--you', role.you);
   role.don = read('--don', role.don);
@@ -310,17 +313,23 @@ function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
 function computeGeometry(mode, n) {
   const W = Math.max(1, innerWidth);
   const H = Math.max(1, innerHeight);
-  const tape = mode !== 'mania' || cfg.maniaTape;
-  // Rows only make sense for a tape travelling sideways: caps alone are one row of columns.
-  const v = cfg.orientation === 'auto' ? !tape || H > W : cfg.orientation === 'vertical';
-  const caps = cfg.align === 'auto' ? (v ? 'end' : 'start') : cfg.align;
   const pad = cfg.backing === 'none' ? 0 : PAD;
   const read = cfg.showKps;
-  const side = read && !tape && v && W > H; // readout beside the caps, not above them
+  let tape = mode !== 'mania' || cfg.maniaTape;
+  // Rows only make sense for a tape travelling sideways in a clearly wide box (taiko's 560×96, a
+  // renderer cell); caps alone, and boxes only somewhat wider than tall (catch's 216×160), are columns.
+  const v = cfg.orientation === 'auto' ? !tape || W < H * ROWS_RATIO : cfg.orientation === 'vertical';
+  // A column too short for caps, readout and a tape at its natural size drops the tape rather than
+  // shrinking the type below the floor.
+  const base = mode === 'mania' && !cfg.maniaTape ? STRIP_W : COLUMN_W;
+  if (tape && v && H < (pad * 2 + CAP_H + (read ? READ_H + READ_GAP : 0) + CAP_GAP + MIN_TAPE) * clamp(W / base, U_MIN, U_MAX)) tape = false;
+  const caps = cfg.align === 'auto' ? (v ? 'end' : 'start') : cfg.align;
+  // Caps alone in a strip with no room above them (osu!mania's 256×96): the readout sits beside them.
+  const side = read && !tape && v && W > H && H < (pad * 2 + CAP_H + READ_H + READ_GAP) * clamp(W / base, U_MIN, U_MAX);
   const capsD = v ? CAP_H : CAP_W;
   const readD = read && !side ? (v ? READ_H : READ_W) + READ_GAP : 0;
   const need = pad * 2 + capsD + readD + (tape ? CAP_GAP + MIN_TAPE : 0);
-  const u = clamp(Math.min(v ? W / (tape ? COLUMN_W : STRIP_W) : H / ROW_H, (v ? H : W) / need), U_MIN, U_MAX);
+  const u = clamp(Math.min(v ? W / base : H / ROW_H, (v ? H : W) / need), U_MIN, U_MAX);
 
   // Cross axis: lanes fill the box up to a sane thickness; the block centres on any rest.
   const p = Math.round(pad * u);
@@ -655,7 +664,8 @@ function render() {
   const box = g.box;
   const now = ck[CK_NOW];
   const playing = view === 'play';
-  const pxPerMs = (cfg.speed * g.u) / 1000 / ck[CK_RATE]; // gameplay ms → CSS px
+  const pace = builtMode === 'fruits' ? CATCH_PACE : 1;
+  const pxPerMs = (cfg.speed * pace * g.u) / 1000 / ck[CK_RATE]; // gameplay ms → CSS px
   const dpr = g.dpr;
   let anyVisible = false;
   let anyHeld = false;
@@ -692,9 +702,9 @@ function render() {
       const thick = box[BOX_LANES + 4 * li + 1];
       const bodyAt = lane.thin ? box[BOX_LANES + 4 * li + 2] : across;
       const body = lane.thin ? box[BOX_LANES + 4 * li + 3] : thick;
-      // Bodies first in graphite, then the leading edges on top, so one fill colour per pass; the
-      // first pass keeps each bar's device-pixel ends in `spans` for the second.
-      ctx.fillStyle = role.bar;
+      // Bodies first in --hair, then the press edges on top, so one fill colour per pass; the first
+      // pass keeps each bar's device-pixel ends in `spans` (newest first) for the edges.
+      ctx.fillStyle = role.body;
       let m = 0;
       for (let k = 0, i = t.head; k < t.size; k++) {
         i = i === 0 ? RING - 1 : i - 1;
@@ -716,15 +726,22 @@ function render() {
       }
       if (m === 0) continue;
       anyVisible = true;
-      // Leading edge: the moment the key went down, across the whole lane; a tap shorter than the
-      // edge is all edge.
-      ctx.fillStyle = lane.edge;
-      for (let j = 0; j < m; j += 2) {
+      // Press edges (the moment the key went down; a tap shorter than the edge is all edge). Older
+      // ones are graphite and as wide as the body, so catch's segments never stack into a ladder;
+      // osu!taiko keeps its zone colour on every edge (game meaning).
+      ctx.fillStyle = lane.zone ? lane.edge : role.bar;
+      for (let j = 2; j < m; j += 2) {
         const a = spans[j];
         const b = spans[j + 1];
-        if (b - a <= min) { if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick); }
-        else if (g.v) ctx.fillRect(across, b, thick, edge); else ctx.fillRect(b, across, edge, thick);
+        if (b - a <= min) { if (g.v) ctx.fillRect(bodyAt, a, body, min); else ctx.fillRect(a, bodyAt, min, body); }
+        else if (g.v) ctx.fillRect(bodyAt, b, body, edge); else ctx.fillRect(b, bodyAt, edge, body);
       }
+      // The newest press: its edge across the whole lane in 18-LAB amber (don/kat in taiko).
+      ctx.fillStyle = lane.edge;
+      const a0 = spans[0];
+      const b0 = spans[1];
+      if (b0 - a0 <= min) { if (g.v) ctx.fillRect(across, a0, thick, min); else ctx.fillRect(a0, across, min, thick); }
+      else if (g.v) ctx.fillRect(across, b0, thick, edge); else ctx.fillRect(b0, across, edge, thick);
     }
   }
   ctx.globalAlpha = 1;

@@ -32,9 +32,10 @@ body { position: relative; }
 /* ------------------------------------------------------------------ tape */
 #tape { display: block; width: 100%; height: 100%; }
 .tape[hidden] { display: none; }
-/* History dissolves over the far 45 % of the tape (the mask, not the bar colour, does the fading).
-   A held bar is longer than a 20 % fade, so a short fade left it hanging at the far end as a block. */
-#tape { --fade: #000 55%, rgb(0 0 0 / .45) 80%, transparent; }
+/* History dissolves with age along the whole tape: full strength only next to the caps, half by 60 %,
+   gone before the far end (the mask, not the bar colour, does the fading). A bar crossing a short
+   end-fade kept its lower half solid and read as a block hanging at the lane top. */
+#tape { --fade: #000 20%, rgb(0 0 0 / .45) 60%, transparent 95%; }
 .ko[data-orient="v"][data-caps="end"] #tape { -webkit-mask-image: linear-gradient(to top, var(--fade)); mask-image: linear-gradient(to top, var(--fade)); }
 .ko[data-orient="v"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to bottom, var(--fade)); mask-image: linear-gradient(to bottom, var(--fade)); }
 .ko[data-orient="h"][data-caps="start"] #tape { -webkit-mask-image: linear-gradient(to right, var(--fade)); mask-image: linear-gradient(to right, var(--fade)); }

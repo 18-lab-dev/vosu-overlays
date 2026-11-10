@@ -8,18 +8,21 @@ import {
   createMapClock, applyKitSettings, MOTION_MS, DASH,
 } from './vosu-overlay.js';
 
-// Default boxes of the two arrangements (metadata.txt placements); --u is 1 at these.
-const BASE = { vertical: [256, 192], horizontal: [520, 104] };
+// Default boxes of the two arrangements (metadata.txt placements); --u is 1 at these. The column
+// is laid out for the osu!/catch side column (216 wide); mania's 256 × 192 box is also --u 1.
+const BASE = { vertical: [216, 192], horizontal: [520, 104] };
+// Below this content width (CSS px at --u 1) four settings at the kit's sizes no longer fit.
+const NARROW = 240;
 const WIDE = 2.2; // auto orientation: boxes at least this many times wider than tall get the strip
 
 const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number',
   title: '/beatmap/title', titleUnicode: '/beatmap/titleUnicode', artist: '/beatmap/artist', artistUnicode: '/beatmap/artistUnicode',
-  version: '/beatmap/version', mapper: '/beatmap/mapper', checksum: '/beatmap/checksum', isConvert: '/beatmap/isConvert',
+  version: '/beatmap/version', mapper: '/beatmap/mapper', checksum: '/beatmap/checksum',
   first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject', mp3: '/beatmap/time/mp3Length', clockRate: '/beatmap/time/rate',
   starsLive: '/beatmap/stats/stars/live', starsTotal: '/beatmap/stats/stars/total',
-  arO: '/beatmap/stats/ar/original', arC: '/beatmap/stats/ar/converted', csO: '/beatmap/stats/cs/original', csC: '/beatmap/stats/cs/converted',
-  odO: '/beatmap/stats/od/original', odC: '/beatmap/stats/od/converted', hpO: '/beatmap/stats/hp/original', hpC: '/beatmap/stats/hp/converted',
+  arC: '/beatmap/stats/ar/converted', csC: '/beatmap/stats/cs/converted',
+  odC: '/beatmap/stats/od/converted', hpC: '/beatmap/stats/hp/converted',
   bpmLive: '/beatmap/stats/bpm/realtime', bpmCommon: '/beatmap/stats/bpm/common',
   mods: '/play/mods/array', modsRate: '/play/mods/rate',
 };
@@ -31,8 +34,10 @@ const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'; // --ease-out
 
 // Difficulty settings that mean something while playing each ruleset: taiko has no approach rate
 // or circle size, catch has no timing windows, and a mania player is looking at the key count.
+// The narrow column (osu!/catch side column) drops HP, the least telling, rather than shrink type.
 const KEYS = ['ar', 'cs', 'od', 'hp'];
 const CELLS = { osu: ['ar', 'cs', 'od', 'hp'], taiko: ['od', 'hp'], fruits: ['ar', 'cs', 'hp'], mania: ['od', 'hp'] };
+const CELLS_NARROW = { osu: ['ar', 'cs', 'od'], taiko: ['od', 'hp'], fruits: ['ar', 'cs'], mania: ['od', 'hp'] };
 // align = auto follows the placements: osu!/catch hug the right screen edge; taiko's strip reads
 // from the left (right of the mascot), mania sits in the top-left corner.
 const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'start', mania: 'start' };
@@ -40,8 +45,6 @@ const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'start', mania: 'start' }
 const MOD_RATE = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
 // "Song (TV Size)", "Song [Extended]", "Song -Remix-": the suffix moves to the artist line.
 const SUFFIX = /^(.*?\S)\s+((?:[([（［【].*|-[^-]+-))$/u;
-const UP = '\u25b2';
-const DOWN = '\u25bc';
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
@@ -80,7 +83,7 @@ function attr(el, name, value) {
 
 const cells = {};
 for (const el of document.querySelectorAll('.cell')) {
-  cells[el.dataset.k] = { el, to: el.querySelector('.to'), adj: el.querySelector('.adj'), shownTo: '', shownAdj: '', format: numberFormatter('stat') };
+  cells[el.dataset.k] = { el, v: el.querySelector('.v'), shown: '', format: numberFormatter('stat') };
 }
 const starsText = numberFormatter('stars');
 const bpmText = numberFormatter('bpm');
@@ -88,7 +91,7 @@ const bpmText = numberFormatter('bpm');
 // ------------------------------------------------------------------ state
 let opts = {
   layout: 'full', orientation: 'auto', align: 'auto', unicode: false, showStats: true, showProgress: true,
-  motion: 'full', backing: 'scrim', mapTint: true,
+  motion: 'full', backing: 'scrim', mapTint: true, marks: 'neutral',
 };
 let motion = 'full';
 let values = {};
@@ -110,7 +113,8 @@ const live = { t: null };
 const kiai = { on: false, moving: false, ticks: 0, seen: 0, timer: 0, shown: false };
 const STILL_MS = 250;
 let shownChecksum;
-let shownMode;
+let narrow = false; // the column is narrower than four settings need (osu!/catch side column)
+let shownCells = null;
 let paletteFor = '';
 let pickedTitle = null;
 let mergeFor = '';
@@ -199,6 +203,10 @@ function layoutBox() {
   attr(np, 'data-orient', orient);
   const u = Math.round(Math.min(Math.max(Math.min(w / bw, h / bh), 0.5), 4) * 1000) / 1000;
   root.style.setProperty('--u', String(u));
+  narrow = orient === 'vertical' && w / u < NARROW;
+  attr(np, 'data-narrow', narrow ? '' : null);
+  shownCells = null;
+  dirty = true;
   const steps = Math.max(200, Math.round(w * 2));
   if (steps !== barSteps) {
     barSteps = steps;
@@ -263,7 +271,7 @@ function renderAll() {
     shownBpm = null; // a new map's BPM arrives without the nudge
   }
   renderMods();
-  renderStats(mode, mode !== 'osu' && values[P.isConvert] === true);
+  renderStats(mode);
   renderLive();
   clock.sample(live.t, values[P.clockRate], values[P.first], values[P.last], values[P.mp3], 0);
   buildTable(); // the span may have moved
@@ -335,11 +343,11 @@ function renderMods() {
   text('mods', label);
 }
 
-function renderStats(mode, convert) {
+function renderStats(mode) {
   const { parsed } = ctx;
-  if (mode !== shownMode) {
-    shownMode = mode;
-    const visible = CELLS[mode] || CELLS.osu;
+  const visible = (narrow ? CELLS_NARROW : CELLS)[mode] || (narrow ? CELLS_NARROW : CELLS).osu;
+  if (visible !== shownCells) {
+    shownCells = visible;
     for (const k of KEYS) cells[k].el.hidden = !visible.includes(k);
     statsEl.dataset.n = String(visible.length);
   }
@@ -347,15 +355,9 @@ function renderStats(mode, convert) {
     const k = KEYS[i];
     const cell = cells[k];
     if (cell.el.hidden) continue;
-    // 0 is a real AR/CS/OD/HP, so only an unparsed map makes these unknown.
-    const original = parsed ? known(values[P[`${k}O`]]) : NaN;
-    const converted = parsed ? known(values[P[`${k}C`]]) : NaN;
-    // A convert's original values belong to the osu! map, not to this ruleset.
-    const changedBy = !convert && isKnown(original) && isKnown(converted) && Math.abs(converted - original) >= 0.05;
-    const to = cell.format(converted);
-    const adj = changedBy ? (converted > original ? UP : DOWN) : '';
-    if (to !== cell.shownTo) { cell.shownTo = to; write(cell.to, to); }
-    if (adj !== cell.shownAdj) { cell.shownAdj = adj; write(cell.adj, adj); }
+    // The mod-adjusted value; 0 is a real AR/CS/OD/HP, so only an unparsed map makes it unknown.
+    const to = cell.format(parsed ? known(values[P[`${k}C`]]) : NaN);
+    if (to !== cell.shown) { cell.shown = to; write(cell.v, to); }
   }
 }
 
@@ -363,7 +365,15 @@ function renderStats(mode, convert) {
 function renderLive() {
   if (!ctx.show) return;
   const total = ctx.parsed ? known(values[P.starsTotal], true) : NaN;
-  text('stars', starsText(total));
+  // The hero's decimals are a .kit-frac (7.01 → "7" + ".01"), as the set's heroes do; split only
+  // when the shown rating changes.
+  const stars = starsText(total);
+  if (stars !== shown.stars) {
+    shown.stars = stars;
+    const dot = stars.indexOf('.');
+    text('starsInt', dot < 0 ? stars : stars.slice(0, dot));
+    text('starsFrac', dot < 0 ? '' : stars.slice(dot));
+  }
   const liveStars = ctx.parsed ? known(values[P.starsLive], true) : NaN;
   let step = -1;
   if (isKnown(total) && isKnown(liveStars)) step = Math.round(Math.min(1, liveStars / total) * STRAIN_STEPS);

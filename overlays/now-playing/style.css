@@ -71,9 +71,6 @@ p, h1, dl, dd { margin: 0; }
 .stats { grid-area: stats; display: flex; column-gap: var(--s-4); min-width: 0; }
 .cell { display: flex; align-items: baseline; gap: var(--s-1); }
 .cell .v { display: flex; align-items: baseline; font: 600 calc(var(--u) * 20px)/1 var(--font-display); color: var(--text-1); white-space: nowrap; }
-/* Raised or lowered by mods: a small arrow after the effective value (no colour: not a judgement). */
-.cell .adj { font: 500 calc(var(--u) * 14px)/1 var(--font-body); color: var(--text-2); margin-left: .04em; }
-.cell .adj:empty { display: none; }
 
 /* ------------------------------------------------------------------ column (tall boxes) */
 #np[data-orient="vertical"] .body { grid-template-areas: "ident" "prog" "nums"; row-gap: calc(var(--u) * 6px); }
@@ -82,8 +79,12 @@ p, h1, dl, dd { margin: 0; }
 #np[data-orient="vertical"] .nums { grid-area: nums; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "hero side" "stats stats"; column-gap: var(--s-3); row-gap: var(--s-1); }
 #np[data-orient="vertical"][data-align="end"] .nums { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "side hero" "stats stats"; }
 #np[data-orient="vertical"][data-align="end"] .stats { justify-content: flex-end; }
-/* Four settings span the row; with every value mod-adjusted (HR DT) they need all of it. */
-#np[data-orient="vertical"] .stats[data-n="4"] { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
+/* Three or four settings span the row (the 216 px side column shows three). */
+#np[data-orient="vertical"] .stats:is([data-n="3"], [data-n="4"]) { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
+/* The 216 px side column: BPM at the value role's row size (24, never below 20) and a tighter gap,
+   so a 10★ rating and a three-digit BPM still share the row. */
+#np[data-narrow] .nums { column-gap: var(--s-2); }
+#np[data-narrow] .bpm { font-size: calc(var(--u) * 24px); }
 
 /* ------------------------------------------------------------------ strip (wide boxes)
    One reading line: title and credits, then the numbers (critique: no two islands). */

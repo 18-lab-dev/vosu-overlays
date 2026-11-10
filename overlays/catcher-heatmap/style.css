@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 18-LAB. MIT.
    Catcher heatmap on the 18-LAB kit (kit.css: type roles, colour roles, backing, signature, motion).
-   The page is the overlay's box; overlay.js sets --u on #hud (1 at the 256×240 column). */
+   The page is the overlay's box; overlay.js sets --u on #hud (1 at the 216×240 column). */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
@@ -22,18 +22,21 @@ html[data-orient="vertical"] .hud { grid-template: "stats" auto "field" minmax(0
 html[data-orient="horizontal"] .hud { grid-template: "field stats" minmax(0, 1fr) / minmax(0, 1fr) auto; column-gap: var(--s-5); }
 html[data-orient="horizontal"][data-align="left"] .hud { grid-template: "stats field" minmax(0, 1fr) / auto minmax(0, 1fr); }
 /* Balance word over the hero (the heavier side's share of the time, so it describes the strip
-   under it), then the dash share as a caption with its window. Stacked on the left: in the R4
+   under it), then the dash share with its window caption on the line below (worded like
+   catcher-trail; one line would not fit the 184 px inner width). Stacked on the left: in the R4
    column the strip starts below box y 120, so the right edge of the top 120 px (stable's input
    overlay, screen y 465–720) holds only empty backing. */
 .stats {
   grid-area: stats; min-width: 0;
-  display: grid; grid-template: "label" auto "hero" auto "dash" auto / minmax(0, 1fr); row-gap: var(--s-1);
+  display: grid; grid-template: "label" auto "hero" auto "dash" auto "scope" auto / minmax(0, 1fr); row-gap: var(--s-1);
   justify-items: start;
 }
 .stats .kit-hero { grid-area: hero; }
 .stats > .kit-label { grid-area: label; }
 .dashline { grid-area: dash; margin: 0; display: flex; align-items: baseline; gap: var(--s-2); white-space: nowrap; }
-html[data-orient="horizontal"] .stats { align-self: center; }
+.scope { grid-area: scope; margin: 0; white-space: nowrap; }
+/* Band: the band is short, so the caption sits beside the dash share. */
+html[data-orient="horizontal"] .stats { align-self: center; grid-template: "label label" auto "hero hero" auto "dash scope" auto / auto auto; column-gap: var(--s-2); }
 
 /* Strip */
 .field { grid-area: field; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -45,7 +48,7 @@ html[data-orient="horizontal"] .stats { align-self: center; }
 .hud[data-empty] :is(.kit-unit, .pct) { visibility: hidden; }
 
 /* Small boxes (renderer cells, about half size): drop the dash-share line rather than shrink it. */
-html[data-compact] .dashline { display: none; }
+html[data-compact] :is(.dashline, .scope) { display: none; }
 
 /* Connection / no-data notice, in the box corner on the aligned side. */
 .status {

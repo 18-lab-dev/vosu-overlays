@@ -1,10 +1,10 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Catcher trail: the path the osu!catch catcher took over the last seconds, from vosu's
 // /play/catcher {x, dashing}. The game shows where the catcher is; the trail shows how it got
-// there: dashes in amber, every miss pinned in red where the catcher was when it happened, kiai
-// stretches shaded in the map's tone. The page is the overlay's box; the layout re-flows to its shape.
+// there: a neutral walk with its dashes in amber, and every miss pinned in red where the catcher
+// was when it happened. The page is the overlay's box; the layout re-flows to its shape.
 import {
-  subscribe, settings, activeMode, isPlaying, mapPalette, applyPalette, applyKitSettings,
+  subscribe, settings, activeMode, isPlaying, applyKitSettings,
   known, numberFormatter, DASH, MOTION_MS,
 } from './vosu-overlay.js';
 
@@ -19,7 +19,6 @@ const STATS_EVERY = 250;         // readout refresh, ms
 const CAP = 4096;                // trace ring; the sampling floor keeps 30 s under ~2.5k samples
 const MASK = CAP - 1;
 const MISS_CAP = 64;             // miss pins remembered (a window rarely holds more than a few)
-const KIAI_CAP = 8;              // kiai stretches remembered
 // Dash share, shared with catcher-heatmap so the two agree: gameplay time between the first and
 // last object outside breaks, segments of at most MAX_STEP map ms, a clock jump back of more
 // than RETRY_JUMP map ms is a new attempt.
@@ -31,7 +30,7 @@ const TAU = Math.PI * 2;
 const P = {
   state: '/state/number', playMode: '/play/mode/number', selMode: '/settings/mode/number',
   catcher: '/play/catcher', time: '/beatmap/time/live', rate: '/beatmap/time/rate',
-  modsRate: '/play/mods/rate', brk: '/beatmap/isBreak', kiai: '/beatmap/isKiai', checksum: '/beatmap/checksum',
+  modsRate: '/play/mods/rate', brk: '/beatmap/isBreak', checksum: '/beatmap/checksum',
   first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject', miss: '/play/hits/0',
   cs: '/beatmap/stats/cs/converted',
 };
@@ -40,7 +39,7 @@ const root = document.getElementById('root');
 const canvas = document.getElementById('trace');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  chip: document.getElementById('chip'), dashRow: document.getElementById('dash-row'), span: document.getElementById('span'),
+  chip: document.getElementById('chip'), dashRow: document.getElementById('dash-row'),
   dash: document.getElementById('dash'), finalBlock: document.getElementById('final'),
   finalDash: document.getElementById('final-dash'), finalTurns: document.getElementById('final-turns'),
 };
@@ -67,19 +66,15 @@ const INK = {
   centre: alpha(C.text1, 0.22),  // --hair: playfield centre
   halo: 'rgb(0 0 0 / .55)',
 };
-let mapTone = '#c9c4ba';         // kiai stretches on the playfield edges: --map, re-read when it changes
-let kiaiW = 2;
-let palette = null, paletteFor = '';
 const CHIP = { offline: 'vosu offline', nodata: 'No data' };
 
 // ---------------------------------------------------------------- state
 const DEFAULTS = {
   orientation: 'auto', align: 'left', window: 6, showDash: true, showOnResults: true,
-  motion: 'full', backing: 'scrim', mapTint: true,
+  motion: 'full', backing: 'scrim',
 };
 let opts = { ...DEFAULTS };
 let motion = 'full';
-let spanText = '';
 let status = 'connecting';
 let view = 'connecting';
 let viewDirty = true, layoutDirty = true, statsDirty = true, raf = 0;
@@ -97,7 +92,7 @@ let traceInk = null, dashInk = null, haloInk = null;  // age gradients (buildInk
 // small integers (a computed double passed to a canvas call is a heap allocation until the pass
 // reaches the optimising tier).
 let edge1 = 0, centreU = 0, tickLen = 4, plateTop = 0, plateH = 4, plateW = 0;
-let traceW = 1.75, haloW = 4.5, dashW = 2.5, pinR = 3.5, ringR = 15, pinLine = 1.5, ringLine = 2;
+let traceW = 1.5, haloW = 3.5, dashW = 1.75, pinR = 3.5, ringR = 15, pinLine = 1.5, ringLine = 2;
 // The visible trace, filled by the trace pass and replayed by the dash pass.
 const pathU = new Float64Array(CAP), pathV = new Float64Array(CAP);
 
@@ -111,10 +106,6 @@ let hasPrev = false, prevDash = false;   // dash-share segment start
 // Miss pins: gameplay time (wall-clock scale), catcher x, and the page time they arrived (flash).
 const missT = new Float64Array(MISS_CAP), missX = new Float32Array(MISS_CAP), missWall = new Float64Array(MISS_CAP);
 let missHead = 0, missCount = 0, missesSeen = -1;
-// Kiai stretches (gameplay time, wall-clock scale); the open one ends at +Infinity, unused slots
-// span -Infinity (zero height), so the kiai pass runs its whole body from the first frame.
-const kiaiFrom = new Float64Array(KIAI_CAP).fill(-Infinity), kiaiTo = new Float64Array(KIAI_CAP).fill(-Infinity);
-let kiaiHead = 0, kiaiCount = 0, kiaiOn = false;
 // Doubles written per sample or frame live in object fields: V8 updates a double field in place,
 // while every store to a module-level `let` allocates a new heap number.
 const num = {
@@ -131,7 +122,6 @@ function resetAttempt() {
   ringHead = 0; ringCount = 0; sampled = false; pending = false; num.headT = -Infinity;
   num.activeMs = 0; num.dashMs = 0; turns = 0; dir = 0; hasPrev = false;
   missHead = 0; missCount = 0; missesSeen = -1;
-  kiaiHead = 0; kiaiCount = 0; kiaiOn = false; kiaiFrom.fill(-Infinity); kiaiTo.fill(-Infinity);
   statsDirty = true;
 }
 
@@ -200,15 +190,6 @@ function pinMiss(now) {
   if (motion === 'full') num.flashUntil = now + MOTION_MS.base;
 }
 
-function kiaiEdge(on, t) {
-  if (on) {
-    kiaiFrom[kiaiHead] = t; kiaiTo[kiaiHead] = Infinity;
-    kiaiHead = (kiaiHead + 1) % KIAI_CAP;
-    if (kiaiCount < KIAI_CAP) kiaiCount++;
-  } else if (kiaiCount) kiaiTo[(kiaiHead + KIAI_CAP - 1) % KIAI_CAP] = t;
-  kiaiOn = on;
-}
-
 // ---------------------------------------------------------------- motion
 // Results: the final readouts rise into place once (an Animation created once and restarted).
 const REVEAL_KEYS = [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }];
@@ -234,7 +215,7 @@ subscribe(Object.values(P), (values, changed) => {
   if (changed.has(P.checksum)) {
     const next = values[P.checksum] || '';
     if (checksum !== undefined && next !== checksum) resetAttempt();
-    checksum = next; loadPalette();
+    checksum = next;
   }
   if (changed.has(P.cs)) { num.cs = known(values[P.cs]); plateWidth(); }
 
@@ -250,8 +231,6 @@ subscribe(Object.values(P), (values, changed) => {
     const rate = values[P.rate] > 0 ? values[P.rate] : values[P.modsRate] > 0 ? values[P.modsRate] : 1;
     const t = live / rate;                       // gameplay ms on the wall-clock scale
     ingest(t, x, dashing, now);
-    const kiai = values[P.kiai] === true;
-    if (kiai !== kiaiOn) kiaiEdge(kiai, t);
     const misses = values[P.miss];
     if (typeof misses === 'number') {
       if (missesSeen >= 0 && misses > missesSeen) pinMiss(now);
@@ -294,33 +273,6 @@ function setView(next) {
   kick();
 }
 
-// ---------------------------------------------------------------- map tone
-function loadPalette() {
-  if (!checksum) { setPalette(null); return; }
-  if (checksum === paletteFor) { setPalette(palette); return; }
-  const wanted = paletteFor = checksum;
-  mapPalette(wanted).then(result => {
-    if (paletteFor !== wanted) return;
-    palette = result;
-    setPalette(result);
-  });
-}
-
-/** --map follows the palette (or stays neutral with mapTint off); the canvas reads it back here. */
-function setPalette(result) {
-  applyPalette(root, result);
-  readMap();
-}
-
-function readMap() {
-  const tone = getComputedStyle(root).getPropertyValue('--map').trim() || '#c9c4ba';
-  ctx.fillStyle = '#c9c4ba';
-  ctx.fillStyle = tone;
-  if (ctx.fillStyle === mapTone) return;
-  mapTone = ctx.fillStyle;
-  kick();
-}
-
 // ---------------------------------------------------------------- settings
 settings(DEFAULTS, s => {
   const w = Math.round(Math.min(30, Math.max(2, Number(s.window) || DEFAULTS.window)));
@@ -329,13 +281,11 @@ settings(DEFAULTS, s => {
     align: s.align === 'right' ? 'right' : 'left',
     window: w,
     showDash: s.showDash !== false, showOnResults: s.showOnResults !== false,
-    motion: s.motion, backing: s.backing, mapTint: s.mapTint,
+    motion: s.motion, backing: s.backing,
   };
   motion = applyKitSettings(root, opts);
   if (motion !== 'full') num.flashUntil = 0;
-  spanText = `last ${w} s`;
   viewDirty = true;
-  readMap();
   if (framed) evaluate(performance.now());
   layoutBox();
 });
@@ -379,8 +329,8 @@ function measure() {
   tickLen = Math.round(4 * k);
   plateH = Math.max(3, Math.round(4 * k));
   plateTop = plotLen + Math.round(5 * k);
-  traceW = 1.75 * k; haloW = 4.5 * k; dashW = 2.5 * k; pinR = 3.5 * k; ringR = 15 * k;
-  pinLine = 1.5 * k; ringLine = 2 * k; kiaiW = Math.max(2, Math.round(2 * k));
+  traceW = 1.5 * k; haloW = 3.5 * k; dashW = 1.75 * k; pinR = 3.5 * k; ringR = 15 * k;
+  pinLine = 1.5 * k; ringLine = 2 * k;
   plateWidth();
   buildInks();
   kick();
@@ -392,10 +342,11 @@ function buildInks() {
   traceInk.addColorStop(0, alpha(C.text2, 0));
   traceInk.addColorStop(0.45, alpha(C.text2, 0.6));
   traceInk.addColorStop(1, alpha(C.text2, 0.95));
+  // Dashes stay a thin amber line over the walk, never a fill: amber is "your action" here.
   dashInk = ctx.createLinearGradient(0, 0, 0, plotLen);
   dashInk.addColorStop(0, alpha(C.you, 0));
-  dashInk.addColorStop(0.4, alpha(C.you, 0.75));
-  dashInk.addColorStop(1, C.you);
+  dashInk.addColorStop(0.4, alpha(C.you, 0.55));
+  dashInk.addColorStop(1, alpha(C.you, 0.85));
   haloInk = ctx.createLinearGradient(0, 0, 0, plotLen);
   haloInk.addColorStop(0, 'rgb(0 0 0 / 0)');
   haloInk.addColorStop(0.45, 'rgb(0 0 0 / .3)');
@@ -439,7 +390,6 @@ function applyView() {
   viewDirty = false;
   root.dataset.view = view;
   el.dashRow.hidden = !opts.showDash;
-  setText(el.span, spanText);
   setText(el.chip, CHIP[view] || 'Connecting');
 }
 
@@ -462,7 +412,7 @@ function writeStats() {
 }
 
 // Per-frame geometry shared by the draw passes. Object fields: V8 updates doubles there in place.
-// Each pass is its own function, so a pass that first runs late (the first kiai, the first miss)
+// Each pass is its own function, so a pass that first runs late (the first miss)
 // cannot send the hot trace loop back to an unoptimised tier.
 const g = { len: 0.5, head: 0.5, pxPerMs: 0.5, from: 0.5, nu: 0.5 };
 
@@ -481,7 +431,6 @@ function draw(now) {
   g.nu = (num.lastX / PLAYFIELD) * span;
   drawFrame();
   if (ringCount === 0) return;
-  drawKiai();
   drawTrace();
   drawMisses(now);
   drawCatcher();
@@ -500,20 +449,6 @@ function drawFrame() {
     const v = (len - (head - s * 1000) * pxPerMs) | 0;
     ctx.fillRect(0, v, tickLen, line);
     ctx.fillRect(span - tickLen, v, tickLen, line);
-  }
-}
-
-/** Kiai stretches light the playfield edges in the map's tone. */
-function drawKiai() {
-  const len = plotLen, head = g.head, pxPerMs = g.pxPerMs;
-  ctx.fillStyle = mapTone;
-  for (let j = 0; j < KIAI_CAP; j++) {
-    // An open stretch (to = +Infinity) runs to the newest sample.
-    const v0 = Math.max(0, len - (head - kiaiFrom[j]) * pxPerMs) | 0;
-    const v1 = (len - (head - Math.min(kiaiTo[j], head)) * pxPerMs) | 0;
-    const h = Math.max(0, v1 - v0);
-    ctx.fillRect(0, v0, kiaiW, h);
-    ctx.fillRect(span - kiaiW, v0, kiaiW, h);
   }
 }
 

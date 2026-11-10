@@ -11,13 +11,13 @@
 </head>
 <body>
 <main id="root" class="kit" data-view="connecting" data-orient="vertical" data-align="left" data-backing="scrim" data-motion="full" data-map-tint="on" aria-label="Catcher trail">
-  <header class="head">
-    <p class="dash" id="dash-row"><span class="kit-label">Dashing</span><span class="kit-value"><span id="dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></span></p>
-    <p class="kit-caption" id="span">last 6 s</p>
+  <header class="head" id="dash-row">
+    <p class="dash"><span class="kit-label">Dash share</span><span class="kit-value"><span id="dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></span></p>
+    <p class="kit-caption">this attempt</p>
   </header>
-  <div class="plot"><canvas id="trace" aria-label="Catcher position over the last seconds: dashes in amber, misses in red"></canvas></div>
+  <div class="plot"><canvas id="trace" aria-label="Catcher position over the last seconds, one tick per second: dashes in amber, misses in red"></canvas></div>
   <dl class="final" id="final">
-    <div><dt class="kit-label">Dashing</dt><dd class="kit-value"><span id="final-dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></dd></div>
+    <div><dt class="kit-label">Dash share</dt><dd class="kit-value"><span id="final-dash" class="kit-dash">—</span><span class="kit-unit tight">%</span></dd></div>
     <div><dt class="kit-label">Direction changes</dt><dd class="kit-value"><span id="final-turns" class="kit-dash">—</span></dd></div>
   </dl>
   <p class="note kit-text">Catcher position needs vosu</p>

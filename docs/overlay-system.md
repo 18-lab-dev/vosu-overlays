@@ -229,9 +229,9 @@ Never the player's keybind letters (`Z`, `X`, `LSHFT`) or arrows: the same key m
 **Truncation.** Single lines are cut with `fitFields(fields, fits)`:
 - Each field has an `order` (lower gives way first) and a `keep`. Equal orders shrink the longest first.
 - `keep: NAME_KEEP` (16) for player and mapper names: a name of 16 characters or fewer is never cut.
-  The one exception is a list row whose fields are all essential (leaderboard: position, name, score):
-  at 216 px there is room for about nine characters at 16 px and nothing to drop, so names are fitted
-  to the measured column instead.
+  The exceptions are narrow forms whose fields are all essential: the leaderboard row (position, name,
+  score) and profile-card's 216 px tag (avatar, name, rank). At 216 px there is no field left to drop,
+  so names are fitted to the measured column instead.
 - `keep: 0` lets a field go entirely, and it goes whole rather than leave fewer than three characters
   before the `…` (no `(C…` stubs); `Infinity` keeps it whole.
 - Map lines: the title's bracketed suffix (from `splitTitle()`, e.g. `(covered by …)`, `[TV Size]`) gives way first, then the difficulty name, then the title (keep ≥ 8), never a short mapper.

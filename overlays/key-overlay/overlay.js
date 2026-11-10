@@ -6,7 +6,7 @@
 // and lays itself out for whatever box it is given. System: docs/overlay-system.md.
 import {
   subscribe, settings, activeMode, maniaSkin, applyKitSettings, numberFormatter, createKps, isKnown,
-  UNKNOWN, MOTION_MS,
+  keyLabels, UNKNOWN, MOTION_MS,
 } from './vosu-overlay.js';
 
 // Design px at --u = 1; the default boxes are --u = 1: the osu!/catch side column with its tape
@@ -23,7 +23,7 @@ const LANE_MAX_V = 140; // widest column before the block stops growing and cent
 const LANE_MAX_H = 40;  // thickest row
 const CAP_H = 56;       // caps (vertical): key code over count
 const CAP_FILL = 72;    // tallest caps when they are the whole overlay (no tape)
-const CAP_W = 88;       // caps (horizontal): key code and count on one line
+const CAP_W = 112;      // caps (horizontal): key code (up to L·KAT, RIGHT) and count on one line
 const CAP_GAP = 4;      // caps ↔ tape
 const READ_H = 36;      // readout row (vertical)
 const READ_W = 96;      // readout column (horizontal)
@@ -44,7 +44,7 @@ const BED_DARK = 'rgba(11,12,13,0.5)';     // lane beds with backing none
 const BED_LIGHT = 'rgba(239,236,229,0.05)'; // lane beds on the scrim / panel
 
 const DEFAULTS = {
-  motion: 'full', backing: 'scrim',
+  motion: 'full', backing: 'scrim', marks: 'neutral',
   orientation: 'auto', align: 'auto', speed: 600, showCounts: true, showKps: false, maniaTape: false, smokeLane: false,
 };
 const OPTIONS = { orientation: ['auto', 'horizontal', 'vertical'], align: ['auto', 'start', 'end'] };
@@ -53,10 +53,6 @@ const P = {
   state: '/state/number', playMode: '/play/mode/number', settingsMode: '/settings/mode/number', client: '/client',
   keys: '/keys/all', live: '/beatmap/time/live', rate: '/beatmap/time/rate', skin: '/settings/skin/name',
   modsRate: '/play/mods/rate', paused: '/game/paused', cs: '/beatmap/stats/cs/converted',
-  osuK1: '/settings/keybinds/osu/k1', osuK2: '/settings/keybinds/osu/k2', osuSmoke: '/settings/keybinds/osu/smokeKey',
-  taikoOL: '/settings/keybinds/taiko/outerLeft', taikoIL: '/settings/keybinds/taiko/innerLeft',
-  taikoIR: '/settings/keybinds/taiko/innerRight', taikoOR: '/settings/keybinds/taiko/outerRight',
-  catchK1: '/settings/keybinds/fruits/k1', catchK2: '/settings/keybinds/fruits/k2', catchDash: '/settings/keybinds/fruits/Dash',
 };
 
 const $ = id => document.getElementById(id);
@@ -83,24 +79,6 @@ function attr(node, name, value) {
 }
 function flag(node, name, on) {
   if (node.hasAttribute(name) !== on) node.toggleAttribute(name, on);
-}
-
-const KEY_NAMES = {
-  Left: '←', Right: '→', Up: '↑', Down: '↓', Space: 'SPACE', Enter: 'ENTER', Tab: 'TAB', Back: 'BKSP', Escape: 'ESC',
-  CapsLock: 'CAPS', LeftShift: 'LSHFT', RightShift: 'RSHFT', LeftControl: 'LCTRL', RightControl: 'RCTRL',
-  LeftAlt: 'LALT', RightAlt: 'RALT', PageUp: 'PGUP', PageDown: 'PGDN', Insert: 'INS', Delete: 'DEL', Home: 'HOME', End: 'END',
-};
-/** A stable keybind name as a short cap label (a code: kit-code caps), or null when unbound/unknown. */
-function keyLabel(name) {
-  if (typeof name !== 'string') return null;
-  const trimmed = name.trim();
-  if (!trimmed || trimmed === 'None') return null;
-  if (KEY_NAMES[trimmed]) return KEY_NAMES[trimmed];
-  let match = /^D(\d)$/.exec(trimmed);
-  if (match) return match[1];
-  match = /^NumPad(\d)$/.exec(trimmed);
-  if (match) return `N${match[1]}`;
-  return trimmed.slice(0, 5).toUpperCase();
 }
 
 // ------------------------------------------------------------------ key tracks (one per keys.all entry)
@@ -280,37 +258,40 @@ function keyCount() {
 }
 
 /**
- * Lanes for the ruleset. Every bar is graphite history (--hair-strong) with a 2 px leading edge at
- * the moment the key went down: 18-LAB amber ("you", the kit's lit rule), or don/kat in osu!taiko,
- * where the zone is game meaning. Catch keys (directions, dash) are held most of the time, so they
- * draw as a thin line instead of a filled bar.
+ * Lanes for the ruleset, named by the set's one key-name source (keyLabels: K1 K2, L·KAT L·DON R·DON
+ * R·KAT, LEFT RIGHT DASH, 1 … N), never the player's keybinds. Every bar is graphite history
+ * (--hair-strong) with a 2 px leading edge at the moment the key went down: 18-LAB amber ("you", the
+ * kit's lit rule), or don/kat in osu!taiko, where the zone is game meaning. Catch keys (directions,
+ * dash) are held most of the time, so they draw as a thin line instead of a filled bar.
  */
 function laneSpec(mode) {
-  const v = values;
-  const bind = pointer => keyLabel(v[pointer]);
   if (mode === 'osu') {
-    const spec = [{ src: 0, label: bind(P.osuK1) ?? 'K1', zone: '', thin: false }, { src: 1, label: bind(P.osuK2) ?? 'K2', zone: '', thin: false }];
-    if (cfg.smokeLane) spec.push({ src: 2, label: bind(P.osuSmoke) ?? 'SMK', zone: '', thin: false });
+    // vosu's osu! list is B1, B2, smoke (keyboard and mouse merged): K1 and K2, then the opt-in smoke lane.
+    const names = keyLabels('osu', 2);
+    const spec = [lane(0, names, 0, '', false), lane(1, names, 1, '', false)];
+    if (cfg.smokeLane) spec.push({ src: 2, label: 'SMOKE', long: 'Smoke', zone: '', thin: false });
     return spec;
   }
   if (mode === 'taiko') {
-    return [
-      { src: 0, label: bind(P.taikoOL) ?? 'K', zone: 'kat', thin: false },
-      { src: 1, label: bind(P.taikoIL) ?? 'D', zone: 'don', thin: false },
-      { src: 2, label: bind(P.taikoIR) ?? 'D', zone: 'don', thin: false },
-      { src: 3, label: bind(P.taikoOR) ?? 'K', zone: 'kat', thin: false },
-    ];
+    const names = keyLabels('taiko', 4);
+    return [lane(0, names, 0, 'kat', false), lane(1, names, 1, 'don', false), lane(2, names, 2, 'don', false), lane(3, names, 3, 'kat', false)];
   }
   if (mode === 'fruits') {
-    // osu!stable never reports catch left/right, so those lanes only appear once they carry presses.
-    // Catch keys (directions and dash) are held most of the time: lines, not filled bars.
-    const moves = v[P.client] === 'lazer' || tracks[0]?.ever || tracks[1]?.ever;
-    const dash = { src: 2, label: bind(P.catchDash) ?? 'DASH', zone: '', thin: true };
-    return moves ? [{ src: 0, label: bind(P.catchK1) ?? '←', zone: '', thin: true }, { src: 1, label: bind(P.catchK2) ?? '→', zone: '', thin: true }, dash] : [dash];
+    // osu!stable never reports catch left/right (vosu sends them with zero counts), so those lanes
+    // only appear once they carry presses; until then the one lane is DASH.
+    const moves = values[P.client] === 'lazer' || tracks[0]?.ever || tracks[1]?.ever;
+    if (!moves) return [lane(2, keyLabels('fruits', 1), 0, '', true)];
+    const names = keyLabels('fruits', 3);
+    return [lane(0, names, 0, '', true), lane(1, names, 1, '', true), lane(2, names, 2, '', true)];
   }
+  const n = keyCount();
+  const names = keyLabels('mania', n);
   const spec = [];
-  for (let i = 0, n = keyCount(); i < n; i++) spec.push({ src: i, label: String(i + 1), zone: '', thin: false });
+  for (let i = 0; i < n; i++) spec.push(lane(i, names, i, '', false));
   return spec;
+}
+function lane(src, names, at, zone, thin) {
+  return { src, label: names.short[at], long: names.long[at], zone, thin };
 }
 
 // ------------------------------------------------------------------ layout (inside the page's box)
@@ -434,6 +415,7 @@ function buildLanes(mode) {
     const labelEl = document.createElement('b');
     labelEl.className = 'kit-code';
     labelEl.textContent = s.label;
+    cap.setAttribute('aria-label', s.long);
     const countEl = document.createElement('span');
     countEl.className = 'n';
     countEl.textContent = '—';
@@ -562,8 +544,7 @@ function followManiaSkin() {
 
 // Pointers whose change can alter lanes or labels; key frames alone only can through their length
 // (mania key count) or catch move keys getting their first press.
-const LAYOUT_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.cs, P.skin, P.osuK1, P.osuK2, P.osuSmoke,
-  P.taikoOL, P.taikoIL, P.taikoIR, P.taikoOR, P.catchK1, P.catchK2, P.catchDash];
+const LAYOUT_POINTERS = [P.state, P.playMode, P.settingsMode, P.client, P.cs, P.skin];
 let keysLength = -1;
 let catchMoves = false;
 function layoutMayChange(changed) {

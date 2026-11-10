@@ -217,7 +217,7 @@ All allocation-free on the per-frame path once V8 has optimised them; create obj
 
 | Ruleset | short | long |
 | --- | --- | --- |
-| osu! | `K1` `K2` (+ `M1` `M2` when the list carries the mouse buttons) | Key 1, Key 2, Mouse 1, Mouse 2 |
+| osu! | lazer: `K1` `K2` `M1` `M2` (its key counters); stable: `K1` `K2` `SMOKE` (mouse buttons folded into K1/K2) | Key 1, Key 2, Mouse 1, Mouse 2 / Smoke |
 | taiko | `L·KAT` `L·DON` `R·DON` `R·KAT` (left rim, left centre, right centre, right rim) | Left kat, Left don, Right don, Right kat |
 | catch | `LEFT` `RIGHT` `DASH` (stable reports only dash: `DASH`) | Left, Right, Dash |
 | mania | `1` … `N`, left to right | Key 1 … Key N |

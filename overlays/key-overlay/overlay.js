@@ -267,9 +267,9 @@ function keyCount() {
 function laneSpec(mode) {
   if (mode === 'osu') {
     // vosu's osu! list is B1, B2, smoke (keyboard and mouse merged): K1 and K2, then the opt-in smoke lane.
-    const names = keyLabels('osu', 2);
+    const names = keyLabels('osu', 3);
     const spec = [lane(0, names, 0, '', false), lane(1, names, 1, '', false)];
-    if (cfg.smokeLane) spec.push({ src: 2, label: 'SMOKE', long: 'Smoke', zone: '', thin: false });
+    if (cfg.smokeLane) spec.push(lane(2, names, 2, '', false));
     return spec;
   }
   if (mode === 'taiko') {

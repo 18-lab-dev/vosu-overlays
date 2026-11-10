@@ -61,6 +61,7 @@ const extras = $('extras');
 const hudItems = [...document.querySelectorAll('[data-hud]')];
 const urItem = $('urItem');
 const ppItem = $('ppItem');
+const fcItem = $('fcItem');
 
 // Text slots write their text node's data only when the string differs.
 function slot(id) {
@@ -94,7 +95,7 @@ const fracText = new Array(100).fill(null);
 const fracOf = n => fracText[n] ?? (fracText[n] = `.${n < 10 ? '0' : ''}${n}`);
 
 const DEFAULTS = {
-  target: 99, orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim', hudFields: false, showPp: false, showUr: false,
+  target: 99, orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim', marks: 'neutral', hudFields: false, showPp: false, showUr: false,
 };
 let config = { ...DEFAULTS };
 let motion = 'full';
@@ -346,6 +347,7 @@ settings(DEFAULTS, s => {
   for (const node of hudItems) hide(node, !config.hudFields);
   hide(urItem, !config.showUr);
   hide(ppItem, !config.showPp);
+  hide(fcItem, !config.showPp);
   const anyExtras = config.hudFields || config.showUr || config.showPp;
   hide(extras, !anyExtras);
   root.toggleAttribute('data-extras', anyExtras);

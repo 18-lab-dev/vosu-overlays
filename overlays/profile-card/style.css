@@ -106,8 +106,8 @@ p, figure { margin: 0; }
 
 /* 64 px of content: name, country and pp on a 24 px line over the 40 px rank, the avatar on the
    outer edge (the outer 40 px, where osu!stable's input overlay can sit, holds only the avatar).
-   The rank stays 40 px; when the line beside the avatar is too short (132 px at 216 wide, 172 at
-   256) the pp change, then the country, then the avatar give way, never the text size. */
+   The rank stays 40 px. From 256 wide (172 px beside the avatar) the line holds name, country
+   and pp; narrower boxes (the 216 osu!/catch columns, 132 px) take the compact form below. */
 .stage[data-rows="2"] .tag {
   display: grid;
   grid-template-columns: auto minmax(0, max-content);
@@ -122,7 +122,7 @@ p, figure { margin: 0; }
   grid-template-areas: "info av" "rank av";
   justify-items: end;
 }
-.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"]) { grid-template-columns: minmax(0, max-content); grid-template-areas: "info" "rank"; }
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"], [data-fit="c2"]) { grid-template-columns: minmax(0, max-content); grid-template-areas: "info" "rank"; }
 .stage[data-rows="2"] .avatar { grid-area: av; align-self: center; }
 .stage[data-rows="2"] .info { grid-area: info; flex-direction: row; align-items: baseline; align-self: center; gap: var(--s-3); max-width: 100%; }
 .stage[data-rows="2"] .who { flex: 0 1 auto; }
@@ -131,7 +131,7 @@ p, figure { margin: 0; }
 .stage[data-rows="2"] .tag[data-nums="off"] { grid-template-rows: auto; grid-template-areas: "info av"; }
 .stage[data-rows="2"][data-align="left"] .tag[data-nums="off"],
 .stage[data-rows="2"][data-align="center"] .tag[data-nums="off"] { grid-template-areas: "av info"; }
-.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"])[data-nums="off"] { grid-template-areas: "info"; }
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"], [data-fit="c2"])[data-nums="off"] { grid-template-areas: "info"; }
 .stage[data-rows="2"] .tag[data-view="status"] { display: flex; }
 
 /* ---------- card (vertical) ---------- */
@@ -165,5 +165,23 @@ p, figure { margin: 0; }
 .tag:is([data-fit="2"], [data-fit="3"], [data-fit="4"]) .country,
 .tag:is([data-fit="3"], [data-fit="4"]) .avatar,
 .tag[data-fit="4"] .pp-line { display: none; }
+/* Compact form (two-line tag narrower than 256, e.g. the 216 px osu!/catch columns): one fixed
+   layout whatever the digits: avatar, name, rank in the same places, pp and country never shown.
+   The rank change shows at the end of the name line (#d-rank-top, above the rank's end), so a
+   five- or six-digit rank keeps it; an 8 px avatar gap gives a six-digit rank room (#123,456 +
+   40 px avatar = 181 of 184 px). A seven-digit rank (#1,000,000 and up) takes the avatar's place
+   (c2). */
+#d-rank-top { display: none; flex: none; }
+.stage[data-compact="1"] #d-rank-top { display: inline-flex; }
+.stage[data-compact="1"] #d-rank, .stage[data-compact="1"] #d-rank-top[data-tone="none"],
+.stage[data-compact="1"] .tag[data-deltas="off"] #d-rank-top { display: none; }
+/* The compact card is the box's full width (one fixed backing), its content packed to the align
+   side; the measuring pass still reads its natural width. */
+.stage[data-rows="2"][data-compact="1"] .tag { column-gap: var(--s-2); justify-content: start; }
+.stage[data-rows="2"][data-compact="1"]:not([data-measure]) .tag { width: 100%; }
+.stage[data-rows="2"][data-compact="1"][data-align="right"] .tag { justify-content: end; }
+.stage[data-compact="1"] .hash { margin-right: 0; }
+.stage[data-compact="1"] :is(.pp-line, .country) { display: none; }
+.tag:is([data-fit="c1"], [data-fit="c2"]) #d-rank-top, .tag[data-fit="c2"] .avatar { display: none; }
 /* Measuring pass: the tag at its natural (max-content) width, read and removed at once. */
 .stage[data-measure] .tag { position: absolute; width: max-content; max-width: none; }

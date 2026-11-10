@@ -41,6 +41,8 @@ const ui = {
   tag: $('tag'), img: $('avatar-img'), monogram: $('monogram'), name: $('name'), country: $('country'),
   rankLine: $('rank-line'), rank: $('rank'), ppLine: $('pp-line'), pp: $('pp'), gain: $('gain'),
   dRank: $('d-rank'), dRankText: $('d-rank-text'), dPp: $('d-pp'), dPpText: $('d-pp-text'), status: $('status'),
+  // The compact form shows the rank change at the end of the name line instead (same text).
+  dRankTop: $('d-rank-top'), dRankTopText: $('d-rank-top-text'),
 };
 
 // One formatter per displayed field: each returns the same string until the shown number changes.
@@ -66,6 +68,7 @@ const animation = (node, keyframes, timing) => {
 };
 const anim = {
   dRank: animation(ui.dRank, ARRIVE, ARRIVE_TIMING),
+  dRankTop: animation(ui.dRankTop, ARRIVE, ARRIVE_TIMING),
   dPp: animation(ui.dPp, ARRIVE, ARRIVE_TIMING),
   gain: animation(ui.gain, GAIN, { duration: GAIN_MS }),
 };
@@ -104,6 +107,10 @@ let frame = 0;
 let arrangement = 'tag';
 let unit = 1;
 let unitShown = NaN;
+// Narrower than the full tag (216 px osu!/catch columns): the fixed compact form, always avatar,
+// name and rank in the same places; pp and country are not part of it, whatever their digits.
+const FULL_TAG_WIDTH = 256;
+let compact = false;
 // The tag's natural width is measured again only after something that changes it.
 let fitDirty = true;
 
@@ -119,6 +126,7 @@ function measure() {
     : fits(BOX.tag) >= 1 || fits(BOX.tag) >= fits(BOX.strip) ? 'tag' : 'strip';
   if (opts.orientation !== 'horizontal' && opts.orientation !== 'vertical' && fits(BOX.card) > fits(BOX[arrangement])) arrangement = 'card';
   unit = Math.round(fits(BOX[arrangement]) * 1000) / 1000 || 1;
+  compact = arrangement === 'tag' && width < FULL_TAG_WIDTH * unit - 0.5;
   fitDirty = true;
   invalidate();
 }
@@ -215,10 +223,15 @@ function stat(node, line, value, write) {
 function writeDelta(kind, change) {
   const node = kind === 'rank' ? ui.dRank : ui.dPp;
   const label = kind === 'rank' ? ui.dRankText : ui.dPpText;
-  if (!isKnown(change) || change === 0) { data(node, 'tone', 'none'); return; }
+  const news = isKnown(change) && change !== 0;
   // Rank: a smaller number is a gain, so the change is before − now (positive = places gained).
-  data(node, 'tone', change > 0 ? 'up' : 'down');
-  text(label, kind === 'rank' ? fmt.dRank(change < 0 ? -change : change) : fmt.dPp(change));
+  const tone = !news ? 'none' : change > 0 ? 'up' : 'down';
+  data(node, 'tone', tone);
+  if (kind === 'rank') data(ui.dRankTop, 'tone', tone);
+  if (!news) return;
+  const out = kind === 'rank' ? fmt.dRank(change < 0 ? -change : change) : fmt.dPp(change);
+  text(label, out);
+  if (kind === 'rank') text(ui.dRankTopText, out);
 }
 
 /** Lands the session changes (after a count, or at once): they slide in when they changed. */
@@ -230,7 +243,7 @@ function landDeltas(dRank, dPp, gain) {
   seen.dRank = dRank;
   seen.dPp = dPp;
   if (level === 'off') return;
-  if (rankMoved && isKnown(dRank) && dRank !== 0) restart(anim.dRank);
+  if (rankMoved && isKnown(dRank) && dRank !== 0) restart(compact ? anim.dRankTop : anim.dRank);
   if (ppMoved && isKnown(dPp) && dPp !== 0) restart(anim.dPp);
   if (gain && level === 'full') restart(anim.gain);
 }
@@ -264,9 +277,12 @@ function ownAttempt() {
 }
 
 /**
- * Narrow boxes give way in order: the pp change, the country, then the name past 16 characters
- * (the shared fitFields/ellipsize: a name of 16 or fewer is never cut), the avatar, and last the
- * pp line. Reads layout; runs only when something that changes the width changed, never per frame.
+ * Full form: narrow boxes give way in order: the pp change, the country, then the name past 16
+ * characters (the shared fitFields/ellipsize: a name of 16 or fewer is never cut), the avatar, and
+ * last the pp line. Compact form: the fields and their places are fixed (avatar, name with the rank
+ * change at its end, rank); the name is cut (to 16, then further if even that is too wide), and
+ * only a rank too wide for the line beside the avatar (seven digits) changes the form.
+ * Reads layout; runs only when something that changes the width changed, never per frame.
  */
 const FIT = ['0', '1', '2', '3', '4'];
 const CUT_NAME_FROM = 2;
@@ -288,6 +304,23 @@ const nameFits = texts => { setName(texts[0]); return fitsRoom(); };
 function fit() {
   fitDirty = false;
   room = stage.clientWidth;
+  nameField[0].text = fullName;
+  nameField[0].keep = NAME_KEEP;
+  if (compact) {
+    data(ui.tag, 'fit', 'c0');
+    setName('');
+    if (!fitsRoom()) data(ui.tag, 'fit', 'c1');
+    // A seven-digit rank is wider than the line beside the avatar: then the rank takes its place.
+    if (!fitsRoom()) data(ui.tag, 'fit', 'c2');
+    let short = fitFields(nameField, nameFits)[0];
+    if (!nameFits([short])) {
+      // A 16-character name can be wider than the compact line: then the shared ellipsis cuts it.
+      nameField[0].keep = 1;
+      short = fitFields(nameField, nameFits)[0];
+    }
+    setName(short);
+    return;
+  }
   let name = fullName;
   for (let step = 0; step < FIT.length; step++) {
     data(ui.tag, 'fit', FIT[step]);
@@ -316,6 +349,7 @@ function render() {
   }
   data(stage, 'orient', arrangement === 'card' ? 'vertical' : 'horizontal');
   data(stage, 'rows', arrangement === 'tag' ? '2' : '1');
+  data(stage, 'compact', compact ? '1' : '0');
   data(stage, 'align', opts.align === 'left' || opts.align === 'center' ? opts.align : 'right');
 
   const chip = chipFor();
@@ -443,7 +477,7 @@ subscribe(Object.values(P), current => {
 settings({ ...DEFAULTS }, next => {
   Object.assign(opts, next);
   level = applyKitSettings(ui.tag, opts);
-  if (level === 'off') { count.active = false; anim.dRank.cancel(); anim.dPp.cancel(); anim.gain.cancel(); }
+  if (level === 'off') { count.active = false; anim.dRank.cancel(); anim.dRankTop.cancel(); anim.dPp.cancel(); anim.gain.cancel(); }
   measure();
 });
 

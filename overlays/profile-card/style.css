@@ -48,16 +48,14 @@ p, figure { margin: 0; }
 .rank { position: relative; font-size: calc(var(--u, 1) * 40px); }
 .hash { font-size: .6em; color: var(--text-2); margin-right: .06em; }
 
-/* Session change: ▲/▼ rank places, signed pp. Gains are yours (amber); a loss stays neutral and
-   the arrow carries it; ±0 before anything changed. */
-.delta { display: inline-flex; align-items: baseline; gap: .2em; color: var(--text-3); }
+/* Session change, shown only once there is one: ▲/▼ rank places, signed pp. Gains are yours
+   (amber); a loss stays neutral and the arrow carries it. */
+.delta { display: inline-flex; align-items: baseline; gap: .2em; color: var(--text-2); }
 .delta[data-tone="up"] { color: var(--you); }
-.delta[data-tone="down"] { color: var(--text-2); }
-.tri { display: none; width: .62em; height: .54em; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.tri { display: inline-block; width: .62em; height: .54em; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .delta[data-tone="none"] { display: none; }
 .rank-line[data-unknown] .hash { display: none; }
 :is(.rank-line, .pp-line)[data-unknown] :is(#rank, #pp) { color: var(--text-3); }
-.delta:is([data-tone="up"], [data-tone="down"]) .tri { display: inline-block; }
 .delta[data-tone="down"] .tri { transform: rotate(180deg); }
 
 /* Rank gain: an amber rule drawn under the rank, then gone (overlay.js animates it; full only). */

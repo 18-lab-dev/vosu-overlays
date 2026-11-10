@@ -43,7 +43,6 @@ const ui = {
 
 // One formatter per displayed field: each returns the same string until the shown number changes.
 const fmt = { rank: numberFormatter('count'), pp: numberFormatter('pp'), dRank: numberFormatter('count'), dPp: numberFormatter('delta') };
-const FLAT = '\u00b10';
 
 // Motion (MOTION_MS mirrors kit.css). Animations are created once and restarted per event.
 const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
@@ -209,14 +208,15 @@ function stat(node, line, value, write) {
   return Math.round(value);
 }
 
-/** A session change: ▲/▼ rank places, signed pp; `none` hides it (no live history). */
+/** A session change: ▲/▼ rank places, signed pp. Hidden (`none`) without live history and while
+ *  it is zero: a `±0` beside the hero is a crumb, not news. */
 function writeDelta(kind, change) {
   const node = kind === 'rank' ? ui.dRank : ui.dPp;
   const label = kind === 'rank' ? ui.dRankText : ui.dPpText;
-  if (!isKnown(change)) { data(node, 'tone', 'none'); return; }
+  if (!isKnown(change) || change === 0) { data(node, 'tone', 'none'); return; }
   // Rank: a smaller number is a gain, so the change is before − now (positive = places gained).
-  data(node, 'tone', change > 0 ? 'up' : change < 0 ? 'down' : 'flat');
-  text(label, kind === 'rank' ? change === 0 ? FLAT : fmt.dRank(change < 0 ? -change : change) : fmt.dPp(change));
+  data(node, 'tone', change > 0 ? 'up' : 'down');
+  text(label, kind === 'rank' ? fmt.dRank(change < 0 ? -change : change) : fmt.dPp(change));
 }
 
 /** Lands the session changes (after a count, or at once): they slide in when they changed. */
@@ -228,8 +228,8 @@ function landDeltas(dRank, dPp, gain) {
   seen.dRank = dRank;
   seen.dPp = dPp;
   if (level === 'off') return;
-  if (rankMoved && isKnown(dRank)) restart(anim.dRank);
-  if (ppMoved && isKnown(dPp)) restart(anim.dPp);
+  if (rankMoved && isKnown(dRank) && dRank !== 0) restart(anim.dRank);
+  if (ppMoved && isKnown(dPp) && dPp !== 0) restart(anim.dPp);
   if (gain && level === 'full') restart(anim.gain);
 }
 

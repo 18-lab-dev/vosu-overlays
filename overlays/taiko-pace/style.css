@@ -56,10 +56,11 @@ p { margin: 0; }
 #root:is([data-tone="idle"], [data-view="status"]) .hero { color: var(--text-3); }
 #root[data-tone="low"] .fill { background: var(--j-miss); }
 
-/* What the hero means, the miss budget and the target; optional extras on a third line. Numbers
-   in the lines are value-role numerals (20 px, cap height 14) on an 18 px line. */
+/* What the hero means, the miss budget and the target; optional extras on another line. Text is
+   the 16 px text role (so it stays above the 14 px floor even as measured on a downscaled stream),
+   numbers value-role numerals (20 px, cap height 14), units 16 px, all on a 20 px line. */
 .lines {
-  --line: calc(var(--u, 1) * 18px);
+  --line: calc(var(--u, 1) * 20px);
   grid-area: lines;
   align-self: center;
   min-width: 0;
@@ -71,12 +72,17 @@ p { margin: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.l2 { color: var(--text-3); }
 .line b {
   font: 600 calc(var(--u, 1) * 20px)/var(--line) var(--font-display);
   font-variant-numeric: tabular-nums lining-nums;
   color: var(--text-1);
 }
-.line .kit-unit { line-height: var(--line); }
+.line .kit-unit { font-size: calc(var(--u, 1) * 16px); line-height: var(--line); }
+/* Two lines fit beside the hero in the 280×80 chip; with extras on there, they take line 2's place
+   (the miss budget is half the OK budget, which the hero already says). Taller boxes show all three.
+   A connection status always keeps line 2. */
+#root[data-rows="2"][data-extras]:not([data-view="status"]) .l2, #root[data-view="status"] .extras { display: none; }
 
 /* Extras (hudFields, showUr, showPp): items wrap, and in the chip a line that does not fit is
    clipped whole rather than cut, so only what fits on one line shows. */
@@ -93,7 +99,7 @@ p { margin: 0; }
 .j i {
   align-self: center;
   width: max(2px, calc(var(--u, 1) * 3px));
-  height: calc(var(--u, 1) * 12px);
+  height: calc(var(--u, 1) * 14px);
   background: var(--text-3);
 }
 .j.great i { background: var(--j-great); }
@@ -103,9 +109,9 @@ p { margin: 0; }
 /* row (the chip, and any wide box): gauge | hero | lines. */
 #root[data-layout="row"] .pace { grid-template: "gauge hero lines" auto / auto auto minmax(0, 1fr); align-content: center; }
 /* The lines end on the hero's baseline: the hero's baseline sits ≈ 3.2 px above its 48 px line's
-   bottom and the last line's ≈ 3.4 px above its 18 px line's, so bottom alignment lines them up
-   (baseline alignment would not: the lines clip their overflow). Three lines (54) make the row
-   overhang the 48 px content box by 3 px each side, inside the padding where the scrim is opaque. */
+   bottom and the last line's ≈ 3.6 px above its 20 px line's, so bottom alignment lines them up
+   (baseline alignment would not: the lines clip their overflow). overlay.js allows a third line
+   only when the box's content height takes it (data-rows). */
 #root[data-layout="row"] :is(.hero, .lines) { align-self: end; }
 #root[data-layout="row"][data-align="right"] .pace { grid-template: "lines hero gauge" auto / minmax(0, 1fr) auto auto; }
 #root[data-layout="row"][data-align="right"] .lines { text-align: right; }

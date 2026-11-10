@@ -159,7 +159,9 @@ function spend(kind, fromK) {
 }
 
 // ------------------------------------------------------------------ layout from the page's box
-// Design sizes at --u = 1: row 280×80 (the chip), column 200×148 (+24 with an extras line).
+// Design sizes at --u = 1: row 280×80 (the chip), column 200×156 (+24 with an extras line). Lines
+// are 20 px: the chip's 48 px content height takes two beside the hero, so there extras replace the
+// miss line (data-rows 2); a row box with 60 px of content or more shows all three.
 let lastU = '';
 function layout() {
   const W = innerWidth;
@@ -168,9 +170,11 @@ function layout() {
   const shape = config.orientation === 'vertical' ? 'column'
     : config.orientation === 'horizontal' ? 'row'
     : W / H < 1.6 ? 'column' : 'row';
-  const u = shape === 'row' ? Math.min(W / 280, H / 80) : Math.min(W / 200, H / (extras.hidden ? 148 : 172));
+  const u = Math.max(0.5, shape === 'row' ? Math.min(W / 280, H / 80) : Math.min(W / 200, H / (extras.hidden ? 156 : 180)));
+  const rows = shape === 'row' && H / u - 32 < 60 ? '2' : '3';
   if (root.dataset.layout !== shape) root.dataset.layout = shape;
-  const text = Math.max(0.5, u).toFixed(3);
+  if (root.dataset.rows !== rows) root.dataset.rows = rows;
+  const text = u.toFixed(3);
   if (text !== lastU) { lastU = text; root.style.setProperty('--u', text); }
 }
 
@@ -342,7 +346,9 @@ settings(DEFAULTS, s => {
   for (const node of hudItems) hide(node, !config.hudFields);
   hide(urItem, !config.showUr);
   hide(ppItem, !config.showPp);
-  hide(extras, !(config.hudFields || config.showUr || config.showPp));
+  const anyExtras = config.hudFields || config.showUr || config.showPp;
+  hide(extras, !anyExtras);
+  root.toggleAttribute('data-extras', anyExtras);
   layout();
   armed = false;
   seen.great = -1; // re-render with the new target and fields

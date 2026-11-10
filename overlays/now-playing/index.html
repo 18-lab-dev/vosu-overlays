@@ -15,16 +15,18 @@
     <div class="ident" id="ident">
       <h1 class="title kit-title" id="title"><span data-f="title"></span><span class="joined kit-text" id="joined" hidden><span class="sep"> · </span><span data-f="artistJoined"></span></span></h1>
       <p class="meta kit-text" id="meta"><span class="artist" data-f="artist"></span><span class="suffix" data-f="suffix"></span><span class="sep" data-f="sep"></span><span class="diff" data-f="version"></span></p>
+      <p class="dline kit-text" id="dline" hidden><span class="diff" data-f="version2"></span><span class="by" id="inlineCredit"> · mapped by <span class="mapper" data-f="mapperInline"></span></span></p>
       <p class="credit kit-caption" id="credit" hidden>mapped by <span class="mapper" data-f="mapper"></span></p>
     </div>
     <div class="prog" id="prog" aria-hidden="true"><div class="track"><i class="fill kit-ambient" id="bar"></i></div></div>
     <div class="nums">
-      <p class="hero kit-hero" aria-label="Star rating"><span data-f="starsInt">—</span><span class="kit-frac" data-f="starsFrac"></span><span class="kit-unit tight star">★<span class="strain" id="strain" hidden><i id="strainFill"></i></span></span></p>
+      <p class="hero kit-hero" aria-label="Star rating"><span data-f="stars">—</span><span class="kit-unit tight star">★</span></p>
       <div class="side">
         <p class="mods kit-code" data-f="mods"></p>
         <p class="bpm kit-value"><span id="bpmNum"><span data-f="bpm">—</span></span><span class="kit-unit">bpm</span></p>
       </div>
       <dl class="stats" id="stats">
+        <div class="cell" data-k="bpm" hidden><dd class="v"><span id="bpmNum2" data-f="bpm2">—</span><span class="kit-unit">bpm</span></dd></div>
         <div class="cell" data-k="ar"><dt class="kit-label">AR</dt><dd class="v">—</dd></div>
         <div class="cell" data-k="cs"><dt class="kit-label">CS</dt><dd class="v">—</dd></div>
         <div class="cell" data-k="od"><dt class="kit-label">OD</dt><dd class="v">—</dd></div>

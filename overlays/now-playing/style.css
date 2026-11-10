@@ -30,9 +30,9 @@ p, h1, dl, dd { margin: 0; }
 .ident[data-title-lines="1"] .title { -webkit-line-clamp: 1; }
 .title .joined { color: var(--text-2); }
 .title .joined .sep { color: var(--text-3); }
-.meta, .credit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meta .suffix, .meta .sep { color: var(--text-3); }
-.meta .diff { color: var(--text-1); }
+.meta, .dline, .credit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .suffix, .meta .sep, .dline .by { color: var(--text-3); }
+:is(.meta, .dline) .diff { color: var(--text-1); }
 .mapper { color: var(--text-2); }
 
 /* ------------------------------------------------------------------ progress
@@ -47,16 +47,12 @@ p, h1, dl, dd { margin: 0; }
 #np[data-progress="off"] .prog { display: none; }
 
 /* ------------------------------------------------------------------ numbers
-   The map's star rating is the hero; its star carries a short gauge that fills with the live
-   rating (the difficulty of the map so far) against it. BPM and mods beside it, difficulty
-   settings below. */
+   The map's star rating is the hero, at one size (its decimals are the information: 9.05 vs
+   9.75). BPM and mods beside it, difficulty settings below. */
 /* Hero, BPM and (in the strip) the settings share one baseline; mods sit above the BPM. */
 .nums { display: grid; align-items: last baseline; min-width: 0; }
-.hero { position: relative; grid-area: hero; }
-.star { position: relative; display: inline-block; color: var(--map); }
-/* Only as wide as the star: a gauge on the star, not an underline under the number. */
-.strain { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * -1px); height: max(2px, calc(var(--u) * 2px)); background: var(--hair-strong); overflow: hidden; }
-.strain i { display: block; height: 100%; background: var(--map); transform-origin: 0 50%; transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out); }
+.hero { grid-area: hero; }
+.star { color: var(--map); }
 .side { grid-area: side; display: grid; row-gap: var(--s-1); min-width: 0; }
 .bpm { display: block; }
 #bpmNum { display: inline-block; }
@@ -76,15 +72,18 @@ p, h1, dl, dd { margin: 0; }
 #np[data-orient="vertical"][data-align="end"] .stats { justify-content: flex-end; }
 /* Three or four settings span the row (the 216 px side column shows three). */
 #np[data-orient="vertical"] .stats:is([data-n="3"], [data-n="4"]) { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
-/* The 216 px side column: BPM at the value role's row size (24, never below 20) and a tighter gap,
-   so a 10★ rating and a three-digit BPM still share the row. */
+/* The 216 px side column: a 10★ rating leaves no room beside it for the BPM, so the BPM leads the
+   settings row (a fixed list per ruleset, overlay.js CELLS_NARROW) and the mods wrap beside the
+   rating. */
 #np[data-narrow] .nums { column-gap: var(--s-2); }
-#np[data-narrow] .bpm { font-size: calc(var(--u) * 24px); }
+#np[data-narrow] .side .bpm { display: none; }
+#np[data-narrow] .mods { white-space: normal; }
 
 /* ------------------------------------------------------------------ strip (wide boxes)
    One reading line: title and credits, then the numbers (critique: no two islands). */
-#np[data-orient="horizontal"] .body { grid-template-columns: minmax(0, auto) auto; grid-template-areas: "ident nums" "prog prog"; column-gap: var(--s-5); row-gap: calc(var(--u) * 6px); align-items: last baseline; }
-#np[data-orient="horizontal"][data-align="end"] .body { grid-template-columns: auto minmax(0, auto); grid-template-areas: "nums ident" "prog prog"; }
+/* The numbers keep their width; the identity takes the rest (and is fitted to it in overlay.js). */
+#np[data-orient="horizontal"] .body { grid-template-columns: minmax(0, auto) max-content; grid-template-areas: "ident nums" "prog prog"; column-gap: var(--s-5); row-gap: calc(var(--u) * 6px); align-items: last baseline; }
+#np[data-orient="horizontal"][data-align="end"] .body { grid-template-columns: max-content minmax(0, auto); grid-template-areas: "nums ident" "prog prog"; }
 #np[data-orient="horizontal"] .ident { grid-area: ident; }
 #np[data-orient="horizontal"] .prog { grid-area: prog; }
 #np[data-orient="horizontal"] .title { display: block; white-space: nowrap; text-overflow: ellipsis; }

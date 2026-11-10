@@ -1,6 +1,6 @@
 name = Now playing
 author = 18-LAB
 version = 0.4.0
-description = Gameplay-only map card: title, artist, difficulty and mapper, the map's star rating with a live-rating bar under it, BPM, mods, the mod-adjusted AR/CS/OD/HP, and a progress hairline in the map colour. A column in tall boxes, a strip in wide ones. Empty in song select and results, which already show all of it. All rulesets.
+description = Gameplay-only map card: title, artist, difficulty and mapper, the map's star rating, BPM, mods, the mod-adjusted AR/CS/OD/HP, and a progress hairline in the map colour. A column in tall boxes, a strip in wide ones. Empty in song select and results, which already show all of it. All rulesets.
 resolution = [256,192]
 placement = {"osu":["right-24","top+144",216,192],"fruits":["right-24","top+144",216,192],"taiko":["right-1032","top+144",520,104],"mania":["left+24","top+144",256,192]}

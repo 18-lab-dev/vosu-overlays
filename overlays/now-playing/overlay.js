@@ -11,7 +11,7 @@ import {
 // Default boxes of the two arrangements (metadata.txt placements); --u is 1 at these. The column
 // is laid out for the osu!/catch side column (216 wide); mania's 256 × 192 box is also --u 1.
 const BASE = { vertical: [216, 192], horizontal: [520, 104] };
-// Below this content width (CSS px at --u 1) four settings at the kit's sizes no longer fit.
+// Below this content width (CSS px at --u 1) the rating and the BPM no longer share a row.
 const NARROW = 240;
 const WIDE = 2.2; // auto orientation: boxes at least this many times wider than tall get the strip
 
@@ -20,7 +20,7 @@ const P = {
   title: '/beatmap/title', titleUnicode: '/beatmap/titleUnicode', artist: '/beatmap/artist', artistUnicode: '/beatmap/artistUnicode',
   version: '/beatmap/version', mapper: '/beatmap/mapper', checksum: '/beatmap/checksum',
   first: '/beatmap/time/firstObject', last: '/beatmap/time/lastObject', mp3: '/beatmap/time/mp3Length', clockRate: '/beatmap/time/rate',
-  starsLive: '/beatmap/stats/stars/live', starsTotal: '/beatmap/stats/stars/total',
+  starsTotal: '/beatmap/stats/stars/total',
   arC: '/beatmap/stats/ar/converted', csC: '/beatmap/stats/cs/converted',
   odC: '/beatmap/stats/od/converted', hpC: '/beatmap/stats/hp/converted',
   bpmLive: '/beatmap/stats/bpm/realtime', bpmCommon: '/beatmap/stats/bpm/common',
@@ -34,10 +34,12 @@ const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'; // --ease-out
 
 // Difficulty settings that mean something while playing each ruleset: taiko has no approach rate
 // or circle size, catch has no timing windows, and a mania player is looking at the key count.
-// The narrow column (osu!/catch side column) drops HP, the least telling, rather than shrink type.
+// The 216 px osu!/catch side column has one fixed row per ruleset: the BPM (no room beside a 10★
+// rating) and two settings, AR and OD in osu!, AR and CS in catch (settings.json says so).
 const KEYS = ['ar', 'cs', 'od', 'hp'];
+const ALL_CELLS = ['bpm', 'ar', 'cs', 'od', 'hp'];
 const CELLS = { osu: ['ar', 'cs', 'od', 'hp'], taiko: ['od', 'hp'], fruits: ['ar', 'cs', 'hp'], mania: ['od', 'hp'] };
-const CELLS_NARROW = { osu: ['ar', 'cs', 'od'], taiko: ['od', 'hp'], fruits: ['ar', 'cs'], mania: ['od', 'hp'] };
+const CELLS_NARROW = { osu: ['bpm', 'ar', 'od'], taiko: ['bpm', 'od', 'hp'], fruits: ['bpm', 'ar', 'cs'], mania: ['bpm', 'od', 'hp'] };
 // align = auto follows the placements: osu!/catch hug the right screen edge; taiko's strip reads
 // from the left (right of the mascot), mania sits in the top-left corner.
 const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'start', mania: 'start' };
@@ -46,6 +48,7 @@ const MOD_RATE = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
 // The identity's fixed words (docs/overlay-system.md "Words": the mapper is "mapped by X").
 const SEP = ' \u00b7 ';
 const CREDIT = 'mapped by ';
+const INLINE_CREDIT = ' \u00b7 mapped by ';
 
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
@@ -55,14 +58,15 @@ const chip = $('chip');
 const ident = $('ident');
 const titleEl = $('title');
 const metaEl = $('meta');
+const dlineEl = $('dline');
 const creditEl = $('credit');
+const inlineCredit = $('inlineCredit');
 const joinedEl = $('joined');
 const numsEl = document.querySelector('.nums');
 const bar = $('bar');
 const prog = $('prog');
-const strain = $('strain');
-const strainFill = $('strainFill');
 const bpmNum = $('bpmNum');
+const bpmNum2 = $('bpmNum2');
 const statsEl = $('stats');
 
 const fields = {};
@@ -116,14 +120,16 @@ const live = { t: null };
 const kiai = { on: false, moving: false, ticks: 0, seen: 0, timer: 0, shown: false };
 const STILL_MS = 250;
 let shownChecksum;
-let narrow = false; // the column is narrower than four settings need (osu!/catch side column)
+let narrow = false; // the 216 px side column (see CELLS_NARROW)
 let shownCells = null;
+// The settings row gives way to a two-line title (docs: the title is cut last); fitIdentity decides.
+let statsRoom = true;
 let paletteFor = '';
 let identityFor = '';
 let shownBpm = null;
 let shownMods = null;
-// Progress hairline and live-rating bar: transforms for every step, built on resize, so a step
-// change writes a kept string. The hairline steps at half a CSS pixel of the box width.
+// Progress hairline: transforms for every step, built on resize, so a step change writes a kept
+// string. The hairline steps at half a CSS pixel of the box width.
 let barSteps = 1;
 let barTransforms = [];
 let barStep = -1;
@@ -135,16 +141,17 @@ const FAR = 1e9; // ms past either end of any map, still a small integer
 const SLACK = 1e-3;
 const table = { lo: new Int32Array(0), hi: new Int32Array(0), n: -1, at: -1 };
 const built = { start: null, end: null, steps: -1 };
-const STRAIN_STEPS = 100;
-const strainTransforms = [];
-for (let k = 0; k <= STRAIN_STEPS; k++) strainTransforms.push(`scaleX(${k / STRAIN_STEPS})`);
-let strainStep = -2; // -1: hidden
 
 // Motion: created once and restarted (motion brief rule 3).
 const identityFade = body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.slow, easing: EASE_OUT });
 identityFade.cancel();
-const bpmNudge = bpmNum.animate([{ opacity: 0.3, transform: 'translateY(-0.2em)' }, { opacity: 1, transform: 'none' }], { duration: MOTION_MS.base, easing: EASE_OUT });
-bpmNudge.cancel();
+// The BPM settles in on a timing change: once beside the rating, once in the narrow settings row.
+const NUDGE = [{ opacity: 0.3, transform: 'translateY(-0.2em)' }, { opacity: 1, transform: 'none' }];
+const bpmNudges = [bpmNum, bpmNum2].map(el => {
+  const nudge = el.animate(NUDGE, { duration: MOTION_MS.base, easing: EASE_OUT });
+  nudge.cancel();
+  return nudge;
+});
 
 function schedule() {
   if (!frame) frame = requestAnimationFrame(render);
@@ -162,8 +169,8 @@ subscribe(Object.values(P), (snapshot, changed) => {
     kiai.moving = false;
     live.t = null;
   }
-  // Live stars and realtime BPM tick throughout play; they only need their own readouts.
-  const hot = (changed.has(P.starsLive) ? 1 : 0) + (changed.has(P.bpmLive) ? 1 : 0);
+  // Realtime BPM ticks throughout play; it only needs its own readout.
+  const hot = changed.has(P.bpmLive) ? 1 : 0;
   if (changed.size > hot) dirty = true;
   else if (changed.size) liveDirty = true;
   if (changed.size) schedule();
@@ -189,7 +196,7 @@ settings(opts, next => {
   motion = applyKitSettings(np, opts);
   const base = motion === 'off' ? 0 : MOTION_MS.base;
   identityFade.effect.updateTiming({ duration: motion === 'off' ? 0 : MOTION_MS.slow });
-  bpmNudge.effect.updateTiming({ duration: base });
+  for (const nudge of bpmNudges) nudge.effect.updateTiming({ duration: base });
   if (tintChanged) loadPalette(paletteFor);
   layoutBox();
   dirty = true;
@@ -263,7 +270,7 @@ function renderAll() {
 
   attr(np, 'data-out', hasMap ? null : '');
   attr(np, 'data-layout', opts.layout === 'compact' ? 'compact' : 'full');
-  attr(np, 'data-stats', opts.showStats ? 'on' : 'off');
+  attr(np, 'data-stats', opts.showStats && statsRoom ? 'on' : 'off');
   attr(np, 'data-progress', opts.showProgress ? 'on' : 'off');
   if (!hasMap) { setKiai(false); return; } // keep the last map's text in place while the card fades out
 
@@ -307,56 +314,89 @@ function width(font, value) {
 }
 
 /**
- * Lays the identity out with the shared truncation (docs/overlay-system.md "Words"): the title's
- * (…)/[…] suffix gives way first, then the difficulty name, then the artist; a mapper of 16
- * characters or fewer is never cut, and the title is cut last (to one line, never below 8).
- * Three lines in both arrangements: title (with a short artist joined to it), artist · difficulty,
- * and "mapped by X" as a caption.
+ * Lays the identity out (docs/overlay-system.md "Words"). The title comes first: it takes two lines
+ * in the column (one in the strip) and is cut only past that. The title's (…)/[…] suffix shows
+ * whole on the artist line or not at all. The lines under the title, in order of preference:
+ *   1. artist / difficulty · mapped by X       (when the difficulty and the mapper fit one line)
+ *   2. artist / difficulty / mapped by X       (caption)
+ *   3. artist · difficulty / mapped by X       (the difficulty, then the artist, give way)
+ * A short artist joins a one-line title ("Last Resort · xi") and leaves the artist line out. The
+ * column's settings row gives way before the title is cut; a mapper of 16 characters or fewer is
+ * never cut. Runs once per map, box or layout change; each try is one layout.
  */
 function fitIdentity(title, artist, version, mapper, strip) {
   const { main, suffix } = splitTitle(title);
   const titleFont = fontOf(titleEl);
   const textFont = fontOf(metaEl);
+  const captionFont = fontOf(creditEl);
   let room = ident.clientWidth;
   if (strip) {
     // The strip's identity takes what the numbers leave of the box.
     room = innerWidth - 2 * parseFloat(getComputedStyle(np).paddingLeft) - numsEl.offsetWidth - parseFloat(getComputedStyle(body).columnGap);
   }
+  const fits = (font, value) => width(font, value) <= room;
 
-  // A short artist joins the title's line (no stray "xi" on a line of its own).
+  // Title, with a short artist joined when both fit one line.
   const joinWidth = artist && !suffix ? width(textFont, SEP + artist) : 0;
   const join = joinWidth > 0 && width(titleFont, main) + joinWidth <= room;
   joinedEl.hidden = !join;
   text('artistJoined', join ? artist : '');
+  attr(ident, 'data-title-lines', strip ? '1' : null);
+  text('title', (strip ? fitTitle(main, titleFont, room - joinWidth * (join ? 1 : 0)) : main) || DASH);
 
-  // One line: artist (+ the title's suffix) · difficulty.
-  const sepFor = t => ((t[0] || t[1]) && t[2] ? SEP : '');
-  const meta = fitFields([
-    { text: join ? '' : artist, order: 2, keep: 8 },
-    { text: join || !suffix ? '' : artist ? ` ${suffix}` : suffix, order: 0, keep: 0 },
-    { text: version, order: 1, keep: 6 },
-  ], t => width(textFont, t[0] + t[1] + sepFor(t) + t[2]) <= room);
-  text('artist', meta[0]);
-  text('suffix', meta[1]);
-  text('sep', sepFor(meta));
-  text('version', meta[2]);
-
-  // "mapped by X" on its own caption line.
-  creditEl.hidden = !mapper;
-  if (mapper) {
-    const captionFont = fontOf(creditEl);
-    text('mapper', fitFields([{ text: mapper, keep: NAME_KEEP }], t => width(captionFont, CREDIT + t[0]) <= room)[0]);
+  // The pieces each arrangement uses.
+  const artistLine = join ? '' : fitFields([{ text: artist, keep: 8 }], t => fits(textFont, t[0]))[0];
+  const artistSuffix = !join && suffix && fits(textFont, artist ? `${artist} ${suffix}` : suffix) ? (artist ? ` ${suffix}` : suffix) : '';
+  const inline = !!(version && mapper) && fits(textFont, version + INLINE_CREDIT + mapper);
+  const versionLine = fitFields([{ text: version, keep: 6 }], t => fits(textFont, t[0]))[0];
+  const credit = mapper ? fitFields([{ text: mapper, keep: NAME_KEEP }], t => fits(captionFont, CREDIT + t[0]))[0] : '';
+  let combined;
+  if (join) combined = ['', '', versionLine];
+  else if (suffix && fits(textFont, `${artist} ${suffix}${SEP}${version}`)) combined = [artist, artistSuffix, version];
+  else {
+    const pair = fitFields([{ text: artist, order: 2, keep: 8 }, { text: version, order: 1, keep: 6 }],
+      t => fits(textFont, t[0] && t[1] ? t[0] + SEP + t[1] : t[0] + t[1]));
+    combined = [pair[0], '', pair[1]];
   }
 
-  // Title: two lines in the column when the card has the height for them, otherwise one line
-  // fitted beside the joined artist.
-  attr(ident, 'data-title-lines', null);
-  text('title', main || DASH);
-  if (strip || np.offsetHeight > innerHeight) {
-    attr(ident, 'data-title-lines', '1');
-    const titleRoom = room - (join ? joinWidth : 0);
-    text('title', fitFields([{ text: main, keep: 8 }], t => width(titleFont, t[0]) <= titleRoom)[0] || DASH);
+  const arrangements = inline ? [1, 2, 3] : [2, 3];
+  // In the column the settings row may go to keep the title whole; the strip keeps its numbers.
+  const statsTries = !strip && opts.showStats && opts.layout !== 'compact' ? [true, false] : [true];
+  for (const stats of statsTries) {
+    statsRoom = stats;
+    attr(np, 'data-stats', opts.showStats && stats ? 'on' : 'off');
+    for (const arrangement of arrangements) {
+      arrange(arrangement, artistLine, artistSuffix, combined, version, versionLine, mapper, credit);
+      if (np.offsetHeight <= innerHeight) return;
+    }
   }
+  // Nothing else fits: the title is cut to one line.
+  attr(ident, 'data-title-lines', '1');
+  text('title', fitTitle(main, titleFont, room - joinWidth * (join ? 1 : 0)) || DASH);
+}
+
+function fitTitle(main, font, room) {
+  return fitFields([{ text: main, keep: 8 }], t => width(font, t[0]) <= room)[0];
+}
+
+/** Writes one of fitIdentity's arrangements (1, 2 or 3) into the meta, difficulty and credit lines. */
+function arrange(arrangement, artistLine, artistSuffix, combined, version, versionLine, mapper, credit) {
+  const merged = arrangement === 3;
+  const artist = merged ? combined[0] : artistLine;
+  const suffix = merged ? combined[1] : artistSuffix;
+  const diff = merged ? combined[2] : '';
+  text('artist', artist);
+  text('suffix', suffix);
+  text('sep', (artist || suffix) && diff ? SEP : '');
+  text('version', diff);
+  metaEl.hidden = !(artist || suffix || diff);
+  const dline = merged ? '' : arrangement === 1 ? version : versionLine;
+  text('version2', dline);
+  dlineEl.hidden = !dline;
+  inlineCredit.hidden = arrangement !== 1;
+  text('mapperInline', arrangement === 1 ? mapper : '');
+  creditEl.hidden = arrangement === 1 || !credit;
+  text('mapper', credit);
 }
 
 function loadPalette(checksum) {
@@ -389,7 +429,7 @@ function renderStats(mode) {
   const visible = (narrow ? CELLS_NARROW : CELLS)[mode] || (narrow ? CELLS_NARROW : CELLS).osu;
   if (visible !== shownCells) {
     shownCells = visible;
-    for (const k of KEYS) cells[k].el.hidden = !visible.includes(k);
+    for (const k of ALL_CELLS) cells[k].el.hidden = !visible.includes(k);
     statsEl.dataset.n = String(visible.length);
   }
   for (let i = 0; i < KEYS.length; i++) {
@@ -402,35 +442,23 @@ function renderStats(mode) {
   }
 }
 
-/** The map's star rating, the live rating against it, and realtime BPM. */
+/** The map's star rating and realtime BPM. */
 function renderLive() {
   if (!ctx.show) return;
-  const total = ctx.parsed ? known(values[P.starsTotal], true) : NaN;
-  // The hero's decimals are a .kit-frac (7.01 → "7" + ".01"), as the set's heroes do; split only
-  // when the shown rating changes.
-  const stars = starsText(total);
-  if (stars !== shown.stars) {
-    shown.stars = stars;
-    const dot = stars.indexOf('.');
-    text('starsInt', dot < 0 ? stars : stars.slice(0, dot));
-    text('starsFrac', dot < 0 ? '' : stars.slice(dot));
-  }
-  const liveStars = ctx.parsed ? known(values[P.starsLive], true) : NaN;
-  let step = -1;
-  if (isKnown(total) && isKnown(liveStars)) step = Math.round(Math.min(1, liveStars / total) * STRAIN_STEPS);
-  if (step !== strainStep) {
-    if ((step < 0) !== (strainStep < 0)) strain.hidden = step < 0;
-    strainStep = step;
-    if (step >= 0) strainFill.style.transform = strainTransforms[step];
-  }
+  text('stars', starsText(ctx.parsed ? known(values[P.starsTotal], true) : NaN));
   let bpm = ctx.parsed ? known(values[P.bpmLive], true) : NaN;
   if (!isKnown(bpm) && ctx.parsed) bpm = known(values[P.bpmCommon], true);
   const bpmLabel = bpmText(bpm);
   if (bpmLabel !== shown.bpm) {
     // A timing change mid-map: the new BPM settles in (not on load or a map change).
-    if (shownBpm !== null && motion === 'full' && bpmLabel !== DASH && shownBpm !== DASH) { bpmNudge.currentTime = 0; bpmNudge.play(); }
+    if (shownBpm !== null && motion === 'full' && bpmLabel !== DASH && shownBpm !== DASH) {
+      const nudge = bpmNudges[narrow ? 1 : 0];
+      nudge.currentTime = 0;
+      nudge.play();
+    }
     shownBpm = bpmLabel;
     text('bpm', bpmLabel);
+    text('bpm2', bpmLabel);
   }
 }
 

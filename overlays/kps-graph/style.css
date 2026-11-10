@@ -32,7 +32,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .kps:is([data-view="offline"], [data-view="empty"])::before { display: none; }
 
 /* ---------------------------------------------------------------- status chip */
-.chip { position: absolute; left: var(--pad); top: var(--pad); margin: 0; white-space: nowrap; text-shadow: var(--shade); }
+.chip { position: absolute; left: var(--pad); right: var(--pad); top: var(--pad); margin: 0; text-wrap: balance; text-shadow: var(--shade); }
 .chip[hidden] { display: none; }
 
 /* ---------------------------------------------------------------- readouts
@@ -58,8 +58,8 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .label:has(> span:empty) { visibility: hidden; }
 
 .label.a, .label.b { display: inline-flex; align-items: center; gap: var(--s-1); }
-/* Legend samples: overlay.js draws the chart's own strokes into these (drawSwatch, SWATCH_*). The
-   line sits 10 of 12 px down, under the label's x-height, like an underline sample. */
+/* Legend samples: overlay.js draws the chart's own strokes into these (drawSwatch, SWATCH_*):
+   the peak's dotted neutral line with its amber caret, the average's solid line. */
 .label .swatch { flex: none; display: block; width: calc(var(--u, 1) * 18px); height: calc(var(--u, 1) * 12px); }
 .label[data-key="none"] .swatch { display: none; }
 

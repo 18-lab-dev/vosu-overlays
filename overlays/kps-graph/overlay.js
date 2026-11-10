@@ -78,6 +78,7 @@ const C = {
   ghost: `rgb(${INK} / .7)`,
   avg: `rgb(${INK} / .7)`,
   you: YOU,
+  hairStrong: role('--hair-strong', 'rgb(239 236 229 / .4)'), // the peak's dotted line
   halo: 'rgb(255 150 63 / .28)',
   map: '#c9c4ba',                               // --map, read again when the palette or mapTint changes
 };
@@ -155,6 +156,8 @@ function loadPalette() {
 // as is (orient 'h').
 let cw = 0, ch = 0, nowX = 0, dpr = 1, half = 0.5, fillGrad = null, ghostGrad = null, orient = 'v';
 let lastCw = -1, lastCh = -1;
+let DASH_PEAK = [2, 3]; // device px; rebuilt for the pixel ratio in measure()
+const DASH_NONE = [];
 let box = null;
 new ResizeObserver(([entry]) => {
   box = entry.contentRect;
@@ -180,7 +183,7 @@ const G = {
   xe: null, xf: null, ye: null, yf: null,               // + the half-pixel offset of crisp x / y lines
   dpr: null, cw: null, ch: null, base: null, baseCrisp: null, band: null,
   topD: null, baseD: null, cwD: null, bandD: null, nowD: null, nowXD: null, wide: null,
-  k: null, vc: null, tx: null, sShift: null, xMid: null, headY: null, peakY: null, peakDX: null,
+  k: null, vc: null, tx: null, sShift: null, xMid: null, headY: null, peakY: null,
   pastFill: null, pastEdge: null, futFill: null, futEdge: null, futW: null, pop: null,
 };
 
@@ -201,6 +204,7 @@ function measure() {
   G.dpr = dpr; G.cw = cw; G.ch = ch; G.base = ch - 1; G.baseCrisp = crisp(ch - 1); G.band = band;
   G.topD = chartTop * dpr; G.baseD = (ch - 1) * dpr; G.cwD = cw * dpr; G.bandD = Math.round(band * dpr);
   G.wide = 2 * dpr;
+  DASH_PEAK = [2 * dpr, 3 * dpr];
   drawSwatches();
   strainK = K.labelScale = K.vcScale = K.headScale = K.peakScale = NaN; // laid out for the old box
   if (cw !== lastCw || ch !== lastCh) {
@@ -265,7 +269,7 @@ let series = new Uint16Array(8192);
 let used = -1;          // highest sampled bin
 let doneBin = -1;       // first bin not yet sampled (−1: start at the shown time)
 let revisitFrom = 0x3fffffff;
-let peak = 0, peakBin = -1, peakSetAt = -Infinity, popAt = -Infinity;
+let peak = 0, peakSetAt = -Infinity, popAt = -Infinity;
 let baseTotal = -1, lastTotal = 0, presses = 0;
 let attemptChecksum = null;
 const S = { liveT: NaN, shownT: NaN, firstT: NaN, lastFrame: 0, dt: 16, scale: 10, avg: NaN, end: NaN, mix: 0 };
@@ -282,7 +286,7 @@ function ensure(size) {
 function clearRecord() {
   if (used >= 0) series.fill(0, 0, used + 1);
   used = -1; doneBin = -1; revisitFrom = 0x3fffffff;
-  peak = 0; peakBin = -1; peakSetAt = -Infinity; popAt = -Infinity;
+  peak = 0; peakSetAt = -Infinity; popAt = -Infinity;
   baseTotal = -1; lastTotal = 0; presses = 0;
   S.firstT = NaN;
   attemptChecksum = values['/beatmap/checksum'] ?? null;
@@ -315,7 +319,7 @@ function takeKeys(now) {
   if (meter.peak > peak) {
     // A record that stood RECORD_MS and is broken flashes; a ramp-up (a new peak every press) does not.
     const broken = peak >= 5 && now - peakSetAt >= RECORD_MS;
-    peak = meter.peak; peakBin = binOf(t); peakSetAt = now;
+    peak = meter.peak; peakSetAt = now;
     if (broken && motion === 'full') flashPeak(now);
     dirty = true;
   }
@@ -347,7 +351,7 @@ const flash = new Animation(new KeyframeEffect(el.aEcho,
   { duration: MOTION_MS.slow, fill: 'none' }));
 const fade = new Animation(new KeyframeEffect(canvas,
   [{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.base, easing: EASE_OUT, fill: 'none' }));
-/** A broken record: the peak numeral lights amber and fades back; the chart's peak mark pops. */
+/** A broken record: the peak numeral lights amber and fades back; the peak line's caret pops. */
 function flashPeak(now) {
   flash.cancel(); flash.play();
   popAt = now;
@@ -588,29 +592,34 @@ function stepKiai() {
   return moving;
 }
 
-/** A level line at device row `row` from the band to x1D (device pixels): the peak 2 px in amber,
- * the average 1 px warm white. Solid strokes, so their legend samples read as lines, not glyphs. */
+/** A level line at device row `row` from the band to x1D (device pixels). The average: 1 px warm
+ * white, solid. The peak: 2 px dots in --hair-strong, quiet beside the stage; its amber caret
+ * (drawPeakCaret) is the only colour on it. */
 function drawLevel(row, color, x1D, wide) {
   ctx.strokeStyle = color;
   ctx.beginPath();
-  if (wide) { ctx.lineWidth = G.wide; deviceFrame(); } else { ctx.lineWidth = 1; crispY(); }
+  if (wide) { ctx.lineWidth = G.wide; ctx.setLineDash(DASH_PEAK); deviceFrame(); } else { ctx.lineWidth = 1; crispY(); }
   ctx.moveTo(G.bandD, row); ctx.lineTo(x1D, row);
   frameTransform();
   ctx.stroke();
+  if (wide) ctx.setLineDash(DASH_NONE);
 }
 
-const PEAK_MARK = new Path2D();
-PEAK_MARK.moveTo(-4.5, -9); PEAK_MARK.lineTo(4.5, -9); PEAK_MARK.lineTo(0, -3.5); PEAK_MARK.closePath();
-/** The peak's marker, under a transform already moved to the peak. */
-function drawPeakMark() {
+// The peak's caret: a small amber triangle capping the peak line's newest end, its tip on the end
+// of the line (virtual frame: the line runs along +x, the caret sits past its end, tip toward it).
+const CARET_L = 5;
+const PEAK_CARET = new Path2D();
+PEAK_CARET.moveTo(0, 0); PEAK_CARET.lineTo(CARET_L, -3.5); PEAK_CARET.lineTo(CARET_L, 3.5); PEAK_CARET.closePath();
+/** The caret, under a transform already moved to the line's end. */
+function drawPeakCaret() {
   ctx.fillStyle = C.you;
-  ctx.fill(PEAK_MARK);
+  ctx.fill(PEAK_CARET);
 }
 
-// Legend samples: a short piece of the chart's own stroke (and, for the peak, its marker), drawn
-// on a small canvas beside the label with the same widths and colours as drawLevel/drawPeakMark.
-// Redrawn only when a label's key or the box changes.
-const SWATCH_W = 18, SWATCH_H = 12, SWATCH_LINE = 10; // css px at --u 1; the line's row
+// Legend samples: a short piece of the chart's own stroke (and, for the peak, its caret), drawn
+// on a small canvas beside the label with the same widths, dots and colours as drawLevel and
+// drawPeakCaret. Redrawn only when a label's key or the box changes.
+const SWATCH_W = 18, SWATCH_H = 12, SWATCH_LINE = 8; // css px at --u 1; the line's row
 function drawSwatch(swatch, key) {
   const s = dpr * (u === u ? u : 1);
   const w = Math.round(SWATCH_W * s), h = Math.round(SWATCH_H * s);
@@ -623,17 +632,18 @@ function drawSwatch(swatch, key) {
   const row = Math.round(SWATCH_LINE * s);
   g.beginPath();
   if (key === 'peak') {
-    g.lineWidth = 2 * dpr; g.strokeStyle = C.you;
-    g.moveTo(0, row); g.lineTo(w, row);
+    const end = w - Math.round(CARET_L * dpr) - 1;
+    g.lineWidth = 2 * dpr; g.strokeStyle = C.hairStrong; g.setLineDash(DASH_PEAK);
+    g.moveTo(0, row); g.lineTo(end, row);
+    g.stroke();
+    g.setLineDash(DASH_NONE);
+    g.setTransform(dpr, 0, 0, dpr, end, row);
+    g.fillStyle = C.you;
+    g.fill(PEAK_CARET);
   } else {
     g.lineWidth = 1; g.strokeStyle = C.avg;
     g.moveTo(0, row + half); g.lineTo(w, row + half);
-  }
-  g.stroke();
-  if (key === 'peak') {
-    g.setTransform(dpr, 0, 0, dpr, Math.round(w / 2), row);
-    g.fillStyle = C.you;
-    g.fill(PEAK_MARK);
+    g.stroke();
   }
 }
 function drawSwatches() {
@@ -707,8 +717,8 @@ function sumTo(e, m) {
 
 // Boxed values in G recomputed only when what they depend on changes. The fractional keys sit in
 // K's number fields (written in place); measure() resets the scales for the new box.
-const K = { vcScale: NaN, headScale: NaN, peakScale: NaN, peakDXK: NaN, shiftK: NaN, labelScale: NaN };
-let vcM = 0, headSum = -1, headDen = 0, peakFor = -1, peakDXBin = -1, peakDXRef = -1, shiftRef = -1;
+const K = { vcScale: NaN, headScale: NaN, peakScale: NaN, shiftK: NaN, labelScale: NaN };
+let vcM = 0, headSum = -1, headDen = 0, peakFor = -1, shiftRef = -1;
 
 function clearCanvas() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -805,7 +815,7 @@ function renderLive(now) {
   const current = keysPresent ? meter.at(t | 0) : UNKNOWN;
   average(false);
   if (keysPresent && S.avg === S.avg) drawLevel(avgRow(), C.avg, G.nowD, false);
-  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.you, G.nowD, true);
+  if (keysPresent && peak > 0) drawLevel(rowOf(peak), C.hairStrong, G.nowD, true);
 
   // The live head sits on the trace's last mean (or the exact count before the first press).
   // G.headY / G.peakY change only with it or the scale; computed here rather than in helpers,
@@ -839,27 +849,6 @@ function renderLive(now) {
     drawCurve(liveTrace, n + 1, fillGrad, C.line, W_LIVE, W_LIVE_UNDER);
     ctx.restore();
     frameTransform();
-    if (peakBin >= 0) {
-      const x = band + (timeOf(peakBin) - t0) * k;
-      if (x >= band && x <= nowX) {
-        if (peak !== peakFor || S.scale !== K.peakScale) {
-          peakFor = peak; K.peakScale = S.scale;
-          G.peakY = ch - 1 - (peak / S.scale) * (ch - 1 - chartTop);
-        }
-        if (peakBin !== peakDXBin || xRef !== peakDXRef || k !== K.peakDXK) {
-          peakDXBin = peakBin; peakDXRef = xRef; K.peakDXK = k;
-          G.peakDX = k * (timeOf(peakBin) - xRef);
-        }
-        ctx.translate(G.tx, G.peakY); ctx.translate(G.peakDX, 0);
-        if (popping) {
-          const q = 1 - (now - popAt) / MOTION_MS.base;
-          G.pop = 1 + 0.8 * q * q * q; // ease-out back to size
-          ctx.scale(G.pop, G.pop);
-        }
-        drawPeakMark();
-        frameTransform();
-      }
-    }
   }
 
   // Now line and live head (yours: amber).
@@ -870,6 +859,21 @@ function renderLive(now) {
   ctx.moveTo(G.nowXD, 0); ctx.lineTo(G.nowXD, G.baseD);
   frameTransform();
   ctx.stroke();
+  // The peak's caret caps its line at the now end; a broken record pops it (full motion).
+  if (keysPresent && peak > 0) {
+    if (peak !== peakFor || S.scale !== K.peakScale) {
+      peakFor = peak; K.peakScale = S.scale;
+      G.peakY = ch - 1 - (peak / S.scale) * (ch - 1 - chartTop);
+    }
+    ctx.translate(nowX, G.peakY);
+    if (popping) {
+      const q = 1 - (now - popAt) / MOTION_MS.base;
+      G.pop = 1 + 0.8 * q * q * q; // ease-out back to size
+      ctx.scale(G.pop, G.pop);
+    }
+    drawPeakCaret();
+    frameTransform();
+  }
   if (keysPresent) {
     ctx.fillStyle = C.halo;
     ctx.beginPath(); ctx.arc(nowX, G.headY, 6, 0, TAU); ctx.fill();
@@ -932,9 +936,10 @@ function renderStill() {
       drawGridH(G.cwD);
       average(true);
       if (S.avg === S.avg) drawLevel(avgRow(), C.avg, G.cwD, false);
-      drawLevel(rowOf(peak), C.you, G.cwD, true);
-      // Whole attempt, ~2 px per point: the highest window value in each slice, so the envelope
-      // meets the peak marker exactly.
+      // The peak line stops short of the far end to leave room for its caret.
+      const capX = cw - CARET_L - 1;
+      drawLevel(rowOf(peak), C.hairStrong, Math.round(capX * dpr), true);
+      // Whole attempt, ~2 px per point: the highest window value in each slice.
       const per = Math.max(1, Math.round(2 / (k * BIN)));
       let n = 0;
       let b = binOf(S.firstT - 1000 * rate);
@@ -948,11 +953,9 @@ function renderStill() {
       }
       if (n) { px[n] = px[n - 1] + 1; py[n] = ch - 1; n++; } // the run ends on the baseline
       drawCurve(stillTrace, n, ghostGrad, C.ghost, W_GHOST, W_GHOST_UNDER);
-      if (peakBin >= 0) {
-        ctx.translate(band + (timeOf(peakBin) - t0) * k, yOf(peak));
-        drawPeakMark();
-        frameTransform();
-      }
+      ctx.translate(capX, yOf(peak));
+      drawPeakCaret();
+      frameTransform();
     }
   }
   drawBase();

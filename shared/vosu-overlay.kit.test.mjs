@@ -290,3 +290,17 @@ test('fitFields: the field that gives way first shrinks, names under 16 characte
   assert.equal(tighter[2], 'linedcolt', 'a short name is never cut');
   assert.ok(tighter[0].endsWith(ELLIPSIS));
 });
+
+test('fitFields: a droppable field goes whole instead of leaving a one- or two-letter stub', () => {
+  const width = budget => texts => texts.filter(Boolean).join(' ').length <= budget;
+  const fields = [
+    { text: 'Peer Gynt', order: 2, keep: 8 },
+    { text: '(Cut Ver.)', order: 0, keep: 0 },
+  ];
+  // "Peer Gynt" + " " leaves 3 code units: room for "(C…" but not for a three-letter stub.
+  const [title, suffix] = fitFields(fields, width(13));
+  assert.equal(title, 'Peer Gynt');
+  assert.equal(suffix, '');
+  const roomy = fitFields(fields, width(14));
+  assert.equal(roomy[1], '(Cu' + ELLIPSIS, 'three characters before the ellipsis still show');
+});

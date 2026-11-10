@@ -638,6 +638,9 @@ export const ELLIPSIS = '\u2026';
 /** Names (players, mappers) up to this many characters are never truncated. */
 export const NAME_KEEP = 16;
 
+/** fitFields drops a keep-0 field whole rather than leave fewer than this many code units (incl. …). */
+const FIELD_STUB = 4;
+
 /**
  * `text` cut to at most `length` characters including a real `…`, with trailing whitespace and
  * punctuation (`, ; : - – — ( [ / ·` and spaces) removed before the ellipsis. Text that fits is
@@ -690,9 +693,10 @@ export function fitFields(fields, fits) {
         || ((fields[i].order ?? 0) === (fields[pick].order ?? 0) && lengths[i] > lengths[pick])) pick = i;
     }
     if (pick < 0) break;
-    // One character at a time; below two (one plus the ellipsis) a field that may go (keep 0) goes.
+    // One character at a time. A field that may go (keep 0) goes whole once it would show fewer
+    // than three characters before the ellipsis: "(C…" or "[F…]" reads as debris, not as a cut.
     const next = lengths[pick] - 1;
-    lengths[pick] = next < 2 && (fields[pick].keep ?? 0) === 0 ? 0 : next;
+    lengths[pick] = next < FIELD_STUB && (fields[pick].keep ?? 0) === 0 ? 0 : next;
     texts[pick] = lengths[pick] === 0 ? '' : ellipsize(full[pick], lengths[pick]);
   }
   return texts;

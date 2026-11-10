@@ -15,6 +15,7 @@ import {
 const P = {
   state: '/state/number',
   checksum: '/beatmap/checksum',
+  mapId: '/beatmap/id', // checks that /files/beatmap/file is the map being shown
   live: '/beatmap/time/live',
   trackRate: '/beatmap/time/rate',
   first: '/beatmap/time/firstObject',
@@ -107,7 +108,7 @@ reveal.finish();
 
 // ---------------------------------------------------------------- state
 const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, motion: 'full', backing: 'scrim', marks: 'neutral', mapTint: true };
-const view = { phase: null, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status', motion: 'full', legend: false };
+const view = { phase: null, kiai: false, brk: false, checksum: '', mapId: 0, status: 'connecting', show: 'status', motion: 'full', legend: false };
 // The set's map clock: span (first → last object, else the audio), elapsed and total.
 const clock = createMapClock();
 // The map clock as received. Messages arrive every few ms and the code that reads them runs
@@ -158,10 +159,12 @@ const setOut = (el, out) => { if (el.hasAttribute('data-out') !== out) el.toggle
 const request = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
 // ---------------------------------------------------------------- kiai / break sections
-// vosu exposes only the live isKiai/isBreak flags, so sections are learned as the map clock
-// passes them (gameplay or the song-select preview) and remembered per beatmap checksum.
+// Sections come from the map's .osu file when the server serves it (below): every kiai and break
+// is known from the first frame. Without it, sections are learned from the live isKiai/isBreak
+// flags as the map clock passes them (gameplay or the song-select preview) and remembered per
+// beatmap checksum.
 const STORE = 'strain-graph:marks:';
-const marks = { key: '', kiai: [], brk: [], runKiai: null, runBrk: null, prevKiai: false, prevBrk: false };
+const marks = { key: '', kiai: [], brk: [], runKiai: null, runBrk: null, prevKiai: false, prevBrk: false, fromFile: false };
 
 function settle(list) {
   list.sort((a, b) => a[0] - b[0]);
@@ -193,9 +196,11 @@ function loadMarks(key) {
   marks.kiai = []; marks.brk = [];
   marks.runKiai = marks.runBrk = null;
   marks.prevKiai = marks.prevBrk = false;
+  marks.fromFile = false;
   tick.prev = null;
   lifted.u0 = -1;
   if (!key) return;
+  if (useFileMarks(key)) return;
   try {
     const stored = JSON.parse(localStorage.getItem(STORE + key) || 'null');
     const valid = list => (Array.isArray(list) ? list.filter(r => Array.isArray(r) && Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[1] >= r[0]) : []);
@@ -223,6 +228,7 @@ function contiguous(t, prev) {
 
 function observe(key, t, kiai, brk) {
   if (key !== marks.key) loadMarks(key);
+  if (marks.fromFile) { marks.prevKiai = kiai; marks.prevBrk = brk; tick.prev = t; return; }
   // A flag counts once two consecutive, contiguous samples agree: a stale flag from the
   // previous map or a seek never paints a section.
   const kiaiOn = kiai && marks.prevKiai, brkOn = brk && marks.prevBrk;
@@ -232,6 +238,113 @@ function observe(key, t, kiai, brk) {
   marks.prevKiai = kiai;
   marks.prevBrk = brk;
   tick.prev = t;
+}
+
+// ---------------------------------------------------------------- sections from the .osu file
+// vosu serves the current map's .osu at /files/beatmap/file (tosu-compatible; the replay
+// renderer serves it too). Its [TimingPoints] effects (bit 1 = kiai) and [Events] breaks are read
+// the way vosu reads them for /beatmap/isKiai and /beatmap/isBreak, so the drawn sections and the
+// live flags agree. One fetch and parse per map checksum, nothing per frame; a missing or failed
+// file (an older server, the dev mock) leaves the learning path above in charge.
+const MAP_FILE = '/files/beatmap/file';
+const fileMarks = new Map(); // checksum → { kiai, brk } | null (no usable file); the last 16 maps
+const fileLoad = { key: '', attempt: 0, timer: 0 };
+
+/** Kiai and break ranges (map ms, inclusive) and the BeatmapID of an .osu file's text. */
+function parseSections(text) {
+  const rows = []; // [time, uninherited, kiai] in file order
+  const brk = [];
+  let section = '', id = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw || raw.startsWith('//')) continue;
+    let line = raw;
+    if (section !== 'Metadata') { const c = line.indexOf('//'); if (c > 0) line = line.slice(0, c); }
+    line = line.trimEnd();
+    if (line.startsWith('[') && line.endsWith(']')) { section = line.slice(1, -1); continue; }
+    if (section === 'Metadata') {
+      if (line.startsWith('BeatmapID:')) id = parseInt(line.slice(10), 10) || 0;
+    } else if (section === 'TimingPoints') {
+      const f = line.split(',');
+      const time = f.length >= 2 ? parseFloat(f[0]) : NaN;
+      if (!Number.isFinite(time)) continue;
+      rows.push([time, f.length < 7 || f[6] === '1', ((f.length >= 8 ? parseInt(f[7], 10) : 0) & 1) === 1]);
+    } else if (section === 'Events') {
+      const f = line.split(',');
+      if (f.length < 3 || f[0][0] === ' ' || f[0][0] === '_') continue;
+      const kind = f[0].trim();
+      if (kind !== 'Break' && parseInt(kind, 10) !== 2) continue;
+      const a = parseFloat(f[1]), b = parseFloat(f[2]);
+      if (Number.isFinite(a) && Number.isFinite(b)) brk.push([a, b > a ? b : a]);
+    }
+  }
+  // vosu's rule: per run of points at one time, the last inherited point's effects (else the
+  // first point's); the first run at a time wins; then in time order.
+  const effects = [];
+  const seen = new Set();
+  for (let i = 0; i < rows.length;) {
+    let end = i + 1;
+    while (end < rows.length && rows[end][0] === rows[i][0]) end++;
+    if (!seen.has(rows[i][0])) {
+      seen.add(rows[i][0]);
+      let pick = rows[i];
+      for (let j = end - 1; j >= i; j--) if (!rows[j][1]) { pick = rows[j]; break; }
+      effects.push([rows[i][0], pick[2]]);
+    }
+    i = end;
+  }
+  effects.sort((a, b) => a[0] - b[0]);
+  // A kiai that never ends stays open in vosu and its isKiai never reports it, so it is not drawn.
+  const kiai = [];
+  let open = NaN;
+  for (const [time, on] of effects) {
+    if (on && Number.isNaN(open)) open = time;
+    else if (!on && !Number.isNaN(open)) { kiai.push([open, time]); open = NaN; }
+  }
+  brk.sort((a, b) => a[0] - b[0]);
+  return { kiai, brk, id };
+}
+
+function rememberFile(key, value) {
+  fileMarks.set(key, value);
+  if (fileMarks.size > 16) fileMarks.delete(fileMarks.keys().next().value);
+}
+
+/** Puts a parsed file's sections in place for `key`; false when there is none (yet). */
+function useFileMarks(key) {
+  const file = fileMarks.get(key);
+  if (!file) return false;
+  marks.key = key;
+  marks.fromFile = true;
+  marks.kiai = file.kiai; // never mutated: learning is off while fromFile
+  marks.brk = file.brk;
+  marks.runKiai = marks.runBrk = null;
+  lifted.u0 = -1;
+  return true;
+}
+
+function loadMapFile(key) {
+  clearTimeout(fileLoad.timer);
+  fileLoad.key = key;
+  fileLoad.attempt = 0;
+  if (key && !fileMarks.has(key)) fetchMapFile(key);
+}
+
+function fetchMapFile(key) {
+  fetch(MAP_FILE, { cache: 'no-store' })
+    .then(response => (response.ok ? response.text() : null))
+    .then(text => {
+      if (key !== fileLoad.key) return;
+      const file = text && /^\uFEFF?\s*osu file format/.test(text.slice(0, 64)) ? parseSections(text) : null;
+      // The route follows osu!'s current map; right after a change it can still be the last one.
+      if (file && file.id > 0 && view.mapId > 0 && file.id !== view.mapId) { retryMapFile(key); return; }
+      rememberFile(key, file);
+      if (file && key === view.checksum && useFileMarks(key)) { frameDirty = true; request(); }
+    }, () => { if (key === fileLoad.key) retryMapFile(key); });
+}
+
+function retryMapFile(key) {
+  if (++fileLoad.attempt < 3) fileLoad.timer = setTimeout(() => { if (key === fileLoad.key) fetchMapFile(key); }, 500);
+  else rememberFile(key, null);
 }
 
 /** The kiai section the map clock is in (map ms into `active`): the one being learned, widened by
@@ -342,7 +455,9 @@ function onData(values, changed) {
   }
   if (modelDirty) want = true;
   const checksum = typeof values[P.checksum] === 'string' ? values[P.checksum] : '';
-  if (checksum !== view.checksum) { view.checksum = checksum; loadPalette(checksum); }
+  const mapId = values[P.mapId];
+  view.mapId = typeof mapId === 'number' && mapId > 0 ? mapId : 0;
+  if (checksum !== view.checksum) { view.checksum = checksum; loadPalette(checksum); loadMapFile(checksum); }
   tick.live = typeof live === 'number' ? live : null;
   const kiai = values[P.kiai] === true;
   const brk = values[P.brk] === true;

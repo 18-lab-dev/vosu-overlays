@@ -29,8 +29,9 @@ const HISTORY = 14400;          // one hour of buckets for the results overview
 const BASE_H = 96;
 const PAD = 16, GAP = 16, CAP_GAP = 6;
 const CAP_MIN = 52, CAP_MAX = 72;      // a cap fits "8,888" at 20 px with 6 px either side
-const ROWS_MIN = 112, ROWS_MAX = 150;  // three keys as rows when three caps do not fit
+const TITLE_MIN = 112;                 // osu!stable catch: the one "Dash presses" cap
 const STATS_W = 88;                    // "88" at 52 px plus the kps unit (measured 87)
+const COMPACT_W = 60, COMPACT_GAP = 12; // "88 kps" at 32 px over "peak 88" (measured 59)
 const TOTAL_W = 56;
 const SPARK_MIN = 96;
 const COLUMN_W = 160;                  // vertical layout
@@ -46,7 +47,7 @@ const P = {
 const $ = id => document.getElementById(id);
 const hud = $('hud'), capsEl = $('caps'), chip = $('chip');
 const totalCol = $('total'), statsCol = $('stats'), sparkCol = $('spark-col');
-const hero = $('hero');
+const hero = $('hero'), peakLine = $('peakline');
 const totalText = totalCol.querySelector('.num').firstChild;
 const kpsText = $('kps').firstChild, peakText = $('peak').firstChild, statsLabelText = $('stats-label').firstChild;
 const peakEl = $('peak'), kpsEl = $('kps'), totalEl = totalCol.querySelector('.num');
@@ -136,7 +137,7 @@ function readKeys(values, mode) {
 }
 
 // ---------------------------------------------------------------- incoming data
-const view = { status: 'connecting', phase: 'connecting', mode: null, client: 'stable', caps: [], sig: '', columns: 0, kpsShown: true };
+const view = { status: 'connecting', phase: 'connecting', mode: null, client: 'stable', caps: [], sig: '', columns: 0 };
 const lk = { mode: undefined, client: undefined, columns: -1, smoke: false, binds: undefined };
 let lastColumns = 0;
 let layoutDirty = true;
@@ -333,41 +334,85 @@ function makeCap(spec) {
   };
 }
 
-/** Builds the caps and sizes every column for the box. Layout time only (allocates freely). */
+/** Widest key code at --u = 1 (kit-code: IBM Plex Mono 500, 14 px, .04 em tracking). Layout time only. */
+const measure = document.createElement('canvas').getContext('2d');
+function codeWidth(specs) {
+  measure.font = '500 14px "IBM Plex Mono"';
+  measure.letterSpacing = '0.56px';
+  let w = 0;
+  for (const s of specs) if (s.code) w = Math.max(w, measure.measureText(s.code).width);
+  return w;
+}
+
+/**
+ * Builds the caps and sizes every column for the box. Layout time only (allocates freely).
+ * When the box is too narrow, fields drop in order instead of text shrinking below the type
+ * scale: osu!'s smoke cap first, then the hero (the readout steps down to 32 px, with the smoke
+ * cap back if that fits), then the readout; only then does --u fall below 1.
+ */
 function layout() {
   layoutDirty = false;
   const W = box.w, H = box.h;
   if (!W || !H) return;
-  capsEl.textContent = '';
-  capNodes.length = 0;
-  for (const spec of view.caps) { const c = makeCap(spec); capNodes.push(c); capsEl.append(c.el); }
-  const n = capNodes.length;
   const mode = view.mode;
   const held = view.phase === 'results';
-  view.kpsShown = !(mode === 'fruits' && view.client === 'stable') && (mode !== 'mania' || opts.showKps);
+  const kpsShown = !(mode === 'fruits' && view.client === 'stable') && (mode !== 'mania' || opts.showKps);
   const pad = PAD; // kit.css pads every backing (none included) by --pad
   const vertical = opts.orientation === 'vertical' || (opts.orientation === 'auto' && H > W * 1.15);
-  hud.dataset.align = opts.align;
-  hud.style.setProperty('--justify', opts.align === 'center' ? 'center' : 'flex-start');
-  capsEl.removeAttribute('data-rows');
-  hud.removeAttribute('data-strip');
-  capsEl.style.width = '';
-  statsCol.style.width = ''; totalCol.style.width = '';
-  hero.className = 'kit-hero num';
+  let specs = view.caps;
   let u = H / BASE_H;
   let total = false, sparkShown = false;
+  let readout = kpsShown ? 'full' : 'off';
+  // Row layout plan, decided before the caps are built (osu!'s smoke cap may drop).
+  let avail = W / u - 2 * pad, capNeed = CAP_MIN, capW = CAP_MIN, capPad = 8;
+  const title = !!specs[0]?.title;
+  if (!vertical && mode !== 'mania') {
+    const codeW = codeWidth(specs);
+    capNeed = Math.max(CAP_MIN, codeW + 8); // at least 4 px either side of the key's code
+    const capsW = k => (title ? TITLE_MIN : k * capNeed + (k - 1) * CAP_GAP);
+    const readW = r => (r === 'full' ? STATS_W + GAP : r === 'compact' ? COMPACT_W + COMPACT_GAP : 0);
+    if (readout === 'full') {
+      // First plan that fits, in the order fields are given up.
+      const smoke = mode === 'osu' && specs.length === 3;
+      const plans = [['full', specs.length], ['full', smoke ? 2 : 0], ['compact', specs.length], ['compact', smoke ? 2 : 0], ['off', specs.length]];
+      for (const [r, k] of plans) {
+        if (!k || capsW(k) + readW(r) > avail) continue;
+        readout = r; specs = specs.slice(0, k);
+        break;
+      }
+      if (capsW(specs.length) + readW(readout) > avail) readout = 'off';
+    }
+    let need = capsW(specs.length) + readW(readout);
+    if (need > avail) { u = W / (need + 2 * pad); avail = need; }
+    const n = specs.length;
+    if (readout === 'full' && opts.total && n > 1 && need + TOTAL_W + GAP <= avail) { total = true; need += TOTAL_W + GAP; }
+    if (readout === 'full' && opts.spark && need + SPARK_MIN + GAP <= avail) { sparkShown = true; need += SPARK_MIN + GAP; }
+    capW = title ? avail : Math.min(CAP_MAX, capNeed + (avail - need) / Math.max(1, n));
+    capPad = title ? 8 : Math.max(4, Math.min(8, (capW - codeW) / 2));
+  }
+
+  capsEl.textContent = '';
+  capNodes.length = 0;
+  for (const spec of specs) { const c = makeCap(spec); capNodes.push(c); capsEl.append(c.el); }
+  const n = capNodes.length;
+  hud.dataset.align = opts.align;
+  hud.style.setProperty('--justify', opts.align === 'center' ? 'center' : 'flex-start');
+  hud.style.setProperty('--cap-pad', `calc(var(--u) * ${capPad.toFixed(2)}px)`);
+  hud.removeAttribute('data-strip');
+  statsCol.style.width = ''; totalCol.style.width = '';
+  hero.className = 'kit-hero num';
+  peakLine.className = 'kit-caption';
 
   if (vertical) {
     hud.dataset.layout = 'column';
     u = Math.max(0.5, Math.min(3, W / COLUMN_W));
-    total = opts.total && n > 1 && view.kpsShown;
-    sparkShown = false;
+    total = opts.total && n > 1 && readout !== 'off';
     for (const c of capNodes) c.room = W / u - 2 * pad - 16 - 48; // beside the key label
   } else if (mode === 'mania') {
     hud.dataset.layout = 'mania';
     hero.className = 'kit-value num';
     total = opts.total;
-    if (!view.kpsShown && !total) hud.dataset.strip = 'off';
+    if (readout === 'off' && !total) hud.dataset.strip = 'off';
     const inner = W / u - 2 * pad;
     const cols = columnFractions(n);
     let narrow = Infinity;
@@ -387,32 +432,23 @@ function layout() {
     for (const c of capNodes) c.fontPx = size;
   } else {
     hud.dataset.layout = 'row';
-    const statsW = view.kpsShown ? STATS_W + GAP : 0;
-    let avail = W / u - 2 * pad;
-    const rows = n >= 3 && n * CAP_MIN + (n - 1) * CAP_GAP + statsW > avail;
-    const capsMin = rows ? ROWS_MIN : view.caps[0]?.title ? 112 : n * CAP_MIN + (n - 1) * CAP_GAP;
-    let need = capsMin + statsW;
-    if (need > avail) { u = W / (need + 2 * pad); avail = need; }
-    if (opts.total && n > 1 && view.kpsShown && need + TOTAL_W + GAP <= avail) { total = true; need += TOTAL_W + GAP; }
-    if (opts.spark && view.kpsShown && need + SPARK_MIN + GAP <= avail) { sparkShown = true; need += SPARK_MIN + GAP; }
-    const extra = avail - need;
-    if (rows) {
-      capsEl.dataset.rows = '';
-      const w = Math.min(ROWS_MAX, ROWS_MIN + extra);
-      capsEl.style.width = `calc(var(--u) * ${w}px)`;
-      for (const c of capNodes) { c.room = w - 12 - 48; c.fontPx = 16; }
-    } else if (view.caps[0]?.title) {
-      // osu!stable catch: one cap that says what it counts, across the box, its count at value size.
-      for (const c of capNodes) { c.el.classList.add('wide'); c.el.style.width = `calc(var(--u) * ${avail.toFixed(2)}px)`; c.room = avail - 16; c.fontPx = 32; }
-    } else {
-      const capW = Math.min(CAP_MAX, CAP_MIN + extra / Math.max(1, n));
-      for (const c of capNodes) { c.el.style.width = `calc(var(--u) * ${capW.toFixed(2)}px)`; c.room = capW - 16; }
+    for (const c of capNodes) {
+      c.el.style.width = `calc(var(--u) * ${capW.toFixed(2)}px)`;
+      c.room = capW - 2 * capPad;
+      if (title) { c.el.classList.add('wide'); c.fontPx = 32; }
     }
-    statsCol.style.width = `calc(var(--u) * ${STATS_W}px)`;
+    if (readout === 'compact') hero.className = 'kit-value num';
+    statsCol.style.width = `calc(var(--u) * ${readout === 'compact' ? COMPACT_W : STATS_W}px)`;
     totalCol.style.width = `calc(var(--u) * ${TOTAL_W}px)`;
   }
   hud.style.setProperty('--u', u.toFixed(4));
-  statsCol.hidden = !view.kpsShown;
+  hud.dataset.kps = readout;
+  statsMode = readout;
+  // The held average needs the full readout's width: the compact readout and the mania strip
+  // (beside a four-digit total) read "16 kps / peak" on the results screen instead.
+  heldAvg = readout === 'full' && mode !== 'mania';
+  statsCol.hidden = readout === 'off';
+  peakEl.hidden = held && !heldAvg;
   totalCol.hidden = !total;
   sparkCol.hidden = !sparkShown;
   sparkOn = sparkShown;
@@ -438,7 +474,9 @@ function layout() {
 const kpsFmt = numberFormatter('kps'), peakFmt = numberFormatter('kps'), avgFmt = numberFormatter('kps'), totalFmt = numberFormatter('count');
 const shown = { kps: null, peak: null, total: null, label: null, snap: false };
 const peakState = { value: 0, at: -Infinity };
-const LABEL_LIVE = 'Peak', LABEL_HELD = 'Peak · avg';
+// Readout text under the hero: live "peak 17"; held "peak · avg 14", or "peak" alone (heldAvg).
+const LABEL_LIVE = 'peak', LABEL_HELD = 'peak · avg';
+let statsMode = 'full', heldAvg = true;
 
 function setText(node, el, text, prevText) {
   if (text === prevText) return;
@@ -469,8 +507,9 @@ function render(now) {
     if (on !== c.lit) { c.lit = on; c.el.classList.toggle('lit', on === 1); }
   }
 
-  if (view.kpsShown) {
-    // Live: KPS now, peak beside it. Held: the attempt's peak, with its average beside it.
+  if (statsMode !== 'off') {
+    // Live: KPS now, peak under it. Held: the attempt's peak, with its average under it. Compact:
+    // the number alone under its label (live KPS, or the peak when held).
     const peak = att.taps > 0 && kps.available ? kps.peak : UNKNOWN;
     const big = live ? kpsNow : peak;
     const k = kpsFmt(big);
@@ -482,7 +521,7 @@ function render(now) {
     }
     const a = live ? peakFmt(aux) : avgFmt(aux);
     if (a !== shown.peak) { setText(peakText, peakEl, a, shown.peak); shown.peak = a; }
-    const label = live ? LABEL_LIVE : LABEL_HELD;
+    const label = live || !heldAvg ? LABEL_LIVE : LABEL_HELD;
     if (label !== shown.label) { statsLabelText.data = label; shown.label = label; }
     if (live) newPeak(peak, now);
   }

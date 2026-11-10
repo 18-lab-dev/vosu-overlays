@@ -29,7 +29,18 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .num { display: block; line-height: .8; margin-bottom: var(--nb); white-space: nowrap; }
 .num.kit-value { font-size: calc(var(--u, 1) * 20px); }
 .pv { color: var(--text-1); font-variant-numeric: tabular-nums lining-nums; }
-#stats-label { color: var(--text-2); }
+
+/* Readout: the hero, a hairline, then "peak 17" (results: "peak · avg 14") as a caption on the
+   counts' baseline, so the peak never reads as a label of the hero. */
+#stats { justify-content: flex-start; }
+#hero { margin: calc(var(--u, 1) * -3px) 0 0; }
+#stats-rule { display: block; height: 1px; margin-top: auto; background: var(--hair); }
+#peakline { display: block; line-height: .8; margin: calc(var(--u, 1) * 5px) 0 var(--nb); white-space: nowrap; }
+#peakline .pv { color: var(--text-2); }
+/* Compact (a 216 px osu! box): the same stack at value size, settled on the counts' baseline. */
+#hud[data-kps="compact"] #stats { justify-content: flex-end; }
+#hud[data-kps="compact"] #hero { margin: 0; font-size: calc(var(--u, 1) * 32px); }
+#hud[data-kps="compact"] #stats-rule { margin-top: calc(var(--u, 1) * 3px); }
 .dash, .num.dash, .pv.dash { color: var(--text-3); }
 
 /* ------------------------------------------------------------------ key caps
@@ -44,7 +55,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   flex-direction: column;
   justify-content: space-between;
   min-width: 0;
-  padding: 0 calc(var(--u, 1) * 8px);
+  padding: 0 var(--cap-pad, calc(var(--u, 1) * 8px));
   background: rgb(239 236 229 / .05);
   box-shadow: inset 0 0 0 1px var(--hair);
   border-radius: 2px;
@@ -76,14 +87,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /* osu!stable catch: the one dash cap carries the overlay's only number, at value size. */
 .cap.wide .num { font-size: calc(var(--u, 1) * 32px); }
 
-/* Rows: three keys in a 64 px column (osu! with smoke, lazer catch) or the vertical layout. */
-#caps[data-rows] { flex-direction: column; }
-#caps[data-rows] .cap { flex: 1 1 0; flex-direction: row; align-items: flex-end; padding: 0 calc(var(--u, 1) * 6px); }
-#caps[data-rows] .cap .key { margin: 0 auto calc(var(--u, 1) * 4px) 0; }
-/* 64 px hold three rows of 20 px, so the counts drop to 16 px here (and to 14–20 px in a 256 px
-   mania row of 5+ keys): the slot is narrower than the type scale's 20 px floor for rows. */
-#caps[data-rows] .cap .num { font-size: calc(var(--u, 1) * 16px); margin-bottom: calc(var(--u, 1) * 4px); transform-origin: 100% 100%; }
-
 /* ------------------------------------------------------------------ mania: a strip over a row of caps
    that spans the box with the skin's column proportions (so a page as wide as the stage lines up). */
 #hud[data-layout="mania"] {
@@ -92,9 +95,11 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   row-gap: calc(var(--u, 1) * 6px);
   column-gap: var(--gap);
 }
-#hud[data-layout="mania"] #stats { grid-area: 1 / 1; flex-direction: row-reverse; justify-content: flex-end; align-items: last baseline; gap: calc(var(--u, 1) * 10px); }
+#hud[data-layout="mania"] #stats { grid-area: 1 / 1; flex-direction: row; justify-content: flex-start; align-items: last baseline; gap: calc(var(--u, 1) * 10px); }
+/* Mania strip: "38 kps | peak 44" with a hairline between, the total alone at the far end. */
+#hud[data-layout="mania"] #stats-rule { align-self: center; width: 1px; height: calc(var(--u, 1) * 14px); margin: 0; background: var(--hair-strong); }
 #hud[data-layout="mania"] #total { grid-area: 1 / 2; flex-direction: row; align-items: last baseline; gap: calc(var(--u, 1) * 6px); }
-#hud[data-layout="mania"] :is(#stats, #total) :is(.lbl, .num) { margin: 0; }
+#hud[data-layout="mania"] :is(#stats, #total) :is(.lbl, .num), #hud[data-layout="mania"] :is(#hero, #peakline) { margin: 0; }
 #hud[data-layout="mania"] #caps { grid-area: 2 / 1 / 3 / 3; gap: 0; }
 #hud[data-layout="mania"] .cap { position: absolute; top: 0; bottom: 0; justify-content: flex-end; align-items: center; padding: 0; }
 #hud[data-layout="mania"] .cap .num { font-size: var(--mania-n, calc(var(--u, 1) * 20px)); transform-origin: 50% 100%; }

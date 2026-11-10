@@ -6,7 +6,7 @@
 // Rows sit absolutely positioned and move between slots on a transform transition, so an overtake
 // slides the passed player past you without layout work; one-shot Web Animations (created once
 // per element, then restarted) mark the overtake itself.
-import { subscribe, settings, applyKitSettings, numberFormatter, known, fitFields, MOTION_MS } from './vosu-overlay.js';
+import { subscribe, settings, applyKitSettings, numberFormatter, known, fitFields, DASH, MOTION_MS } from './vosu-overlay.js';
 
 const PLAY = 2;
 const MAX_ROWS = 16;
@@ -180,6 +180,7 @@ function newRow(key, el) {
     modsKind: -1, modsName: undefined, acronyms: [], acronymCount: 0, tMods: null,
     dip: null, flashAnim: null,
     who: null, shownName: null, fName: null, fBold: false, fLength: -1, fFailed: false, fSerial: -1,
+    cscore: null, vCompact: null, tCompact: null,
   };
   for (const node of el.querySelectorAll('[data-r]')) row[node.dataset.r] = node;
   return row;
@@ -204,6 +205,20 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const rankOf = e => (Number.isInteger(e.position) && e.position > 0 ? e.position : Infinity);
 const compare = (a, b) => rankOf(a) - rankOf(b) || (Number(b.score) || 0) - (Number(a.score) || 0);
 const displayPos = (e, index) => (Number.isInteger(e.position) && e.position > 0 ? e.position : index + 1);
+
+/**
+ * A score in three significant figures for the narrow column's rows away from you: 3.68M, 12.3M,
+ * 811K, 9.25K; below 1,000 the plain number. Rounds like the full score, and switches unit where
+ * rounding would print 1000K. The shared formatter has no compact kind; this is called only when a
+ * row's score changes (other players' scores are final), so it allocates nothing at rest.
+ */
+function compactScore(n) {
+  if (!(n >= 0)) return DASH;
+  const unit = n >= 999500 ? 'M' : n >= 999.5 ? 'K' : '';
+  const v = unit === 'M' ? n / 1e6 : unit === 'K' ? n / 1e3 : n;
+  const digits = unit === '' ? 0 : v < 9.995 ? 2 : v < 99.95 ? 1 : 0;
+  return v.toFixed(digits) + unit;
+}
 
 /** Mods as the game writes them: acronyms run together (HDDT). */
 function modsText(mods) {
@@ -284,9 +299,15 @@ function fillBoard(row, e, index, flags) {
     const text = row.fScore(known(score));
     if (row.tScore !== text) { row.tScore = text; row.score.textContent = text; }
   }
-  // A row whose score is not printed (the narrow column, away from you) fits its name without it.
+  // The narrow column prints full scores only for you and your neighbours; the other rows carry a
+  // compact score (3.68M, 811K) in a fixed slot, and their names fit beside that slot.
   const scored = !narrow || (flags & (ME | NEAR)) !== 0;
-  fitName(row, (flags & ME) !== 0, scored && row.tScore !== null ? row.tScore.length : 0);
+  if (!scored && score !== row.vCompact) {
+    row.vCompact = score;
+    const text = compactScore(known(score));
+    if (row.tCompact !== text) { row.tCompact = text; row.cscore.textContent = text; }
+  }
+  fitName(row, (flags & ME) !== 0, !scored ? -2 : row.tScore !== null ? row.tScore.length : 0);
   // Mods ride every second line; accuracy and combo only where they show (FACTS), so your own
   // per-hit accuracy is not formatted while hudFields hides it.
   if ((flags & TWO) === 0) return;

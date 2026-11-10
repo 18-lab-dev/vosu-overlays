@@ -127,10 +127,15 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .vertical .row.three { height: calc(var(--u) * 66px); }
 .vertical .row.three .sub { flex-direction: column; align-items: stretch; gap: 0; }
 .three .gap { text-align: right; }
-.vertical .score { justify-self: end; }
-/* The narrow column (216 px) prints scores only for you and the players directly above and below
-   you; the other rows are position and name, so names have the width. */
+.vertical .score { grid-column: 3; grid-row: 1; justify-self: end; }
+/* The narrow column (216 px) prints full scores only for you and the players directly above and
+   below you. The other rows carry a compact score (3.68M) in caption colour, right-aligned in a
+   fixed 46 px slot sized for the widest compact form (tabular "8.88M"), so the board keeps its
+   right edge and names keep the rest of the width (≈ 96 px). */
+.cscore { display: none; grid-column: 3; grid-row: 1; justify-self: end; width: calc(var(--u) * 46px); text-align: right; font-size: calc(var(--u) * 20px); line-height: calc(var(--u) * 24px); color: var(--text-3); }
 .narrow .row:not(.me):not(.near) .score { display: none; }
+.narrow .row:not(.me):not(.near):not(.failed) .cscore { display: block; }
+.vertical.align-right .cscore { text-align: left; }
 .vertical .skip { width: 100%; height: calc(var(--u) * 20px); }
 .vertical .skip span { left: calc(var(--u) * 6px); top: 0; width: calc(var(--u) * 18px); text-align: right; line-height: calc(var(--u) * 20px); }
 

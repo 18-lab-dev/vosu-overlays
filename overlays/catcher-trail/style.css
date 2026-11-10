@@ -25,9 +25,14 @@ p, dl, dd { margin: 0; }
 [data-align="right"] .head { justify-content: flex-end; }
 [data-align="right"] .dash { flex-direction: row-reverse; }
 [data-align="right"] .scope { align-items: flex-end; }
+/* Captions a viewer needs to read the numbers right (what the % covers, how far back the trace
+   goes) sit at 16 px. */
+.scope .kit-caption, .window { font-size: calc(var(--u, 1) * 16px); }
 
-/* Plot: the canvas draws the playfield frame, the trace, misses and the catcher. */
+/* Plot: the canvas draws the playfield frame, the trace, misses and the catcher. The window label
+   marks the trace's far end (its top, or its left edge when wide), clear of the edge ticks. */
 .plot { position: relative; min-width: 0; min-height: 0; }
+.window { position: absolute; top: 0; left: var(--s-2); line-height: 1; pointer-events: none; }
 canvas { display: block; width: 100%; height: 100%; }
 
 /* Vertical (the column): header over the trace; time rises away from the catcher at the bottom. */

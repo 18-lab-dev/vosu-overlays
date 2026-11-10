@@ -39,7 +39,7 @@ const root = document.getElementById('root');
 const canvas = document.getElementById('trace');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  chip: document.getElementById('chip'), dashRow: document.getElementById('dash-row'),
+  chip: document.getElementById('chip'), dashRow: document.getElementById('dash-row'), window: document.getElementById('window'),
   dash: document.getElementById('dash'), finalBlock: document.getElementById('final'),
   finalDash: document.getElementById('final-dash'), finalTurns: document.getElementById('final-turns'),
 };
@@ -75,6 +75,7 @@ const DEFAULTS = {
 };
 let opts = { ...DEFAULTS };
 let motion = 'full';
+let windowText = '6 s ago';   // the trace's far end, written only when the setting changes
 let status = 'connecting';
 let view = 'connecting';
 let viewDirty = true, layoutDirty = true, statsDirty = true, raf = 0;
@@ -285,6 +286,7 @@ settings(DEFAULTS, s => {
   };
   motion = applyKitSettings(root, opts);
   if (motion !== 'full') num.flashUntil = 0;
+  windowText = `${opts.window} s ago`;
   viewDirty = true;
   if (framed) evaluate(performance.now());
   layoutBox();
@@ -296,8 +298,8 @@ function layoutBox() {
   const w = innerWidth || 216, h = innerHeight || 240;
   orient = opts.orientation === 'auto' ? (w / h >= WIDE ? 'horizontal' : 'vertical') : opts.orientation;
   laneLeft = orient === 'horizontal';
-  // 1 at the slot's 216×240 column; wide boxes are laid out for 560×120.
-  const k = orient === 'vertical' ? Math.min(w / 216, h / 240) : Math.min(h / 120, w / 560);
+  // 1 at the slot's 216×240 column; wide boxes (renderer bands) are laid out for 460×120.
+  const k = orient === 'vertical' ? Math.min(w / 216, h / 240) : Math.min(h / 120, w / 460);
   unit = Math.round(Math.min(1.6, Math.max(0.75, k)) * 100) / 100;
   layoutDirty = true;
   measure();
@@ -391,6 +393,7 @@ function applyView() {
   root.dataset.view = view;
   el.dashRow.hidden = !opts.showDash;
   setText(el.chip, CHIP[view] || 'Connecting');
+  setText(el.window, windowText);
 }
 
 function setText(node, text) { if (node.textContent !== text) node.textContent = text; }

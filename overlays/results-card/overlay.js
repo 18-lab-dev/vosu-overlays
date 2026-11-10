@@ -1,6 +1,6 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Results timing: on the results screen only, adds what osu! leaves out there: UR, timing mean,
-// the early/late split and a hit-error histogram of the attempt just played, plus the if-FC gap
+// the early/late split and a hit-error histogram of the attempt just played, plus the If FC gap
 // (neither client's results screen shows what a full combo would have given; lazer already shows
 // the score's pp, so the card does not repeat it). Renders nothing in every other state, and
 // nothing in a results screen it has nothing to add to (catch with a full combo).
@@ -78,7 +78,7 @@ for (const node of card.querySelectorAll('.settle')) {
     : node.closest('.c-fc') ? SETTLE_DELAYS.gap : SETTLE_DELAYS.split;
   settles.push(settleAnimation(node, delay));
 }
-// The if-FC gap can arrive after the reveal (pp is computed after the score); it settles alone.
+// The If FC gap can arrive after the reveal (pp is computed after the score); it settles alone.
 const gapSettle = settleAnimation(el.gap.parentElement, 0);
 
 // --------------------------------------------------------------------- hit-error capture
@@ -117,7 +117,7 @@ function ingest(array) {
 }
 
 // ------------------------------------------------------------------------- state
-const DEFAULTS = { orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', showHistogram: true, showPp: true, hold: 0 };
+const DEFAULTS = { orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', marks: 'neutral', showHistogram: true, showPp: true, hold: 0 };
 let config = { ...DEFAULTS };
 let motion = 'full';
 let shadowed = false; // backing = none: the histogram gets the text's contrast shadow

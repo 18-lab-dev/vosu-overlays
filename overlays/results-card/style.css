@@ -34,10 +34,6 @@ b { font-weight: inherit; }
 .num { line-height: .8; }
 .num :is(.kit-unit, .kit-frac) { line-height: 0; }
 .kit-dash { color: var(--text-3); }
-/* Small boxes (replay-renderer cells, half-size sources): labels and units stay ≥ 9 px on screen,
-   the least that survives a 720p stream. */
-.card .kit-label { font-size: max(9px, calc(var(--u, 1) * 14px)); }
-.card .kit-unit { font-size: max(9px, calc(var(--u, 1) * 14px), .4em); }
 
 .cell { display: flex; flex-direction: column; justify-content: space-between; gap: var(--s-1); flex: none; }
 
@@ -46,7 +42,8 @@ b { font-weight: inherit; }
 .split { display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline; gap: var(--s-3); }
 .split > :first-child { justify-self: start; }
 .split > :last-child { grid-column: 3; justify-self: end; }
-.split b { font-weight: 600; color: var(--text-1); }
+/* The split's figures carry the datum, so they take the unit size (16) the `%` already has. */
+.split b { font-size: calc(var(--u, 1) * 16px); font-weight: 600; color: var(--text-1); }
 .split .kit-dash { font-weight: 500; }
 .early { color: var(--early); }
 .late { color: var(--late); }
@@ -68,7 +65,7 @@ b { font-weight: inherit; }
 .frame[data-orient="h"] .c-hist { flex: 0 1 auto; width: calc(var(--u, 1) * 320px); min-width: calc(var(--u, 1) * 168px); }
 
 /* ------------------------------------------------------------------- stacked (default 320×300)
-   UR and mean over the histogram, the if-FC gap under a hairline; align right mirrors the first
+   UR and mean over the histogram, the If FC gap under a hairline; align right mirrors the first
    line so the hero sits on the outer edge. Wrapping (not a grid) so hidden cells leave no gap. */
 .frame[data-orient="v"] .card {
   display: flex;
@@ -87,6 +84,12 @@ b { font-weight: inherit; }
 .frame[data-orient="v"][data-align="right"] .c-fc { align-items: flex-end; }
 .frame.no-timing[data-orient="v"] .card { width: auto; }
 .frame.no-timing[data-orient="v"] .c-fc { padding-top: 0; border-top: 0; }
+
+/* ------------------------------------------------------------- If FC alone (catch: no timing)
+   With no timing there is one datum, so the card becomes a one-line tag (`If FC +54 pp`) on the
+   slot's anchored edge, the backing hugging it: it reads as a deliberate label, not as a row whose
+   other cells failed to load. */
+.frame.no-timing[data-orient] .c-fc { flex-direction: row; align-items: baseline; gap: var(--s-3); }
 
 /* ------------------------------------------------------------- status chip
    Bottom of the box, on the align edge: only when vosu cannot be reached, in any state. */

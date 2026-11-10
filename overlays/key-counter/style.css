@@ -30,12 +30,13 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .num.kit-value { font-size: calc(var(--u, 1) * 20px); }
 .pv { color: var(--text-1); font-variant-numeric: tabular-nums lining-nums; }
 
-/* Readout: the hero, a hairline, then "peak 17" (results: "peak · avg 14") as a caption on the
-   counts' baseline, so the peak never reads as a label of the hero. */
+/* Readout: the hero, a hairline, then "peak 17" (results: "peak · avg 14") on the counts' baseline,
+   so the peak never reads as a label of the hero. It carries a datum, so it is kit-text (16 px). */
 #stats { justify-content: flex-start; }
 #hero { margin: calc(var(--u, 1) * -3px) 0 0; }
 #stats-rule { display: block; height: 1px; margin-top: auto; background: var(--hair); }
 #peakline { display: block; line-height: .8; margin: calc(var(--u, 1) * 5px) 0 var(--nb); white-space: nowrap; }
+#stats-label { color: var(--text-3); }
 #peakline .pv { color: var(--text-2); }
 /* Compact (a 216 px osu! box): the same stack at value size, settled on the counts' baseline. */
 #hud[data-kps="compact"] #stats { justify-content: flex-end; }
@@ -78,7 +79,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #hud:is([data-snap], [data-motion="reduced"]) .cap::after,
 #hud:is([data-snap], [data-motion="reduced"]) .cap .num { transition: none; }
 .cap .key { display: block; line-height: .8; margin-top: calc(var(--lb) - .8em); white-space: nowrap; }
-/* Taiko: the zone's game colour as a hairline along the top; the label is the bound key. */
+/* Taiko: the zone's game colour as a hairline along the top, over its key name (L·KAT …). */
 .cap[data-zone]::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: max(2px, calc(var(--u, 1) * 2px)); }
 .cap[data-zone="kat"]::before { background: var(--kat); }
 .cap[data-zone="don"]::before { background: var(--don); }
@@ -101,7 +102,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #hud[data-layout="mania"] #total { grid-area: 1 / 2; flex-direction: row; align-items: last baseline; gap: calc(var(--u, 1) * 6px); }
 #hud[data-layout="mania"] :is(#stats, #total) :is(.lbl, .num), #hud[data-layout="mania"] :is(#hero, #peakline) { margin: 0; }
 #hud[data-layout="mania"] #caps { grid-area: 2 / 1 / 3 / 3; gap: 0; }
-#hud[data-layout="mania"] .cap { position: absolute; top: 0; bottom: 0; justify-content: flex-end; align-items: center; padding: 0; }
+#hud[data-layout="mania"] .cap { position: absolute; top: 0; bottom: 0; justify-content: space-between; align-items: center; padding: 0; }
 #hud[data-layout="mania"] .cap .num { font-size: var(--mania-n, calc(var(--u, 1) * 20px)); transform-origin: 50% 100%; }
 #hud[data-layout="mania"][data-strip="off"] { grid-template-rows: 0 1fr; row-gap: 0; }
 

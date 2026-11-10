@@ -13,7 +13,7 @@
 // with the game clock and stops with it (frozen or paused data costs nothing).
 import {
   subscribe, settings, activeMode, isPlaying, maniaSkin, createKps, numberFormatter, known, isKnown,
-  UNKNOWN, DASH, applyKitSettings, MOTION_MS,
+  UNKNOWN, DASH, applyKitSettings, keyLabels, MOTION_MS,
 } from './vosu-overlay.js';
 
 const RESULTS = 7;
@@ -30,8 +30,8 @@ const BASE_H = 96;
 const PAD = 16, GAP = 16, CAP_GAP = 6;
 const CAP_MIN = 52, CAP_MAX = 72;      // a cap fits "8,888" at 20 px with 6 px either side
 const TITLE_MIN = 112;                 // osu!stable catch: the one "Dash presses" cap
-const STATS_W = 88;                    // "88" at 52 px plus the kps unit (measured 87)
-const COMPACT_W = 60, COMPACT_GAP = 12; // "88 kps" at 32 px over "peak 88" (measured 59)
+const STATS_W = 96;                    // "88 kps" at 52 px (87), "peak · avg 88" at 16 px (≈ 95)
+const COMPACT_W = 60, COMPACT_GAP = 12; // "88 kps" at 32 px over "peak 88" at 16 px (measured 59)
 const TOTAL_W = 56;
 const SPARK_MIN = 96;
 const COLUMN_W = 160;                  // vertical layout
@@ -39,7 +39,6 @@ const COLUMN_W = 160;                  // vertical layout
 const P = {
   state: '/state/number', playMode: '/play/mode/number', menuMode: '/settings/mode/number',
   client: '/client', all: '/keys/all', k1: '/keys/k1', k2: '/keys/k2', m1: '/keys/m1', m2: '/keys/m2',
-  bindOsu: '/settings/keybinds/osu', bindTaiko: '/settings/keybinds/taiko', bindFruits: '/settings/keybinds/fruits',
   cs: '/beatmap/stats/cs/converted', skin: '/settings/skin/name',
   live: '/beatmap/time/live', rate: '/beatmap/time/rate',
 };
@@ -59,48 +58,28 @@ const role = name => css.getPropertyValue(name).trim();
 const C = { text1: role('--text-1'), text3: role('--text-3'), hair: role('--hair'), hairStrong: role('--hair-strong'), you: role('--you') };
 
 // ---------------------------------------------------------------- key layouts
-const KEY_NAMES = {
-  Left: 'LEFT', Right: 'RIGHT', Up: 'UP', Down: 'DOWN', LeftShift: 'SHIFT', RightShift: 'SHIFT', Shift: 'SHIFT',
-  LeftControl: 'CTRL', RightControl: 'CTRL', Control: 'CTRL', LeftAlt: 'ALT', RightAlt: 'ALT', Space: 'SPACE',
-  MouseLeft: 'M1', MouseRight: 'M2', LButton: 'M1', RButton: 'M2', Return: 'ENTER', Enter: 'ENTER', Tab: 'TAB',
-  OemTilde: '`', OemComma: ',', OemPeriod: '.', OemQuestion: '/', OemSemicolon: ';', OemQuotes: "'",
-  OemOpenBrackets: '[', OemCloseBrackets: ']', OemMinus: '-', OemPlus: '=',
-};
-
-function keyLabel(name, fallback) {
-  if (typeof name !== 'string' || !name.trim()) return fallback;
-  const n = name.trim();
-  if (KEY_NAMES[n]) return KEY_NAMES[n];
-  if (/^D\d$/.test(n)) return n[1];
-  if (/^NumPad\d$/i.test(n)) return `N${n.slice(-1)}`;
-  return n.slice(0, 5).toUpperCase();
-}
+const TAIKO_ZONES = ['kat', 'don', 'don', 'kat'];
 
 /**
- * Caps to show: [{src: index into keys.all, code, title, zone}]. `code` is the bound key (kit-code),
- * `title` a sentence-case label used instead of it, `zone` the taiko drum zone ('kat' | 'don').
+ * Caps to show: [{src: index into keys.all, code, long, title, zone}]. `code`/`long` come from the
+ * set's one key-name source (keyLabels: K1 K2 M1 M2, L·KAT…, LEFT RIGHT DASH, 1…N), never the
+ * player's keybind letters; `title` is a sentence-case label used instead of the code; `zone` the
+ * taiko drum zone. osu!'s mouse buttons (M1, M2) get a cap only once they have been pressed
+ * (`extra`: bit 0 = M1, bit 1 = M2).
  */
-function layoutFor(mode, client, columns, smoke, binds) {
-  const b = binds || {};
-  if (mode === 'osu') {
-    const caps = [{ src: 0, code: keyLabel(b.k1, 'K1') }, { src: 1, code: keyLabel(b.k2, 'K2') }];
-    if (smoke) caps.push({ src: 2, code: keyLabel(b.smokeKey, 'SMOKE') });
-    return caps;
-  }
-  if (mode === 'taiko') return [
-    { src: 0, code: keyLabel(b.outerLeft, 'L·KAT'), zone: 'kat' },
-    { src: 1, code: keyLabel(b.innerLeft, 'L·DON'), zone: 'don' },
-    { src: 2, code: keyLabel(b.innerRight, 'R·DON'), zone: 'don' },
-    { src: 3, code: keyLabel(b.outerRight, 'R·KAT'), zone: 'kat' },
-  ];
-  if (mode === 'fruits') {
+function layoutFor(mode, client, columns, extra) {
+  if (mode === 'fruits' && client === 'stable') {
     // osu!stable records the catcher position, not left/right presses: only dash is real there,
     // and dashes per second mean nothing, so it is one cap that says what it counts.
-    if (client === 'stable') return [{ src: 2, title: 'Dash presses' }];
-    return [{ src: 0, code: keyLabel(b.k1, 'LEFT') }, { src: 1, code: keyLabel(b.k2, 'RIGHT') }, { src: 2, code: keyLabel(b.Dash, 'DASH') }];
+    return [{ src: 2, title: 'Dash presses', long: keyLabels('fruits', 1).long[0] }];
   }
+  const count = mode === 'osu' ? 4 : mode === 'taiko' ? 4 : mode === 'fruits' ? 3 : Math.min(columns, MAX_KEYS);
+  const names = keyLabels(mode, count);
   const caps = [];
-  for (let i = 0; i < Math.min(columns, MAX_KEYS); i++) caps.push({ src: i });
+  for (let i = 0; i < count; i++) {
+    if (mode === 'osu' && i >= 2 && !(extra & (1 << (i - 2)))) continue;
+    caps.push({ src: i, code: names.short[i], long: names.long[i], zone: mode === 'taiko' ? TAIKO_ZONES[i] : '' });
+  }
   return caps;
 }
 
@@ -138,7 +117,7 @@ function readKeys(values, mode) {
 
 // ---------------------------------------------------------------- incoming data
 const view = { status: 'connecting', phase: 'connecting', mode: null, client: 'stable', caps: [], sig: '', columns: 0 };
-const lk = { mode: undefined, client: undefined, columns: -1, smoke: false, binds: undefined };
+const lk = { mode: undefined, client: undefined, columns: -1, extra: 0 };
 let lastColumns = 0;
 let layoutDirty = true;
 let kpsNow = UNKNOWN;
@@ -161,14 +140,13 @@ function onFrame(values) {
     }
     loadSkin(columns, values[P.skin]);
   }
-  const smoke = mode === 'osu' && !!src && src.length > 2 && num(src[2].count) > 0;
+  // osu!'s mouse buttons join the caps once used (a cap that never lights is noise).
+  const extra = mode === 'osu' && src ? (src.length > 2 && num(src[2].count) > 0 ? 1 : 0) | (src.length > 3 && num(src[3].count) > 0 ? 2 : 0) : 0;
   const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
-  const binds = mode === 'osu' ? values[P.bindOsu] : mode === 'taiko' ? values[P.bindTaiko] : mode === 'fruits' ? values[P.bindFruits] : null;
-  // Cheap identity check first (binds stay the same object until vosu reports a change).
-  if (mode !== lk.mode || client !== lk.client || columns !== lk.columns || smoke !== lk.smoke || binds !== lk.binds) {
-    lk.mode = mode; lk.client = client; lk.columns = columns; lk.smoke = smoke; lk.binds = binds;
-    const caps = mode ? layoutFor(mode, client, columns, smoke, binds) : [];
-    const sig = `${mode}|${client}|${caps.map(c => `${c.src}:${c.code || c.title || ''}:${c.zone || ''}`).join(',')}`;
+  if (mode !== lk.mode || client !== lk.client || columns !== lk.columns || extra !== lk.extra) {
+    lk.mode = mode; lk.client = client; lk.columns = columns; lk.extra = extra;
+    const caps = mode ? layoutFor(mode, client, columns, extra) : [];
+    const sig = `${mode}|${client}|${caps.map(c => `${c.src}:${c.code || c.title || ''}`).join(',')}`;
     if (sig !== view.sig) {
       const keysetChanged = view.mode !== mode || view.columns !== columns || (mode === 'fruits' && view.caps.length !== caps.length);
       view.sig = sig; view.caps = caps; view.mode = mode; view.columns = columns; view.client = client;
@@ -324,6 +302,7 @@ function makeCap(spec) {
     key.textContent = spec.title || spec.code;
     el.append(key);
   }
+  if (spec.long) el.setAttribute('aria-label', spec.long);
   const n = document.createElement('span');
   n.className = 'kit-value num dash';
   n.textContent = DASH;
@@ -347,8 +326,8 @@ function codeWidth(specs) {
 /**
  * Builds the caps and sizes every column for the box. Layout time only (allocates freely).
  * When the box is too narrow, fields drop in order instead of text shrinking below the type
- * scale: osu!'s smoke cap first, then the hero (the readout steps down to 32 px, with the smoke
- * cap back if that fits), then the readout; only then does --u fall below 1.
+ * scale: osu!'s mouse-button caps first, then the hero (the readout steps down to 32 px, with the
+ * mouse caps back if that fits), then the readout; only then does --u fall below 1.
  */
 function layout() {
   layoutDirty = false;
@@ -363,7 +342,7 @@ function layout() {
   let u = H / BASE_H;
   let total = false, sparkShown = false;
   let readout = kpsShown ? 'full' : 'off';
-  // Row layout plan, decided before the caps are built (osu!'s smoke cap may drop).
+  // Row layout plan, decided before the caps are built (osu!'s mouse-button caps may drop).
   let avail = W / u - 2 * pad, capNeed = CAP_MIN, capW = CAP_MIN, capPad = 8;
   const title = !!specs[0]?.title;
   if (!vertical && mode !== 'mania') {
@@ -373,8 +352,8 @@ function layout() {
     const readW = r => (r === 'full' ? STATS_W + GAP : r === 'compact' ? COMPACT_W + COMPACT_GAP : 0);
     if (readout === 'full') {
       // First plan that fits, in the order fields are given up.
-      const smoke = mode === 'osu' && specs.length === 3;
-      const plans = [['full', specs.length], ['full', smoke ? 2 : 0], ['compact', specs.length], ['compact', smoke ? 2 : 0], ['off', specs.length]];
+      const extra = mode === 'osu' && specs.length > 2;
+      const plans = [['full', specs.length], ['full', extra ? 2 : 0], ['compact', specs.length], ['compact', extra ? 2 : 0], ['off', specs.length]];
       for (const [r, k] of plans) {
         if (!k || capsW(k) + readW(r) > avail) continue;
         readout = r; specs = specs.slice(0, k);
@@ -401,7 +380,6 @@ function layout() {
   hud.removeAttribute('data-strip');
   statsCol.style.width = ''; totalCol.style.width = '';
   hero.className = 'kit-hero num';
-  peakLine.className = 'kit-caption';
 
   if (vertical) {
     hud.dataset.layout = 'column';
@@ -627,11 +605,11 @@ new ResizeObserver(([entry]) => {
 const sub = subscribe(Object.values(P), onFrame, { onStatus });
 
 const DEFAULTS = {
-  motion: 'full', backing: 'scrim', showKps: true, orientation: 'auto', align: 'center',
+  motion: 'full', backing: 'scrim', marks: 'neutral', showKps: true, orientation: 'auto', align: 'center',
   showSparkline: true, showTotal: true, maniaColumns: 'skin',
 };
 settings(DEFAULTS, s => {
-  opts.motion = applyKitSettings(hud, { motion: s.motion, backing: s.backing, mapTint: false });
+  opts.motion = applyKitSettings(hud, { motion: s.motion, backing: s.backing, mapTint: false, marks: s.marks });
   opts.backing = hud.dataset.backing;
   opts.showKps = !!s.showKps;
   opts.orientation = ['auto', 'horizontal', 'vertical'].includes(s.orientation) ? s.orientation : 'auto';

@@ -19,7 +19,7 @@ import {
   DASH, MOTION_MS,
 } from './vosu-overlay.js';
 
-const REF = { w: 256, h: 240 };   // default box: --u = 1
+const REF = { w: 216, h: 240 };   // default box: --u = 1
 const STRIP = { w: 416, h: 160 }; // strip box at --u = 1
 const RING_RATIO = 104 / 288;     // hit-circle radius / target diameter
 const RECENT = 40;                // newest hits drawn bright on the recent layer

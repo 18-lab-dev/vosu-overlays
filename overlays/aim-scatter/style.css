@@ -5,7 +5,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /*
  * The page is the overlay's own box; hosts (OBS, vosulay, the replay renderer) size and place it.
  * overlay.js picks the arrangement from the box's aspect and sets --u (the kit scale, 1 at the
- * 256×240 default box), --d (target diameter) and --ring (newest-hit ring radius) on resize.
+ * 216×240 default box), --d (target diameter) and --ring (newest-hit ring radius) on resize.
  * data-view is what the box holds: data (play, and results with "Keep on results"), notice
  * (vosu without hit offsets, the replay renderer) or chip (connection / no game). data-out
  * (kit-enter) hides it on other rulesets and screens; the content stays while it fades out.
@@ -24,15 +24,18 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /* Enter eases in from 4 px below (kit-enter); leaving accelerates out. */
 .aim[data-out] { transition-timing-function: var(--ease-in); }
 
-/* One-line views wrap their text, not the whole box: backing and marks hug the line. */
+/* One-line views wrap their text, not the whole box: backing and marks hug the line. They sit at
+   the box's leading edge (trailing edge with right alignment), and the notice wraps within 160 px
+   so its text stays clear of the box's outer 40 px on the right, where stable's input overlay
+   sits beside the osu! right column. */
 .aim:is([data-view="chip"], [data-view="notice"]) {
   inset: 0 0 auto 0;
   width: fit-content;
   max-width: 100%;
-  margin-inline: auto;
+  margin-inline: 0 auto;
 }
-.aim:is([data-view="chip"], [data-view="notice"])[data-align="left"] { margin-inline: 0 auto; }
 .aim:is([data-view="chip"], [data-view="notice"])[data-align="right"] { margin-inline: auto 0; }
+.notice { max-width: calc(var(--u) * 160px); }
 
 .aim:not([data-view="data"]) .plot,
 .aim:not([data-view="notice"]) .notice,

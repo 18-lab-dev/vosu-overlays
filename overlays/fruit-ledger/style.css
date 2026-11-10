@@ -57,10 +57,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .num.kit-dash { color: var(--text-3); }
 /* A broken combo is a miss: the hero takes the miss colour once it is above zero (neutral at 0). */
 .cell-breaks[data-broken] .num { color: var(--j-miss); }
-/* In the band the secondary label breaks into two lines (Droplets / missed): it then fits beside
-   the hero in the 216 px column slot at --u 1, inside the 64 px content height. */
-.ledger[data-orient="h"] .cell-dmiss .kit-label { width: min-content; white-space: normal; text-align: right; }
-.ledger[data-orient="h"][data-align="right"] .cell-dmiss .kit-label { text-align: left; }
 
 /* Event rule: flashes the miss colour under a cell when its count goes up (overlay.js animates
    opacity only). Sits in the backing's padding, under the label. */
@@ -83,10 +79,18 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   justify-content: space-between;
   column-gap: var(--s-2);
   row-gap: var(--s-2);
-  margin-top: var(--s-4);
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--hair);
+  margin-top: var(--s-2);
 }
+/* The band's caught counts sit under a "Caught" heading on the band's hairline, so they never read
+   as the misses above (the chip's "Droplets" is droplets missed). */
+.hud-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+}
+.hud-head::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
 .hud[hidden] { display: none; }
 .stat { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .kit-dash + .kit-unit { display: none; }

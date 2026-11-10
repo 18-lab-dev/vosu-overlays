@@ -10,11 +10,12 @@ import {
 
 const PLAYING = 2;
 // Design boxes per arrangement at --u = 1; --u scales to fit. `tag` (two lines beside the avatar)
-// is the metadata resolution; `strip` (one line) serves short boxes; `card` is the stacked
-// (vertical) form. The two-line tag wins whenever it fits at full size or larger than the strip;
-// otherwise the strip. `orientation: auto` then takes the card when that fits larger;
-// `horizontal` picks between tag and strip, `vertical` is the card.
-const BOX = { tag: [256, 96], strip: [256, 72], card: [232, 212] };
+// is sized for the narrowest placement (216×96, osu!/catch); the 256×96 resolution and the
+// 328×96 taiko box also draw at --u = 1 and simply have room for more. `strip` (one line) serves
+// short boxes; `card` is the stacked (vertical) form. The two-line tag wins whenever it fits at
+// full size or larger than the strip; otherwise the strip. `orientation: auto` then takes the
+// card when that fits larger; `horizontal` picks between tag and strip, `vertical` is the card.
+const BOX = { tag: [216, 96], strip: [256, 72], card: [232, 212] };
 // A ruleset or account switch can deliver stats that are still settling; the session baseline
 // follows the latest values for this long after a key is first seen.
 const SETTLE_MS = 2000;

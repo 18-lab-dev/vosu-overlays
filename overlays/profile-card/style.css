@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 18-LAB. MIT. */
 /* Player tag on the 18-LAB kit (kit.css, docs/overlay-system.md). The page is the overlay's box;
-   overlay.js sets --u (unitless, 1 at the 256×96 two-line tag, the 256×72 one-line strip or the
-   232×212 card) and picks the arrangement that fits the box largest. The tag (.kit) is
+   overlay.js sets --u (unitless, 1 at any two-line tag box from 216×96 up, the 256×72 one-line
+   strip or the 232×212 card) and picks the arrangement that fits the box largest. The tag (.kit) is
    content-sized and hugs the align side, so its backing and registration marks wrap what it shows. */
 
 * { box-sizing: border-box; }
@@ -102,11 +102,12 @@ p, figure { margin: 0; }
 }
 .avatar img.is-loaded { opacity: 1; }
 
-/* ---------- two-line tag (the default 256×96 box) ---------- */
+/* ---------- two-line tag (the 216×96, 256×96 and 328×96 boxes) ---------- */
 
 /* 64 px of content: name, country and pp on a 24 px line over the 40 px rank, the avatar on the
    outer edge (the outer 40 px, where osu!stable's input overlay can sit, holds only the avatar).
-   The rank stays 40 px so a six-digit rank and its change fit the 172 px beside the avatar. */
+   The rank stays 40 px; when the line beside the avatar is too short (132 px at 216 wide, 172 at
+   256) the pp change, then the country, then the avatar give way, never the text size. */
 .stage[data-rows="2"] .tag {
   display: grid;
   grid-template-columns: auto minmax(0, max-content);

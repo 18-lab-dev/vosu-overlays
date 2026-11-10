@@ -11,7 +11,7 @@ import {
 // Default boxes of the two arrangements (metadata.txt placements); --u is 1 at these. The column
 // is laid out for the osu!/catch side column (216 wide); mania's 256 × 192 box is also --u 1.
 const BASE = { vertical: [216, 192], horizontal: [520, 104] };
-// Below this content width (CSS px at --u 1) the rating and the BPM no longer share a row.
+// Below this content width (CSS px at --u 1) the column's fixed row has no room for osu!'s HP.
 const NARROW = 240;
 const WIDE = 2.2; // auto orientation: boxes at least this many times wider than tall get the strip
 
@@ -34,12 +34,14 @@ const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'; // --ease-out
 
 // Difficulty settings that mean something while playing each ruleset: taiko has no approach rate
 // or circle size, catch has no timing windows, and a mania player is looking at the key count.
-// The 216 px osu!/catch side column has one fixed row per ruleset: the BPM (no room beside a 10★
-// rating) and two settings, AR and OD in osu!, AR and CS in catch (settings.json says so).
+// Strip: the settings beside the rating and the BPM. Column: one fixed row under the rating that
+// starts with the BPM and never gives way to the title; the 216 px osu! side column leaves out HP
+// (settings.json says so).
 const KEYS = ['ar', 'cs', 'od', 'hp'];
 const ALL_CELLS = ['bpm', 'ar', 'cs', 'od', 'hp'];
 const CELLS = { osu: ['ar', 'cs', 'od', 'hp'], taiko: ['od', 'hp'], fruits: ['ar', 'cs', 'hp'], mania: ['od', 'hp'] };
-const CELLS_NARROW = { osu: ['bpm', 'ar', 'od'], taiko: ['bpm', 'od', 'hp'], fruits: ['bpm', 'ar', 'cs'], mania: ['bpm', 'od', 'hp'] };
+const COLUMN = { osu: ['bpm', 'ar', 'cs', 'od', 'hp'], taiko: ['bpm', 'od', 'hp'], fruits: ['bpm', 'ar', 'cs', 'hp'], mania: ['bpm', 'od', 'hp'] };
+const COLUMN_NARROW = { ...COLUMN, osu: ['bpm', 'ar', 'cs', 'od'] };
 // align = auto follows the placements: osu!/catch hug the right screen edge; taiko's strip reads
 // from the left (right of the mascot), mania sits in the top-left corner.
 const AUTO_ALIGN = { osu: 'end', fruits: 'end', taiko: 'start', mania: 'start' };
@@ -120,10 +122,8 @@ const live = { t: null };
 const kiai = { on: false, moving: false, ticks: 0, seen: 0, timer: 0, shown: false };
 const STILL_MS = 250;
 let shownChecksum;
-let narrow = false; // the 216 px side column (see CELLS_NARROW)
+let narrow = false; // the 216 px side column (see COLUMN_NARROW)
 let shownCells = null;
-// The settings row gives way to a two-line title (docs: the title is cut last); fitIdentity decides.
-let statsRoom = true;
 let paletteFor = '';
 let identityFor = '';
 let shownBpm = null;
@@ -145,7 +145,7 @@ const built = { start: null, end: null, steps: -1 };
 // Motion: created once and restarted (motion brief rule 3).
 const identityFade = body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.slow, easing: EASE_OUT });
 identityFade.cancel();
-// The BPM settles in on a timing change: once beside the rating, once in the narrow settings row.
+// The BPM settles in on a timing change: beside the rating in the strip, in the column's row.
 const NUDGE = [{ opacity: 0.3, transform: 'translateY(-0.2em)' }, { opacity: 1, transform: 'none' }];
 const bpmNudges = [bpmNum, bpmNum2].map(el => {
   const nudge = el.animate(NUDGE, { duration: MOTION_MS.base, easing: EASE_OUT });
@@ -270,7 +270,7 @@ function renderAll() {
 
   attr(np, 'data-out', hasMap ? null : '');
   attr(np, 'data-layout', opts.layout === 'compact' ? 'compact' : 'full');
-  attr(np, 'data-stats', opts.showStats && statsRoom ? 'on' : 'off');
+  attr(np, 'data-stats', opts.showStats && opts.layout !== 'compact' ? 'on' : 'off');
   attr(np, 'data-progress', opts.showProgress ? 'on' : 'off');
   if (!hasMap) { setKiai(false); return; } // keep the last map's text in place while the card fades out
 
@@ -321,8 +321,8 @@ function width(font, value) {
  *   2. artist / difficulty / mapped by X       (caption)
  *   3. artist · difficulty / mapped by X       (the difficulty, then the artist, give way)
  * A short artist joins a one-line title ("Last Resort · xi") and leaves the artist line out. The
- * column's settings row gives way before the title is cut; a mapper of 16 characters or fewer is
- * never cut. Runs once per map, box or layout change; each try is one layout.
+ * column's settings row is fixed and never gives way; a mapper of 16 characters or fewer is never
+ * cut. Runs once per map, box or layout change; each try is one layout.
  */
 function fitIdentity(title, artist, version, mapper, strip) {
   const { main, suffix } = splitTitle(title);
@@ -360,15 +360,9 @@ function fitIdentity(title, artist, version, mapper, strip) {
   }
 
   const arrangements = inline ? [1, 2, 3] : [2, 3];
-  // In the column the settings row may go to keep the title whole; the strip keeps its numbers.
-  const statsTries = !strip && opts.showStats && opts.layout !== 'compact' ? [true, false] : [true];
-  for (const stats of statsTries) {
-    statsRoom = stats;
-    attr(np, 'data-stats', opts.showStats && stats ? 'on' : 'off');
-    for (const arrangement of arrangements) {
-      arrange(arrangement, artistLine, artistSuffix, combined, version, versionLine, mapper, credit);
-      if (np.offsetHeight <= innerHeight) return;
-    }
+  for (const arrangement of arrangements) {
+    arrange(arrangement, artistLine, artistSuffix, combined, version, versionLine, mapper, credit);
+    if (np.offsetHeight <= innerHeight) return;
   }
   // Nothing else fits: the title is cut to one line.
   attr(ident, 'data-title-lines', '1');
@@ -426,7 +420,8 @@ function renderMods() {
 
 function renderStats(mode) {
   const { parsed } = ctx;
-  const visible = (narrow ? CELLS_NARROW : CELLS)[mode] || (narrow ? CELLS_NARROW : CELLS).osu;
+  const lists = orient === 'vertical' ? (narrow ? COLUMN_NARROW : COLUMN) : CELLS;
+  const visible = lists[mode] || lists.osu;
   if (visible !== shownCells) {
     shownCells = visible;
     for (const k of ALL_CELLS) cells[k].el.hidden = !visible.includes(k);
@@ -452,7 +447,7 @@ function renderLive() {
   if (bpmLabel !== shown.bpm) {
     // A timing change mid-map: the new BPM settles in (not on load or a map change).
     if (shownBpm !== null && motion === 'full' && bpmLabel !== DASH && shownBpm !== DASH) {
-      const nudge = bpmNudges[narrow ? 1 : 0];
+      const nudge = bpmNudges[orient === 'vertical' ? 1 : 0];
       nudge.currentTime = 0;
       nudge.play();
     }

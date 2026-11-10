@@ -17,15 +17,15 @@ p, h1, dl, dd { margin: 0; }
 #np[data-align="end"] { text-align: right; }
 
 /* ------------------------------------------------------------------ identity
-   Column: the title (two lines when the card has the height, else one), a short artist joined to
-   it; one line of artist, the title's (…)/[…] suffix and the difficulty; then "mapped by X" as a
-   caption. Strip: the title, then one line ending in "mapped by X". Single lines are fitted in
-   overlay.js with the shared fitFields() (suffix, then difficulty, then artist give way; a mapper
-   of 16 characters or fewer is never cut); the CSS ellipsis below is only a backstop. */
+   Column: the title (two lines, balanced so no word sits alone on the second), a short artist
+   joined to it; one line of artist, the title's (…)/[…] suffix and the difficulty; then "mapped
+   by X" as a caption. Strip: the title, then the same lines. Single lines are fitted in overlay.js
+   with the shared fitFields() (suffix, then difficulty, then artist give way; a mapper of 16
+   characters or fewer is never cut); the CSS ellipsis below is only a backstop. */
 .ident { min-width: 0; }
 .title {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; text-wrap: balance;
 }
 .ident[data-title-lines="1"] .title { -webkit-line-clamp: 1; }
 .title .joined { color: var(--text-2); }
@@ -47,9 +47,9 @@ p, h1, dl, dd { margin: 0; }
 #np[data-progress="off"] .prog { display: none; }
 
 /* ------------------------------------------------------------------ numbers
-   The map's star rating is the hero, at one size (its decimals are the information: 9.05 vs
-   9.75). BPM and mods beside it, difficulty settings below. */
-/* Hero, BPM and (in the strip) the settings share one baseline; mods sit above the BPM. */
+   The map's star rating, at one size (its decimals are the information: 9.05 vs 9.75): the hero
+   in the strip, value size in the column, which spends the height on a fixed settings row. */
+/* Rating, BPM and (in the strip) the settings share one baseline; mods sit above the BPM. */
 .nums { display: grid; align-items: last baseline; min-width: 0; }
 .hero { grid-area: hero; }
 .star { color: var(--map); }
@@ -70,14 +70,14 @@ p, h1, dl, dd { margin: 0; }
 #np[data-orient="vertical"] .nums { grid-area: nums; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "hero side" "stats stats"; column-gap: var(--s-3); row-gap: var(--s-1); }
 #np[data-orient="vertical"][data-align="end"] .nums { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "side hero" "stats stats"; }
 #np[data-orient="vertical"][data-align="end"] .stats { justify-content: flex-end; }
-/* Three or four settings span the row (the 216 px side column shows three). */
-#np[data-orient="vertical"] .stats:is([data-n="3"], [data-n="4"]) { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
-/* The 216 px side column: a 10★ rating leaves no room beside it for the BPM, so the BPM leads the
-   settings row (a fixed list per ruleset, overlay.js CELLS_NARROW) and the mods wrap beside the
-   rating. */
-#np[data-narrow] .nums { column-gap: var(--s-2); }
-#np[data-narrow] .side .bpm { display: none; }
-#np[data-narrow] .mods { white-space: normal; }
+/* Column: the rating at value size with the mods beside it, and one fixed row under it, the BPM
+   then the settings (overlay.js COLUMN). The row never gives way to the title (critique v4). */
+#np[data-orient="vertical"] .hero { font-size: calc(var(--u) * 32px); }
+#np[data-orient="vertical"] .nums { column-gap: var(--s-2); }
+#np[data-orient="vertical"] .side .bpm { display: none; }
+#np[data-orient="vertical"] .mods { white-space: normal; }
+#np[data-orient="vertical"] .cell .v { font-size: calc(var(--u) * 16px); }
+#np[data-orient="vertical"] .stats:is([data-n="4"], [data-n="5"]) { justify-content: space-between; column-gap: calc(var(--u) * 6px); }
 
 /* ------------------------------------------------------------------ strip (wide boxes)
    One reading line: title and credits, then the numbers (critique: no two islands). */
@@ -93,8 +93,9 @@ p, h1, dl, dd { margin: 0; }
 #np[data-orient="horizontal"][data-align="end"] .cell { justify-content: flex-end; }
 
 /* ------------------------------------------------------------------ toggles (after the layouts, which set display)
-   compact: artist and difficulty on one line, no settings row. */
-#np:is([data-layout="compact"], [data-stats="off"]) .stats { display: none; }
+   compact or Difficulty settings off: the strip drops its settings; the column keeps its BPM. */
+#np[data-orient="horizontal"]:is([data-layout="compact"], [data-stats="off"]) .stats { display: none; }
+#np[data-orient="vertical"][data-stats="off"] .cell:not([data-k="bpm"]) { display: none; }
 
 /* ------------------------------------------------------------------ status (outside play: nothing) */
 .chip { position: absolute; top: 0; left: 0; margin: 0; padding: var(--s-1) var(--s-2); white-space: nowrap; text-shadow: var(--shade); }

@@ -190,9 +190,11 @@ Each value several overlays show has one computation (in `vosu-overlay.js`) and 
 
 Declared alternatives (pick one; they share a slot and overlap by design, or sit in separate slots where there is room):
 - **now-playing / now-playing-ticker**: map identity. In osu!, catch and taiko the ticker has its own top slot; in mania they share the top-left.
-- **key-overlay / key-counter**, in every ruleset: both show per-key presses. Separate slots in osu! and mania, a shared slot in catch, and in taiko the shared input slot with taiko-drum (**taiko-drum / key-overlay / key-counter**).
-- **kps-graph / key-counter's KPS**, in mania: kps-graph owns KPS there. Overlays cannot see each other, so key-counter cannot hide its copy by itself: when both run, turn key-counter's `showKps` off (its setting description says so).
-- **catcher-trail / catcher-heatmap**: the same catcher data.
+- **key-overlay / key-counter**, in every ruleset: both show per-key presses. They share one slot in osu! and catch (overlapping, so running both is visibly wrong), sit in separate slots in mania, and in taiko share the input slot with taiko-drum (**taiko-drum / key-overlay / key-counter**).
+- **kps-graph / key-counter's KPS**, in mania: kps-graph owns KPS there. When both run, turn key-counter's `showKps` off (its setting description says so).
+- **catcher-trail / catcher-heatmap**: the same catcher data, one slot.
+
+**Nothing enforces these pairs.** Each overlay is a separate browser source (OBS, vosulay, the replay renderer); a page cannot see which other pages are loaded, so key-counter cannot hide itself when key-overlay runs, nor drop its KPS when kps-graph runs. The set does what it can: alternatives share a slot where possible, so running both overlaps visibly, and the setting descriptions name the pair. Choosing one is the streamer's job.
 
 ## Shared JS (vosu-overlay.js)
 
@@ -276,11 +278,26 @@ No usable column clears approach circles: clearing them at 45 % opacity at CS 4 
 ### Grid
 
 - **Page gutter 24 px** from screen edges and between overlays; at least 24 px from the taiko lane and the mania stage. In osu!/catch the side columns sit 144 px from the playfield (see the reach table above).
-- **Columns** in osu!/catch: left 24–240, right 1680–1896 (**216 wide**). Column tops at y 144 (below both clients' top HUD). Left column ends at y 952 (stable combo); the bottom row ends at **y 1008 (`bottom-72`)**, above lazer's song progress.
-- **Ticker** in osu!, catch and taiko: centred, 400×32 at `top+4` (x 760–1160). It clears stable's default HP bar (ends x 735) and score (starts x 1515) and lazer Argon's top HUD (wedge ends 534, accuracy column starts 1690) by ≥ 24 px whether the HUD is on or off. The bottom edge is no clearer in osu!: circles reach y 1072 there, and stable's hit-error meter and lazer's song progress sit along it.
+- **Columns** in osu!/catch: left 24–240, right 1680–1896 (**216 wide**). Column tops at y 144 (below both clients' top HUD). The left column ends by y 848, above stable's combo (from y 981) and lazer Argon's (897–987); the bottom row ends at **y 1008 (`bottom-72`)**, above lazer's song progress.
+- **Ticker** in osu!, catch and taiko: 720×32 at `left+760`, `top+4` (x 760–1480). See [Ticker position](#ticker-position).
 - **Taiko**: a top band (y 144–256, from x 368, right of the stable mascot) for identity, a focus row directly under the lane (`lane-bottom+24`, from x 320, right of lazer's combo) for input and pace, and a bottom-right row (`bottom-72`) for pp and the player tag.
 - **Mania**: screen-edge columns (left 24–280, right 1640–1896, both starting at y 144 like the other rulesets, below lazer Argon's score/health block at 16–550 × 8–124) plus two stage-hugging vertical strips (`stage-left-24`, `stage-right+72`, clear of the skin's HP bar).
-- `results-card` (results only) sits at the top right (1056–1896 × 24–120), where no overlay that shows on results lives.
+- `results-card` (results only) sits at the top right (1056–1896 × 24–120), where no overlay that shows on results lives (it overlaps the gameplay-only ticker's box, never on screen at the same time).
+
+### Ticker position
+
+One line at 720 px carries artist, title, difficulty, stars, mods and mapper; at 400 px the title is cut and difficulty and mapper drop. Placement is per ruleset, not per client, so one box has to serve stable, lazer and the owner's skin 「シルビア」. Candidates, osu!/catch at 1920×1080:
+
+| Spot | Objects | stable default | 「シルビア」 stable | lazer Argon | lazer Triangles | 「シルビア」 lazer layout |
+| --- | --- | --- | --- | --- | --- | --- |
+| Bottom edge, centred 720 (`bottom-8`, y 1040–1072) | inside the reach of circles on the playfield's bottom edge (stable to y 1072, lazer 1054); **catch: on the catcher**, which stands from y ≈ 915 to the screen edge in both clients | hit-error meter 760–1160 × 1048–1074 when enabled | clear | **song progress 96–1824 × 1016–1072** | song progress along the bottom | **song progress and hit-error bar, bottom centre** |
+| Top, centred 720 (x 600–1320) | top edge: stable clears the circle reach by 8 px, lazer 10 px inside it; approach circles cross it | **HP bar to x 735** | clear (HP bar ends ≈ 510) | clear | score, accuracy and combo across the top centre | **score at top centre** |
+| Top, centred 400 (x 760–1160; v3) | as above | clear | clear | clear | as above | **score at top centre** |
+| **Top, `left+760` 720 (x 760–1480)** | as above | clear (HP bar ends 735, score starts 1515) | clear | clear (wedge ends 534, accuracy starts 1690) | as above | **score at top centre** |
+
+The 「シルビア」 lazer layout is from the owner's lazer data: `~/.local/share/osu` holds two custom HUD layouts (`MainHUDComponents.json`, both legacy-skin layouts). The newer one (written by 2026.1005, 8 Oct) puts `LegacyScoreCounter` at TopCentre, accuracy in the screen centre, health and a BPM counter top-left, and `DefaultSongProgress` plus a `BarHitErrorMeter` at BottomCentre; the older one has the score top-right and the song progress beside it. **Assumption:** the newer layout is the one the owner plays with; the realm lists 24 imported 「シルビア」 versions and cannot be matched to a layout file without parsing it. The owner's replay-renderer frames show no HUD.
+
+So the bottom edge is the worst choice: in lazer it lands on the song progress in every default layout and in the owner's, and in catch it sits on the catcher, the player's focus. No top spot clears a top-centre lazer score (Triangles, the owner's layout); the left+760 box clears every other HUD and gets the whole line back, so the ticker sits there. It is 160 px right of centre with the HUD hidden, the trade for a full line (v3 U12 over v2 #12). **With a top-centre lazer score, run now-playing instead, or move the score in lazer's skin editor** (Triangles' and the owner's layouts are editable; the right column top is free in the owner's layout because its accuracy sits in the centre).
 
 ### Slots
 
@@ -290,24 +307,25 @@ Positions are `x,y` of the box's top-left, stable · lazer.
 
 | Slot | Overlay | Anchor | Box | x,y stable · lazer |
 | --- | --- | --- | --- | --- |
-| T | now-playing-ticker | `center`, `top+4` | 400×32 | 760,4 |
+| T | now-playing-ticker | `left+760`, `top+4` | 720×32 | 760,4 |
 | L1 | leaderboard | `left+24`, `top+144` | 216×400 | 24,144 |
-| L2 | key-overlay (or key-counter; alternatives) | `left+24`, `bottom-248` | 216×264 | 24,568 |
-| L3 | key-counter (or key-overlay; alternatives) | `left+24`, `bottom-128` | 216×96 | 24,856 |
+| L2 | key-counter **or** key-overlay (one slot) | `left+24`, `top+568` | 216×96 · 216×264 | 24,568 |
 | R1 | now-playing | `right-24`, `top+144` | 216×192 | 1680,144 |
-| R2 | strain-graph | `right-24`, `top+360` | 216×96 | 1680,360 |
-| R3 | profile-card | `right-24`, `bottom-504` | 216×96 | 1680,480 |
-| R4 | aim-scatter | `right-24`, `bottom-240` | 216×240 | 1680,600 |
+| R2 | aim-scatter | `right-24`, `top+360` | 216×240 | 1680,360 |
+| R3 | strain-graph | `right-24`, `top+624` | 216×96 | 1680,624 |
+| R4 | profile-card | `right-24`, `bottom-240` | 216×96 | 1680,744 |
 | R5 | pp-counter | `right-24`, `bottom-72` | 216×144 | 1680,864 |
 | X | results-card (results) | `right-24`, `top+24` | 840×96 | 1056,24 |
 
-**osu!catch**: the osu! grid with catch overlays in the same slots: T ticker, L1 leaderboard, L2 key-overlay (key-counter is its alternative here: `left+24`, `bottom-248`, 216×96 → 24,736), L3 fruit-ledger (`left+24`, `bottom-128`, 216×96 → 24,856), R1 now-playing, R2 strain-graph, R3 profile-card, **R4 catcher-heatmap or catcher-trail** (`right-24`, `bottom-240`, 216×240 → 1680,600), R5 pp-counter, X results-card.
+**osu!catch**: the osu! grid with catch overlays: T ticker, L1 leaderboard, **L2 fruit-ledger** (`left+24`, `top+568`, 216×96 → 24,568), **L3 key-counter or key-overlay** (one slot, `left+24`, `top+688`: 216×96 or 216×160 → 24,688), R1 now-playing, **R2 catcher-heatmap or catcher-trail** (`right-24`, `top+360`, 216×240 → 1680,360), R3 strain-graph, R4 profile-card, R5 pp-counter, X results-card.
+
+The stacks are ordered so the recommended layouts below run contiguously down from the column top (and pp-counter from the bottom); the overlays only the full layout adds sit after them.
 
 **osu!taiko**
 
 | Slot | Overlay | Anchor | Box | x,y stable · lazer |
 | --- | --- | --- | --- | --- |
-| T | now-playing-ticker | `center`, `top+4` | 400×32 | 760,4 |
+| T | now-playing-ticker | `left+760`, `top+4` | 720×32 | 760,4 |
 | A1 | now-playing | `right-1032`, `top+144` | 520×104 | 368,144 |
 | A2 | strain-graph | `right-528`, `top+144` | 480×112 | 912,144 |
 | A3 | leaderboard | `right-24`, `top+144` | 480×72 | 1416,144 |
@@ -338,30 +356,31 @@ Checked on the stage (`?id=*&boxes=1&layout=2`, boxes from `#placements`, busy r
 
 ### Recommended layouts
 
-The slot tables above are the reference: every overlay has a place and none collide. A stream does not need them all; the playfield should stay the subject. These lean layouts use at most three overlays per side, alternatives already chosen. Add from the reference tables only what the stream needs.
+The slot tables above are the reference: every overlay has a place and none collide. A stream does not need them all; the playfield should stay the subject. These lean layouts use at most three overlays per side, alternatives already chosen, and use the same placements: the column stacks put them first, so each column fills from its top (pp-counter from the bottom corner) with no hole. Add from the reference tables only what the stream needs.
 
-| Ruleset | Left | Right | Top / under the lane |
+| Ruleset | Left (from the top) | Right (from the top; pp-counter in the bottom corner) | Top / under the lane |
 | --- | --- | --- | --- |
-| osu! | leaderboard (L1), key-counter (L3) | now-playing (R1), pp-counter (R5), aim-scatter (R4) for aim-focused streams | — (the ticker only instead of now-playing) |
-| catch | leaderboard (L1), fruit-ledger (L3) | now-playing (R1), pp-counter (R5), catcher-heatmap (R4) | — |
+| osu! | leaderboard 24,144; key-counter 24,568 | now-playing 1680,144; aim-scatter 1680,360 for aim-focused streams; pp-counter 1680,864 | — (the ticker instead of now-playing) |
+| catch | leaderboard 24,144; fruit-ledger 24,568 | now-playing 1680,144; catcher-heatmap 1680,360; pp-counter 1680,864 | — |
 | taiko | — | pp-counter (B1), profile-card (B2) | now-playing (A1), leaderboard (A3); taiko-drum (F1), taiko-pace (F2) under the lane |
 | mania | now-playing (L1), leaderboard (L2) | pp-counter (R1), judgement-ratio (R2) | kps-graph (SL) beside the stage; strain-graph (SR) optional |
 
-Skipped on purpose: key-overlay where key-counter is on (and the reverse), key-counter's KPS where kps-graph is on, the ticker where now-playing is on, strain-graph's clock duplicates now-playing's progress (pick one for time), catcher-trail where catcher-heatmap is on.
+Skipped on purpose (none of these can be enforced, see [Data ownership](#data-ownership)): key-overlay where key-counter is on (and the reverse), key-counter's KPS where kps-graph is on, the ticker where now-playing is on, strain-graph's clock duplicates now-playing's progress (pick one for time), catcher-trail where catcher-heatmap is on.
 
 ### Changes from the earlier rules
 
 Kept: osu!/catch a top ticker and side columns; mania horizontal key displays (key-counter) and vertical data; taiko horizontal; the leaderboard where osu!'s board sits; nothing over a playfield, lane or stage.
 
 Changed:
-- **The screen-ellipse rule is replaced by the busy-region rule** (clear of playfield/lane/stage and the object reach). The ellipse only allowed the four corners, which is why nine overlays claimed bottom-right; stacking in columns (the critique's fix) puts column middles inside the ellipse but still 144 px from the playfield. Calm overlays take the column middles (strain-graph, profile-card, leaderboard); per-hit overlays take the corners (pp-counter, key-counter).
+- **The screen-ellipse rule is replaced by the busy-region rule** (clear of playfield/lane/stage and the object reach). The ellipse only allowed the four corners, which is why nine overlays claimed bottom-right; stacking in columns (the critique's fix) puts column middles inside the ellipse but still 144 px from the playfield. Per-hit overlays the lean layouts use take the bottom corner (pp-counter) or sit right under the column's first overlay (key-counter, aim-scatter, fruit-ledger, catcher-heatmap); calm full-layout extras fill the rest (strain-graph, profile-card).
 - **Mania vertical strips hug the stage** (kps-graph left with its zero on the stage side, strain-graph right): they are read with the stage (critique #16).
 - **Taiko focus data sits directly under the lane** (`lane-bottom+24`), per client, instead of at fixed coordinates fitted to one layout (critique #10, #11).
-- **The ticker is centred** (`center`, 400 px) instead of `left+764` and, later, the `hud-gap` anchor: a HUD-relative anchor cannot know whether the HUD is shown, and with the HUD off it sat 152–165 px off-centre (critique v2 #12).
+- **The ticker is 720 px at `left+760`** (v3: centred 400 px; before that the `hud-gap` anchor). 400 px cut the title and dropped difficulty and mapper (critique v3 #2); the bottom edge the critique proposed lands on lazer's song progress and the catch catcher (see [Ticker position](#ticker-position)).
 - **osu!/catch columns are 216 px wide from x 1680 / to x 240** (were 256 from 1640 / to 280), checked against approach circles and the catch catcher (critique v2 #4).
+- **Column stacks follow the recommended layouts** (critique v3 #8): the lean layouts' overlays come first in each column, so a lean layout has no mid-column hole; key-overlay and key-counter share one slot in osu! as in catch; catch key-overlay's box is 216×160 (v3 #7).
 - **Bottom row at `bottom-72`**, clear of lazer's bottom song progress, which all of lazer's default layouts and the owner's skin draw.
 
-Known conflicts left to the user (HUD layouts are skin choices): lazer Argon's combo (bottom-left) meets osu!'s L3 key-counter; Argon's side hit-error bars (16 px wide inside the gutter) meet the side columns between y 330 and 750; osu!stable's own key overlay (the skin's `inputoverlay-key` caps, x ≈ 1862–1916 × y ≈ 466–716; always in replays, in play only when the player turns it on; the stable backdrops show it in osu! and catch) meets the outer ≈ 34 px of R3 profile-card and R4 aim-scatter / catcher-heatmap / catcher-trail; the owner's lazer skin puts the score at top centre, under the ticker; the catch catcher at CS ≤ 3 reaches up to 10 px into the right column when it stands on the playfield's edge. The right column is not narrowed further because R3/R4 would lose their content width; overlays in R3/R4 keep nothing essential in their outer 40 px between y 466 and 716 when they can. Stable's default mania stage (no skin.ini, ColumnStart 136 → 306) leaves only 306 px left of the stage: kps-graph then meets key-overlay; move one.
+Known conflicts left to the user (HUD layouts are skin choices): Argon's side hit-error bars (16 px wide inside the gutter) meet the side columns between y 330 and 750; osu!stable's own key overlay (the skin's `inputoverlay-key` caps, x ≈ 1862–1916 × y ≈ 466–716; always in replays, in play only when the player turns it on; the stable backdrops show it in osu! and catch) meets the outer ≈ 34 px of R2 aim-scatter / catcher-heatmap / catcher-trail and R3 strain-graph; a top-centre lazer score (Triangles, the owner's lazer layout) sits under the ticker (see [Ticker position](#ticker-position)); the catch catcher at CS ≤ 3 reaches up to 10 px into the right column when it stands on the playfield's edge. The right column is not narrowed further because its overlays would lose their content width; overlays in R2/R3 keep nothing essential in their outer 40 px between y 466 and 716 when they can. Stable's default mania stage (no skin.ini, ColumnStart 136 → 306) leaves only 306 px left of the stage: kps-graph then meets key-overlay; move one.
 
 ## Proof and tools
 

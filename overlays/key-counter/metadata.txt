@@ -3,4 +3,4 @@ author = 18-LAB
 version = 0.4.0
 description = Per-key press counts on key caps that take an amber underline while held, and keys per second with the attempt's peak: the set's one KPS readout in osu!, taiko and catch (in mania kps-graph owns it and the copy here can be hidden). Adds total presses and a 10 s KPS history where the box has room. Lays out for any box: a row (mania caps follow the stage's column proportions) or a column. On the results screen it holds the attempt's peak and average KPS, which osu! does not show.
 resolution = [256,96]
-placement = {"osu":["left+24","bottom-128",216,96],"fruits":["left+24","bottom-248",216,96],"taiko":["left+320","lane-bottom+24",560,96],"mania":["right-24","bottom-72",256,96]}
+placement = {"osu":["left+24","top+568",216,96],"fruits":["left+24","top+688",216,96],"taiko":["left+320","lane-bottom+24",560,96],"mania":["right-24","bottom-72",256,96]}

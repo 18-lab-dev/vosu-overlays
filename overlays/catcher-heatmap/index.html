@@ -12,17 +12,12 @@
 <body>
 <section id="hud" class="hud kit" aria-label="Where the catcher spends its time" data-view="hidden" data-backing="scrim" data-motion="full" data-map-tint="on">
   <div class="stats">
-    <span class="kit-label">Dashing</span>
-    <span class="kit-hero" id="hero"><span id="dashShare">—</span><span class="kit-unit tight">%</span></span>
-    <span class="kit-caption scope">this attempt</span>
+    <span class="kit-label" id="balance">Balance</span>
+    <span class="kit-hero" id="hero"><span id="share">—</span><span class="kit-unit tight">%</span></span>
+    <p class="dashline"><span class="kit-label">Dash share</span><span class="kit-label dash-num"><span id="dashShare">—</span><span class="pct">%</span></span><span class="kit-caption">this attempt</span></p>
   </div>
   <div class="field">
     <div class="plot" id="plotBox"><canvas id="plot" aria-label="Time spent at each playfield position, with the live catcher and the centre of its time"></canvas></div>
-    <div class="split" id="split">
-      <span class="kit-value side"><span id="left">—</span><span class="kit-unit tight">%</span></span>
-      <span class="kit-label balance" id="balance"></span>
-      <span class="kit-value side"><span id="right">—</span><span class="kit-unit tight">%</span></span>
-    </div>
   </div>
 </section>
 <p id="status" class="status kit-caption" data-state="connecting">connecting</p>

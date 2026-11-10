@@ -19,11 +19,12 @@ const RESULTS = 7;
 const VERTICAL = { w: 256, h: 240 };
 const HORIZONTAL = { w: 420, h: 128 };
 const HORIZONTAL_ASPECT = 2;     // auto orientation: wider than 2:1 lays out as a band
-const COMPACT_BELOW = 0.8;       // u below this drops the scope caption (multiplayer cells)
-// Balance word: a side is "heavy" when it holds this share of the time or more, and stays heavy
-// until it drops BALANCE_HOLD points below.
-const HEAVY_FROM = 56;
-const BALANCE_HOLD = 3;
+const COMPACT_BELOW = 0.8;       // u below this drops the dash-share line (multiplayer cells)
+// Balance word over the hero: Even within EVEN_LEAN points of 50/50, heavy from HEAVY_LEAN points
+// (56/44), leaning in between; a class changes only BALANCE_HOLD points past its boundary.
+const EVEN_LEAN = 2;
+const HEAVY_LEAN = 6;
+const BALANCE_HOLD = 2;
 // New hottest spot: the peak bin moved at least this far from the last acknowledged one, after
 // the attempt settled, and not more often than every PEAK_GAP_MS.
 const PEAK_SHIFT_PX = 48;
@@ -45,7 +46,7 @@ const plotBox = $('plotBox');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d', { alpha: true });
 const el = {
-  dashShare: $('dashShare'), left: $('left'), right: $('right'), balance: $('balance'), status: $('status'),
+  share: $('share'), dashShare: $('dashShare'), balance: $('balance'), status: $('status'),
 };
 
 // ---------------------------------------------------------------- attempt accumulator
@@ -516,49 +517,56 @@ function drawPeakFlash(ms) {
 // Each readout keeps the number it shows and writes only when that number changes; the shared
 // formatter returns the same string object until the shown value changes.
 const BLANK = -1;
+const fmtShare = numberFormatter('percent');
 const fmtDash = numberFormatter('percent');
-const fmtLeft = numberFormatter('percent');
-const fmtRight = numberFormatter('percent');
-const BALANCE = ['Right-heavy', 'Even', 'Left-heavy'];
-const shown = new Int32Array(4).fill(-2);   // dash, left, right, balance index
+// Balance classes, ordered by lean (left share − 50): the hero is the heavier side's share.
+const BALANCE = ['Right-heavy', 'Leaning right', 'Even', 'Leaning left', 'Left-heavy'];
+const BALANCE_UNKNOWN = 'Balance';
+const shown = new Int32Array(3).fill(-2);   // hero share, dash share, balance class
 // Whole numbers derived on every render (frame rate, so V8 keeps them unboxed); writeText only compares.
-const readNum = new Int32Array(4);
+const readNum = new Int32Array(3).fill(-1);
 let empty = null;
 
-// Re-shows the balance word when it changes side; created once and restarted.
+// Re-shows the balance word when it changes; created once and restarted.
 const balanceIn = el.balance.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS.base, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
 balanceIn.cancel();
 
-/** Readout numbers from the attempt sums (only while time is recorded). The balance word keeps its
- *  side until the share drops BALANCE_HOLD below the threshold, so it does not flicker at 55/56. */
+/** Balance class for a lean of `lean` points (left share − 50). */
+const balanceOf = lean => (lean >= HEAVY_LEAN ? 4 : lean > EVEN_LEAN ? 3 : lean >= -EVEN_LEAN ? 2 : lean > -HEAVY_LEAN ? 1 : 0);
+
+/** Readout numbers from the attempt sums (only while time is recorded). The balance word enters a
+ *  class at its threshold but moves back toward Even only BALANCE_HOLD points past it, so it does
+ *  not flicker on a boundary. */
 function deriveReadouts() {
   const total = att.total;
   const left = Math.round(att.leftTime / total * 100) | 0;
-  const right = 100 - left;
-  const was = readNum[3];
-  readNum[0] = Math.round(att.dashTime / total * 100) | 0;
-  readNum[1] = left;
-  readNum[2] = right;
-  readNum[3] = left >= HEAVY_FROM - (was === 2 ? BALANCE_HOLD : 0) ? 2 : right >= HEAVY_FROM - (was === 0 ? BALANCE_HOLD : 0) ? 0 : 1;
+  const lean = left - 50;
+  const was = readNum[2];
+  let cls = balanceOf(lean);
+  if (was > 2 && cls < was) cls = Math.min(was, balanceOf(lean + BALANCE_HOLD));
+  else if (was >= 0 && was < 2 && cls > was) cls = Math.max(was, balanceOf(lean - BALANCE_HOLD));
+  readNum[0] = left >= 50 ? left : 100 - left;
+  readNum[1] = Math.round(att.dashTime / total * 100) | 0;
+  readNum[2] = cls;
 }
 
 function writeText(timed) {
   if (timed !== !empty) { empty = !timed; hud.toggleAttribute('data-empty', empty); }
   if (!timed) {
     if (shown[0] !== BLANK) {
-      shown[0] = shown[1] = shown[2] = shown[3] = BLANK;
-      el.dashShare.textContent = DASH; el.left.textContent = DASH; el.right.textContent = DASH;
-      el.balance.textContent = '';
+      shown[0] = shown[1] = shown[2] = BLANK;
+      readNum[2] = -1;
+      el.share.textContent = DASH; el.dashShare.textContent = DASH;
+      el.balance.textContent = BALANCE_UNKNOWN;
     }
     return;
   }
-  if (readNum[0] !== shown[0]) { shown[0] = readNum[0]; el.dashShare.textContent = fmtDash(readNum[0]); }
-  if (readNum[1] !== shown[1]) { shown[1] = readNum[1]; el.left.textContent = fmtLeft(readNum[1]); }
-  if (readNum[2] !== shown[2]) { shown[2] = readNum[2]; el.right.textContent = fmtRight(readNum[2]); }
-  if (readNum[3] !== shown[3]) {
-    const first = shown[3] < 0;
-    shown[3] = readNum[3];
-    el.balance.textContent = BALANCE[readNum[3]];
+  if (readNum[0] !== shown[0]) { shown[0] = readNum[0]; el.share.textContent = fmtShare(readNum[0]); }
+  if (readNum[1] !== shown[1]) { shown[1] = readNum[1]; el.dashShare.textContent = fmtDash(readNum[1]); }
+  if (readNum[2] !== shown[2]) {
+    const first = shown[2] < 0;
+    shown[2] = readNum[2];
+    el.balance.textContent = BALANCE[readNum[2]];
     if (!first && motion !== 'off') { balanceIn.currentTime = 0; balanceIn.play(); }
   }
 }

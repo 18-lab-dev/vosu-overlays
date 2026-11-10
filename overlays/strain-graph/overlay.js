@@ -67,7 +67,7 @@ const UNDER = 'rgb(11 12 13 / 0.6)';
 // The map's identity inks (--map: the map's tone, or neutral); rebuilt, with a re-raster, only
 // when the map colour changes. Unplayed strain is neutral; nothing here is amber ("you").
 const INK = {
-  map: '', litEdge: '', base: '', bandDim: '', wash: '', kiaiHi: '', kiaiEdge: '',
+  map: '', litEdge: '', base: '', band: '', kiaiEdge: '',
   dimFill: rgba(C.text1, 0.12), dimEdge: rgba(C.text1, 0.55), hair: rgba(C.text1, 0.22), grid: rgba(C.text1, 0.1),
   preview: C.text3,
   // Per-skill bands: tonal steps of the map colour (lighter, the colour, darker, neutral).
@@ -78,9 +78,8 @@ function setTint(hex) {
   INK.map = hex;
   INK.litEdge = mix(hex, C.text1, 0.35);
   INK.base = rgba(hex, 0.55);
-  INK.bandDim = rgba(hex, 0.8);
-  INK.wash = rgba(hex, 0.16);
-  INK.kiaiHi = mix(hex, C.text1, 0.5);
+  // Kiai: one band tone along the whole map, played or not (the fill alone says what is played).
+  INK.band = rgba(hex, 0.6);
   INK.kiaiEdge = mix(hex, C.text1, 0.7);
   INK.skills[0] = hex;
   INK.skills[1] = mix(hex, C.text1, 0.5);
@@ -135,12 +134,6 @@ const lit = document.createElement('canvas');
 const dim = document.createElement('canvas');
 const litCtx = lit.getContext('2d');
 const dimCtx = dim.getContext('2d');
-// The same silhouette in its kiai look (lighter map tone, played and ahead): kiai sections are
-// blitted from these over the plain layers, so kiai shows in the fill itself.
-const kiaiLit = document.createElement('canvas');
-const kiaiDim = document.createElement('canvas');
-const kiaiLitCtx = kiaiLit.getContext('2d');
-const kiaiDimCtx = kiaiDim.getContext('2d');
 const NONE = new Float32Array(0);
 let surface = NONE; // silhouette v per u column, for the playhead needle
 let rawLevel = NONE; // one skill resampled per u column (raster scratch)
@@ -644,21 +637,17 @@ function raster() {
   rasterDirty = false;
   frameDirty = true;
   const { w, h, lw, L, T, ratio } = size;
-  if (lit.width !== w || lit.height !== h) {
-    lit.width = dim.width = kiaiLit.width = kiaiDim.width = w;
-    lit.height = dim.height = kiaiLit.height = kiaiDim.height = h;
-  }
+  if (lit.width !== w || lit.height !== h) { lit.width = dim.width = w; lit.height = dim.height = h; }
   litCtx.setTransform(1, 0, 0, 1, 0, 0); litCtx.clearRect(0, 0, w, h);
   dimCtx.setTransform(1, 0, 0, 1, 0, 0); dimCtx.clearRect(0, 0, w, h);
-  kiaiLitCtx.setTransform(1, 0, 0, 1, 0, 0); kiaiLitCtx.clearRect(0, 0, w, h);
-  kiaiDimCtx.setTransform(1, 0, 0, 1, 0, 0); kiaiDimCtx.clearRect(0, 0, w, h);
   computeTicks();
   // Map ms → device px along time for the playhead and the kiai/break sections.
   graph.k = graph.span && L ? L / graph.span : 0;
   if (!graph.span || !L || !T) { surface = rawLevel = NONE; return; }
 
   const k = graph.k;
-  const floor = T - lw; // the baseline is the last device row
+  // The silhouette stands on its baseline; below it, past a 1 px gap, runs the kiai lane.
+  const floor = baseline();
   const edgeW = Math.max(1.5, 1.5 * ratio), underW = edgeW + 2 * lw;
   // Column buffers persist across rasters and are replaced only when L changes.
   if (rawLevel.length !== L) { rawLevel = new Float32Array(L); surface = new Float32Array(L); levelPool.length = 0; }
@@ -745,40 +734,11 @@ function raster() {
       c.fill();
       edge(c, top, isLit ? INK.litEdge : INK.dimEdge, true);
     }
-    // The baseline stays quieter than the kiai band that sits on it.
     c.fillStyle = isLit ? INK.base : INK.dimEdge;
     c.fillRect(0, floor, L, lw);
   };
   paint(litCtx, true);
   paint(dimCtx, false);
-  if (!graph.skills.length) return; // a bare track marks kiai with its band only
-  // Kiai: the plain layer under a lighter map sheen and a light edge (played), or a map wash and
-  // a map edge where it is still ahead, so a kiai section reads as a lit block of the silhouette.
-  paint(kiaiLitCtx, true);
-  area(kiaiLitCtx, levels[0], top);
-  const sheen = kiaiLitCtx.createLinearGradient(0, ceiling, 0, floor);
-  sheen.addColorStop(0, rgba(INK.kiaiHi, 0.95));
-  sheen.addColorStop(1, rgba(INK.kiaiHi, 0.55));
-  kiaiLitCtx.fillStyle = sheen;
-  kiaiLitCtx.fill();
-  edge(kiaiLitCtx, top, INK.kiaiEdge, true);
-  paint(kiaiDimCtx, false);
-  area(kiaiDimCtx, levels[0], top);
-  kiaiDimCtx.fillStyle = rgba(INK.map, 0.42);
-  kiaiDimCtx.fill();
-  edge(kiaiDimCtx, top, INK.kiaiEdge, true);
-}
-
-/** Kiai sections in the fill: each run's u-range comes from the kiai layers, played part from the
- *  lit one and the part still ahead from the dim one (identity transform, like blit). */
-function kiaiFill(split) {
-  const list = marks.kiai, k = graph.k, s = graph.start, L = size.L;
-  for (let i = 0; i < list.length; i++) {
-    const run = list[i];
-    const u0 = clamp(Math.round((run[0] - s) * k), 0, L), u1 = clamp(Math.round((run[1] - s) * k), 0, L);
-    blit(kiaiLit, u0, u1 < split ? u1 : split);
-    blit(kiaiDim, u0 > split ? u0 : split, u1);
-  }
 }
 
 // ---------------------------------------------------------------- frame
@@ -787,9 +747,21 @@ function trackThickness() {
   return Math.max(2 * size.lw, Math.round(3 * size.ratio));
 }
 
-/** Where the 2 px kiai band starts across time: on the baseline, or just above a bare track. */
+/** The kiai band's thickness (device px): 4 px, readable at 720p. */
+function kiaiThickness() {
+  return Math.max(2 * size.lw, Math.round(4 * size.ratio));
+}
+
+/** The silhouette's baseline row (device px across time): above the kiai lane, or the last row
+ *  when there is no strain data (the track carries its own band). */
+function baseline() {
+  return graph.skills.length ? size.T - kiaiThickness() - 2 * size.lw : size.T - size.lw;
+}
+
+/** Where the kiai band starts across time: the lane under the baseline (towards the stage in the
+ *  vertical strip), or just above a bare track. */
 function kiaiBand() {
-  return graph.skills.length ? size.T - 2 * size.lw : size.T - trackThickness() - 3 * size.lw;
+  return graph.skills.length ? size.T - kiaiThickness() : size.T - trackThickness() - kiaiThickness() - size.lw;
 }
 
 /** Fills (or clears) sections (map ms) along time between device px uMin and uMax. */
@@ -814,24 +786,19 @@ function blit(layer, u0, u1) {
   else ctx.drawImage(layer, u0, 0, u1 - u0, T, u0, 0, u1 - u0, T);
 }
 
-/** The active kiai section, lifted: the part still ahead of the playhead in its played kiai look,
- *  clipped to the silhouette, over a brighter, thicker band on the baseline. Its layer fades in
- *  and out with the section (CSS), so it is redrawn only when that range moves by a device pixel. */
+/** The active kiai section's band, brighter: its layer sits over the graph and fades in and out
+ *  with the section (CSS), so it is redrawn only when the section's extent moves by a device pixel. */
 function drawLift(u0, u1) {
   lifted.u0 = u0;
   lifted.u1 = u1;
-  const { w, h, lw, L, T } = size;
+  const { w, h } = size;
   const m = geo.m;
   liftCtx.setTransform(1, 0, 0, 1, 0, 0);
   liftCtx.clearRect(0, 0, w, h);
   if (u1 <= u0) return;
-  if (graph.skills.length) {
-    if (geo.vertical) liftCtx.drawImage(kiaiLit, 0, L - u1, T, u1 - u0, 0, L - u1, T, u1 - u0);
-    else liftCtx.drawImage(kiaiLit, u0, 0, u1 - u0, T, u0, 0, u1 - u0, T);
-  }
   liftCtx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
-  liftCtx.fillStyle = C.text1;
-  liftCtx.fillRect(u0, kiaiBand() - lw, u1 - u0, 3 * lw);
+  liftCtx.fillStyle = INK.kiaiEdge;
+  liftCtx.fillRect(u0, kiaiBand(), u1 - u0, kiaiThickness());
 }
 
 function updateSlot() {
@@ -923,28 +890,21 @@ function frame() {
     blit(lit, 0, px);
     blit(dim, px, L);
   } else ctx.drawImage(lit, 0, 0);
-  const split = play && px >= 0 ? px : L;
-  if (marksOn && graph.skills.length) kiaiFill(split);
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   // While the map is in kiai the playhead widens to 3 px: the section shows from its first frame.
   const kiaiNow = view.kiai && opts.showMarks && marksOn;
   if (marksOn) {
-    // Breaks are gaps in the fill; kiai is a 2 px map band on the baseline, lighter where played.
-    runs(ctx, marks.brk, 0, graph.skills.length ? T - lw : T, 0, L, true);
-    const bandV = kiaiBand();
-    ctx.fillStyle = INK.litEdge;
-    runs(ctx, marks.kiai, bandV, 2 * lw, 0, split, false);
-    ctx.fillStyle = INK.bandDim;
-    runs(ctx, marks.kiai, bandV, 2 * lw, split, L, false);
+    // The fill means played time only. Breaks are gaps in it (the baseline stays); kiai is a band
+    // in its own lane under the baseline, the same on both sides of the playhead.
+    runs(ctx, marks.brk, 0, graph.skills.length ? baseline() : T, 0, L, true);
+    ctx.fillStyle = INK.band;
+    runs(ctx, marks.kiai, kiaiBand(), kiaiThickness(), 0, L, false);
   }
-  if (view.kiai && marksOn && view.motion === 'full') {
+  if (kiaiNow) {
+    // The section the map is in: its whole band, brighter (from the .osu file, else as learned).
     const found = activeKiai(tick.live);
     const k = graph.k, s = graph.start;
-    // The lift covers what is still ahead in the section (behind the playhead the fill already
-    // has its kiai look), and never the playhead itself: its layer sits above the graph.
-    const ahead = split < L ? split + 2 * lw : L;
-    let u0 = found ? clamp(Math.round((active.a - s) * k), 0, L) : 0;
-    if (u0 < ahead) u0 = ahead;
+    const u0 = found ? clamp(Math.round((active.a - s) * k), 0, L) : 0;
     const u1 = found ? clamp(Math.round((active.b - s) * k), 0, L) : 0;
     if (u0 !== lifted.u0 || u1 !== lifted.u1) drawLift(u0, u1);
   }

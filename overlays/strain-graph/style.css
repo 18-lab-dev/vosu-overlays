@@ -47,11 +47,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /* transform-origin is the baseline: the map-change reveal grows the silhouette out of it. */
 .plot { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; transform-origin: 50% 100%; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* The active kiai section's lift (wash + brighter band), eased in and out with the section. An
-   ambient effect: reduced and off drop it. */
+/* The kiai section the map is in: its band, brighter. A state, not ambience: every motion level
+   shows it; full and reduced ease it in and out, off switches it (kit.css zeroes the duration). */
 .lift { opacity: 0; transition: opacity var(--dur-base) var(--ease-draft); }
 .lift.on { opacity: 1; }
-.w:is([data-motion="reduced"], [data-motion="off"]) .lift { display: none; }
 .empty { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; font: 600 calc(var(--u, 1) * 20px)/1 var(--font-display); }
 .empty[hidden] { display: none; }
 

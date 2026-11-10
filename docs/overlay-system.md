@@ -227,7 +227,11 @@ Never the player's keybind letters (`Z`, `X`, `LSHFT`) or arrows: the same key m
 **Truncation.** Single lines are cut with `fitFields(fields, fits)`:
 - Each field has an `order` (lower gives way first) and a `keep`. Equal orders shrink the longest first.
 - `keep: NAME_KEEP` (16) for player and mapper names: a name of 16 characters or fewer is never cut.
-- `keep: 0` lets a field go entirely; `Infinity` keeps it whole.
+  The one exception is a list row whose fields are all essential (leaderboard: position, name, score):
+  at 216 px there is room for about nine characters at 16 px and nothing to drop, so names are fitted
+  to the measured column instead.
+- `keep: 0` lets a field go entirely, and it goes whole rather than leave fewer than three characters
+  before the `…` (no `(C…` stubs); `Infinity` keeps it whole.
 - Map lines: the title's bracketed suffix (from `splitTitle()`, e.g. `(covered by …)`, `[TV Size]`) gives way first, then the difficulty name, then the title (keep ≥ 8), never a short mapper.
 - Every cut uses `ellipsize()`: a real `…` (never `...`), with trailing spaces and punctuation (`, ; : - – — ( [ / ·`) removed before it, so `Nanahira, …` becomes `Nanahira…`.
 - `fits(texts)` measures the candidate line (a canvas `measureText` with the line's font, or the element's `scrollWidth`).

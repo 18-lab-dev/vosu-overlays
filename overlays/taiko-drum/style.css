@@ -24,6 +24,9 @@ body[data-align="right"] { justify-content: flex-end; }
 .z1, .z2 { --zone: var(--don); }
 /* Unknown values are a dash without their unit. */
 .kit-dash + .kit-unit { display: none; }
+/* Units sit beside 20–24 px numbers: the kit's 14 px floor leaves a "%" glyph that reads under
+   14 px. 16 px keeps them clearly readable, still 40 % of the 52 px hero. */
+#ov .kit-unit { font-size: max(calc(var(--u) * 16px), .4em); }
 
 /* Visibility: the row during taiko play, the chip for connection / missing data. Leaving play
    fades the whole root out (kit-enter); the last content stays under the fade. */

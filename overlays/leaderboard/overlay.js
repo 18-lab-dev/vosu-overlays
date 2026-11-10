@@ -19,6 +19,8 @@ const MAX_U = 3;
 const PAD = 16;
 const V = { width: 216, height: 400, head: 60, one: 28, two: 46, three: 66, skip: 20 };
 const H = { height: 72, head: 144, cell: 94, skip: 22 };
+// Content width (inside the backing) below which the vertical list is the narrow form.
+const NARROW_CONTENT = 200;
 const RV = { height: 116 };
 const RH = { width: 344, below: 20 };
 const RV_BELOW = 88;
@@ -282,7 +284,9 @@ function fillBoard(row, e, index, flags) {
     const text = row.fScore(known(score));
     if (row.tScore !== text) { row.tScore = text; row.score.textContent = text; }
   }
-  fitName(row, (flags & ME) !== 0, row.tScore === null ? 0 : row.tScore.length);
+  // A row whose score is not printed (the narrow column, away from you) fits its name without it.
+  const scored = !narrow || (flags & (ME | NEAR)) !== 0;
+  fitName(row, (flags & ME) !== 0, scored && row.tScore !== null ? row.tScore.length : 0);
   // Mods ride every second line; accuracy and combo only where they show (FACTS), so your own
   // per-hit accuracy is not formatted while hudFields hides it.
   if ((flags & TWO) === 0) return;
@@ -381,6 +385,7 @@ let unit = 1;
 let pad = PAD;
 let rowLimit = DEFAULTS.rows;
 let ownTwo = true;
+let narrow = false;
 let nearTwo = true;
 let laidOut = false;
 
@@ -518,6 +523,10 @@ function layout() {
   c.toggle('vertical', !horizontal);
   c.toggle('align-right', cfg.align === 'right');
   c.toggle('align-center', cfg.align === 'center');
+  // The narrow column (the 216 px osu!/catch form: under 200 px inside the backing) prints scores
+  // only in your row and your neighbours'; the other rows give the score's width to the name.
+  narrow = !horizontal && w / unit - 2 * pad < NARROW_CONTENT;
+  c.toggle('narrow', narrow);
 }
 
 /** Copies the message's entries into `order` and sorts them in place (stable insertion sort). */

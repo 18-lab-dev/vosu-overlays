@@ -128,6 +128,9 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .vertical .row.three .sub { flex-direction: column; align-items: stretch; gap: 0; }
 .three .gap { text-align: right; }
 .vertical .score { justify-self: end; }
+/* The narrow column (216 px) prints scores only for you and the players directly above and below
+   you; the other rows are position and name, so names have the width. */
+.narrow .row:not(.me):not(.near) .score { display: none; }
 .vertical .skip { width: 100%; height: calc(var(--u) * 20px); }
 .vertical .skip span { left: calc(var(--u) * 6px); top: 0; width: calc(var(--u) * 18px); text-align: right; line-height: calc(var(--u) * 20px); }
 

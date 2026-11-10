@@ -54,25 +54,18 @@ body[data-align="right"] { justify-content: flex-end; }
 .drum-lit path { fill: var(--zone); stroke: var(--zone); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 
 /* Zone counts in the drum's own left-to-right order (left rim, left centre, right centre, right
-   rim), each marked by its zone colour; the hand split sits under them. */
+   rim), each named by keyLabels() in its zone colour; the hand split sits under them. */
 .b-counts {
   display: grid;
   grid-template-columns: var(--col) var(--pair) var(--col) var(--split) var(--col) var(--pair) var(--col);
   grid-template-rows: auto auto;
-  row-gap: calc(var(--u) * 10px);
+  row-gap: calc(var(--u) * 4px);
   align-items: center;
   justify-items: center;
 }
-.zc { position: relative; padding-bottom: calc(var(--u) * 7px); font-size: var(--count-size); }
-.zc::after {
-  content: "";
-  position: absolute;
-  left: calc(50% - var(--u) * 10px);
-  bottom: 0;
-  width: calc(var(--u) * 20px);
-  height: max(2px, calc(var(--u) * 3px));
-  background: var(--zone);
-}
+.zc { position: relative; display: flex; flex-direction: column; align-items: center; }
+.zc .kit-value { font-size: var(--count-size); }
+.zl { margin-top: calc(var(--u) * 2px); color: var(--zone); white-space: nowrap; }
 .z0.zc { grid-column: 1; }
 .z1.zc { grid-column: 3; }
 .z2.zc { grid-column: 5; }
@@ -140,7 +133,18 @@ body[data-align="right"] { justify-content: flex-end; }
   grid-template-rows: auto;
   column-gap: 0;
 }
+/* No room for the names in one short line: each count keeps its zone colour as a tick. */
+#ov[data-density="compact"] .zl { display: none; }
 #ov[data-density="compact"] .zc { padding-bottom: calc(var(--u) * 5px); }
+#ov[data-density="compact"] .zc::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - var(--u) * 10px);
+  bottom: 0;
+  width: calc(var(--u) * 20px);
+  height: max(2px, calc(var(--u) * 3px));
+  background: var(--zone);
+}
 #ov[data-density="compact"] .bal { grid-row: 1; }
 #ov[data-density="compact"] .bal-l { grid-column: 9; }
 #ov[data-density="compact"] .bal-r { grid-column: 11; }

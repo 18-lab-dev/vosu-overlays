@@ -4,7 +4,7 @@
 // `/keys/all`; shown during taiko gameplay only. The page re-flows to whatever box its host gives
 // it (one row for strips, a column for tall boxes), on the 18-LAB kit (kit.css).
 import {
-  subscribe, settings, activeMode, isPlaying, DASH, numberFormatter, createKps, applyKitSettings, MOTION_MS,
+  subscribe, settings, activeMode, isPlaying, DASH, numberFormatter, createKps, applyKitSettings, MOTION_MS, keyLabels,
 } from './vosu-overlay.js';
 
 const POINTERS = ['/state/number', '/play/mode/number', '/settings/mode/number', '/keys/all', '/beatmap/time/rate'];
@@ -25,7 +25,7 @@ const ROW = {
   compact: { h: 48, base: 8 * 2 + 32 + 12 + 340, alt: 16 + 124, kps: 16 + 64 },
 };
 const FULL_MIN_SCALE = 0.75;   // below this a full row's 14 px labels get too small: go compact
-const COLUMN = { w: 256, h: 16 * 2 + 112 + 16 + 61 + 16 + 60 };
+const COLUMN = { w: 256, h: 16 * 2 + 112 + 16 + 62 + 16 + 60 };
 
 const $ = id => document.getElementById(id);
 const ov = $('ov');
@@ -38,6 +38,17 @@ const balFill = $('bal-fill');
 const altEl = $('alt');
 const kpsEl = $('kps');
 const peakEl = $('peak');
+
+// Zone names from the set's one key vocabulary (L·KAT L·DON R·DON R·KAT), as key-overlay and
+// key-counter show them; the long names are the counts' accessible names.
+{
+  const labels = keyLabels('taiko', 4);
+  const zones = document.querySelectorAll('.zc');
+  for (let i = 0; i < 4; i++) {
+    zones[i].querySelector('.zl').textContent = labels.short[i];
+    zones[i].setAttribute('aria-label', `${labels.long[i]} presses`);
+  }
+}
 
 // ------------------------------------------------------------------ drum
 // Zone outlines in a 100-unit viewBox (they scale with the drum): two rims and two faces with a
@@ -360,4 +371,4 @@ function layout() {
 addEventListener('resize', layout);
 
 // ------------------------------------------------------------------ start
-settings({ orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim', showKps: false }, applySettings);
+settings({ orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim', marks: 'neutral', showKps: false }, applySettings);

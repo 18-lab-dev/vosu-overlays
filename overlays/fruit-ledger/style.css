@@ -57,6 +57,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .num.kit-dash { color: var(--text-3); }
 /* A broken combo is a miss: the hero takes the miss colour once it is above zero (neutral at 0). */
 .cell-breaks[data-broken] .num { color: var(--j-miss); }
+/* In the band the secondary label breaks into two lines (Droplets / missed): it then fits beside
+   the hero in the 216 px column slot at --u 1, inside the 64 px content height. */
+.ledger[data-orient="h"] .cell-dmiss .kit-label { width: min-content; white-space: normal; text-align: right; }
+.ledger[data-orient="h"][data-align="right"] .cell-dmiss .kit-label { text-align: left; }
 
 /* Event rule: flashes the miss colour under a cell when its count goes up (overlay.js animates
    opacity only). Sits in the backing's padding, under the label. */
@@ -77,7 +81,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   display: grid;
   grid-template-columns: repeat(3, max-content);
   justify-content: space-between;
-  column-gap: var(--s-3);
+  column-gap: var(--s-2);
   row-gap: var(--s-2);
   margin-top: var(--s-4);
   padding-top: var(--s-3);
@@ -90,6 +94,8 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .stat .kit-value.kit-dash, .stat .kit-dash { color: var(--text-3); }
 /* Best possible needs the map's object counts: hidden (space kept) where the host has none. */
 .stat[data-unknown] { visibility: hidden; }
+/* Two lines (Best / possible), so the three columns fit 216 px at --u 1. */
+#best-stat .kit-label { width: min-content; white-space: normal; }
 
 /* ------------------------------------------------------------ vertical: tall boxes */
 .ledger[data-orient="v"] {

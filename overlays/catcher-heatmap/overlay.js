@@ -140,7 +140,7 @@ let layoutDue = true;
 let motion = 'full';
 
 const opts = {
-  orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim',
+  orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', marks: 'neutral',
   bins: 64, intensity: 1, showMarker: true, showOnResults: true,
 };
 

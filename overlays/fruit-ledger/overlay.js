@@ -113,7 +113,7 @@ function still(fx) {
 }
 
 // ------------------------------------------------------------ state
-const DEFAULTS = { motion: 'full', backing: 'scrim', hudFields: false, orientation: 'auto', align: 'left' };
+const DEFAULTS = { motion: 'full', backing: 'scrim', marks: 'neutral', hudFields: false, orientation: 'auto', align: 'left' };
 let options = { ...DEFAULTS };
 let motion = 'full';
 let status = 'connecting';

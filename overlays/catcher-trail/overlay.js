@@ -71,7 +71,7 @@ const CHIP = { offline: 'vosu offline', nodata: 'No data' };
 // ---------------------------------------------------------------- state
 const DEFAULTS = {
   orientation: 'auto', align: 'left', window: 6, showDash: true, showOnResults: true,
-  motion: 'full', backing: 'scrim',
+  motion: 'full', backing: 'scrim', marks: 'neutral',
 };
 let opts = { ...DEFAULTS };
 let motion = 'full';

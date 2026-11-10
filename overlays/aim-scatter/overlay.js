@@ -233,7 +233,7 @@ function stepEase(now) {
 }
 
 // ------------------------------------------------------------------ state
-const options = { orientation: 'auto', align: 'center', dots: 'All hits', ellipse: true, results: true, motion: 'full', backing: 'scrim', mapTint: true };
+const options = { orientation: 'auto', align: 'center', dots: 'All hits', ellipse: true, results: true, motion: 'full', backing: 'scrim', marks: 'neutral', mapTint: true };
 let level = 'full';               // motion level
 let limit = Infinity;             // dots kept on the target; Infinity = all hits
 let status = 'connecting';

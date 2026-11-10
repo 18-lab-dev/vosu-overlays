@@ -88,7 +88,7 @@ function recolor() {
 }
 
 // ---------------------------------------------------------------- settings (applied at the end of the module)
-const DEFAULTS = { window: 20, strain: true, orientation: 'auto', align: 'left', menus: false, motion: 'full', backing: 'scrim', mapTint: true };
+const DEFAULTS = { window: 20, strain: true, orientation: 'auto', align: 'left', menus: false, motion: 'full', backing: 'scrim', marks: 'neutral', mapTint: true };
 let opt = DEFAULTS;
 let motion = 'full';
 let spanS = 20;

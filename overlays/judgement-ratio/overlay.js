@@ -423,7 +423,7 @@ new ResizeObserver(entries => {
 }).observe(canvas);
 
 // ------------------------------------------------------------------ settings + data
-settings({ motion: 'full', backing: 'scrim', hudFields: false, showKps: false, orientation: 'auto', align: 'auto' }, s => {
+settings({ motion: 'full', backing: 'scrim', marks: 'neutral', hudFields: false, showKps: false, orientation: 'auto', align: 'auto' }, s => {
   options = s;
   motion = applyKitSettings(hud, s);
   setAttr(hud, 'hud', s.hudFields ? 'true' : 'false');

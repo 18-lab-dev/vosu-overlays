@@ -18,13 +18,18 @@ p, h1, dl, dd { margin: 0; }
 
 /* ------------------------------------------------------------------ identity
    Title (two lines at most, ellipsis), then the artist with the title's (…)/[…] suffix, then the
-   difficulty by the mapper. When the title needs two lines, artist and difficulty share one line
-   (suffix dropped) so the card keeps its height. */
+   difficulty by the mapper. A short artist joins the title's line (data-join) instead of standing
+   alone; when the title needs two lines, artist and difficulty share one line (suffix dropped)
+   so the card keeps its height. */
 .ident { min-width: 0; }
 .title {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   overflow-wrap: anywhere;
 }
+.title .joined { display: none; color: var(--text-2); }
+.title .joined .sep { color: var(--text-3); }
+.ident[data-join] .title .joined { display: inline; }
+.ident[data-join] .meta .artist { display: none; }
 .meta .artist, .meta .diffline { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meta .sep { display: none; color: var(--text-3); }
 .meta .suffix { color: var(--text-3); }
@@ -47,13 +52,15 @@ p, h1, dl, dd { margin: 0; }
 #np[data-progress="off"] .prog { display: none; }
 
 /* ------------------------------------------------------------------ numbers
-   The map's star rating is the hero; under it a 2 px bar fills with the live rating (the
-   difficulty of the map so far) against it. BPM and mods beside it, difficulty settings below. */
+   The map's star rating is the hero; its star carries a short gauge that fills with the live
+   rating (the difficulty of the map so far) against it. BPM and mods beside it, difficulty
+   settings below. */
 /* Hero, BPM and (in the strip) the settings share one baseline; mods sit above the BPM. */
 .nums { display: grid; align-items: last baseline; min-width: 0; }
 .hero { position: relative; grid-area: hero; }
-.star { color: var(--map); }
-.strain { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * 2px); height: max(2px, calc(var(--u) * 2px)); background: var(--hair); overflow: hidden; }
+.star { position: relative; display: inline-block; color: var(--map); }
+/* Only as wide as the star: a gauge on the star, not an underline under the number. */
+.strain { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * -1px); height: max(2px, calc(var(--u) * 2px)); background: var(--hair-strong); overflow: hidden; }
 .strain i { display: block; height: 100%; background: var(--map); transform-origin: 0 50%; transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out); }
 .side { grid-area: side; display: grid; row-gap: var(--s-1); min-width: 0; }
 .bpm { display: block; }

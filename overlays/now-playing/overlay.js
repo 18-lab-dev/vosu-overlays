@@ -212,6 +212,8 @@ function layoutBox() {
   schedule();
 }
 addEventListener('resize', layoutBox);
+// The identity's line fit is measured; measure again once the web fonts have arrived.
+document.fonts.ready.then(() => { mergeFor = ''; dirty = true; schedule(); });
 
 // ------------------------------------------------------------------ render
 function render() {
@@ -278,20 +280,31 @@ function renderIdentity() {
     text('suffix', match ? match[2] : '');
     suffixWrap.hidden = !match;
   }
-  text('artist', (unicode && str(values[P.artistUnicode]).trim()) || str(values[P.artist]));
+  const artist = (unicode && str(values[P.artistUnicode]).trim()) || str(values[P.artist]);
+  text('artist', artist);
+  text('artistJoined', artist);
   text('version', str(values[P.version]));
   const mapper = str(values[P.mapper]);
   text('mapper', mapper);
   mapperWrap.hidden = !mapper;
-  // Artist and difficulty share one line in the strip, in compact, and under a two-line title.
-  const key = `${orient}|${opts.layout}|${shown.title}`;
+  // Column: a short artist joins the title's line rather than standing alone ("Last Resort · xi").
+  // Otherwise artist and difficulty share one line in the strip, in compact, and under a
+  // two-line title. Measured once per map, box or layout change.
+  const key = `${orient}|${opts.layout}|${shown.title}|${artist}|${shown.suffix}`;
   if (key !== mergeFor) {
     mergeFor = key;
     let merge = orient === 'horizontal' || opts.layout === 'compact';
+    let join = false;
+    attr(ident, 'data-merge', null);
+    attr(ident, 'data-join', null);
     if (!merge) {
-      attr(ident, 'data-merge', null);
       const line = parseFloat(getComputedStyle(titleEl).lineHeight);
-      merge = titleEl.offsetHeight > line * 1.5;
+      if (artist && !shown.suffix) {
+        attr(ident, 'data-join', '');
+        join = titleEl.offsetHeight <= line * 1.5;
+        if (!join) attr(ident, 'data-join', null);
+      }
+      if (!join) merge = titleEl.offsetHeight > line * 1.5;
     }
     attr(ident, 'data-merge', merge ? '' : null);
   }

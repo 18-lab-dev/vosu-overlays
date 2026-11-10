@@ -1,8 +1,8 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Aim scatter: every osu! circle / slider-head hit as a dot at the cursor's offset from the
 // object's centre (vosu `play.hitOffsets`, ENABLE_HIT_OFFSETS), with the attempt's spread ellipse
-// and its aim bias (the vector to the hits' average, plus a pointer on the bezel), and that bias
-// as the one readout.
+// and its aim bias (the vector to the hits' average), and that bias with its direction as the
+// one readout.
 // The page is the overlay's own box: hosts place and size it, and the layout re-flows to it
 // (vertical column or horizontal strip, from the box's aspect or the `orientation` setting).
 //
@@ -11,7 +11,7 @@
 // timing distribution is results-card's.
 //
 // Motion: the newest hit lands (an amber ring, a compositor Web Animation restarted per hit), the
-// bias vector, pointer and ellipse ease to each new average while a hit moves them visibly (an
+// bias vector and ellipse ease to each new average while a hit moves them visibly (an
 // attempt's first hits), the readout's arrow turns to the new direction, and the box eases in and
 // out with play.
 import {
@@ -369,16 +369,6 @@ function resize() {
   G.ellipseCasing = Math.round(Math.max(3, 3.5 * K) * Q);
   G.ellipseLine = Math.round(Math.max(1.25, 1.5 * K) * Q);
   G.pip = Math.round(Math.max(1.6, 2.2 * K) * Q);
-  const base = RING + Math.max(3, 4 * K), tip = RING + Math.max(10, 14 * K), wing = Math.max(3.5, 5 * K);
-  for (let deg = 0; deg < 360; deg++) {
-    const ux = Math.cos(deg / DEG), uy = Math.sin(deg / DEG);
-    POINTER.lx[deg] = Math.round((HALF + ux * base - uy * wing) * Q);
-    POINTER.ly[deg] = Math.round((HALF + uy * base + ux * wing) * Q);
-    POINTER.rx[deg] = Math.round((HALF + ux * base + uy * wing) * Q);
-    POINTER.ry[deg] = Math.round((HALF + uy * base - ux * wing) * Q);
-    POINTER.tx[deg] = Math.round((HALF + ux * tip) * Q);
-    POINTER.ty[deg] = Math.round((HALF + uy * tip) * Q);
-  }
   // Dot sprite: one filled disc, rasterised at the device scale.
   const r = DOT * pixel;
   cell = Math.ceil(r * 2 + 2);
@@ -416,9 +406,6 @@ const trailAlpha = [null];        // by position across a limited trail of `trai
 let trailFor = 0;
 // Stats-layer sizes in 1/Q px, set per target size; tagged for the same reason.
 const G = { q: null, s: null, half: null, o: null, casing: null, line: null, ellipseCasing: null, ellipseLine: null, pip: null };
-// Bias pointer on the bezel by whole degree: base corners and tip in 1/Q px. Int32Array reads
-// are small integers, so a hit draws it without boxing a coordinate.
-const POINTER = { lx: new Int32Array(360), ly: new Int32Array(360), tx: new Int32Array(360), ty: new Int32Array(360), rx: new Int32Array(360), ry: new Int32Array(360) };
 let ringKX = 0, ringKY = 0;       // the newest dot's ring slot (half CSS px)
 
 /** Sprite origin of dot `i` at the target's scale, pinned inside the bezel. */
@@ -549,7 +536,7 @@ function drawRecent() {
 
 /**
  * Ellipse and bias at the shown statistics (D): once per hit, and every frame of an ease. Every
- * coordinate reaches the canvas as an integer in 1/Q px and sizes, colours and the pointer come
+ * coordinate reaches the canvas as an integer in 1/Q px and sizes and colours come
  * from stored values, so a hit costs a handful of numbers and an optimised frame none.
  */
 function drawStats() {
@@ -574,20 +561,11 @@ function drawStats() {
   }
 
   // Bias: the vector from the circle's centre to the attempt's average at the plot's true scale
-  // (a few px for most players), ending in a pip, plus a pointer on the bezel in its direction
-  // so the direction reads at any length. Below 0.05 playfield px (the readout's "0.0") only
-  // the pip.
+  // (a few px for most players), ending in a pip; the readout below gives its direction and size.
   c.lineCap = 'round';
   c.lineJoin = 'round';
   c.beginPath();
-  if (D.bias >= 0.05) {
-    const deg = easing ? directionOf(D.mx, D.my) : sDeg;
-    c.moveTo(G.o, G.o); c.lineTo(cx, cy);
-    c.moveTo(POINTER.lx[deg], POINTER.ly[deg]);
-    c.lineTo(POINTER.tx[deg], POINTER.ty[deg]);
-    c.lineTo(POINTER.rx[deg], POINTER.ry[deg]);
-    c.closePath();
-  }
+  if (D.bias >= 0.05) { c.moveTo(G.o, G.o); c.lineTo(cx, cy); }
   c.moveTo(cx + G.pip, cy);
   c.arc(cx, cy, G.pip, 0, TAU);
   c.lineWidth = G.casing; c.strokeStyle = COL.casing; c.stroke();

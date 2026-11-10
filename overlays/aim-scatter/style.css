@@ -68,8 +68,11 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   will-change: transform, opacity;
 }
 
-/* The one readout: aim bias as a direction arrow and a distance. */
-.bias { display: flex; align-items: baseline; justify-content: space-between; column-gap: var(--s-2); margin: 0; min-width: 0; }
+/* The one readout: "Aim bias", then its direction arrow and distance, as one group under the
+   target (centred, or flush with the target for left / right alignment). */
+.bias { display: flex; align-items: baseline; justify-content: center; column-gap: var(--s-2); margin: 0; min-width: 0; }
+.aim[data-align="left"] .bias { justify-content: start; }
+.aim[data-align="right"] .bias { justify-content: end; }
 .aim[data-orient="horizontal"] .bias { flex-direction: column; align-items: start; row-gap: var(--s-1); }
 .aim[data-orient="horizontal"][data-align="right"] .bias { align-items: end; }
 .aim.is-small .bias__label { display: none; }

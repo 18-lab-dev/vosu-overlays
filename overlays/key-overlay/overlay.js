@@ -9,8 +9,10 @@ import {
   UNKNOWN, MOTION_MS,
 } from './vosu-overlay.js';
 
-// Design px at --u = 1; the default boxes (osu!/catch/mania column 256 wide, taiko row 96 tall) are --u = 1.
-const COLUMN_W = 256;  // vertical box width at --u = 1
+// Design px at --u = 1; the default boxes are --u = 1: the osu!/catch side column with its tape
+// (216 wide), the osu!mania caps strip (256 wide) and the taiko row (96 tall).
+const COLUMN_W = 216;  // vertical box width at --u = 1, with the tape
+const STRIP_W = 256;   // caps-only box width at --u = 1
 const ROW_H = 96;      // horizontal box height at --u = 1
 const U_MIN = 0.5;
 const U_MAX = 1.6;
@@ -29,13 +31,12 @@ const READ_GAP = 8;     // readout ↔ tape / caps
 const MIN_TAPE = 40;
 const COUNT_MAX = 24;   // count size in columns, shrunk to fit the narrowest lane
 const COUNT_MIN = 14;   // the kit's floor for anything a viewer reads
-const COUNT_ROW = 16;   // count size in rows
+const COUNT_ROW = 14;   // count size in rows (four taiko rows of 14.5 px share a 96 px box)
 const RING = 256;       // remembered presses per lane
+const spans = new Int32Array(RING * 2); // per frame, per lane: device-pixel ends of the bars on the tape
 const EXTRAPOLATE = 100; // ms of wall time the clock may run past its last sample
-const BAR_REST = 0.42;  // released bars: history, quieter than the present
-const SETTLE_MS = 150;  // a released press stays at full strength this long (real ms), then rests
-const HEAT_STEPS = 16;  // settle alpha levels (precomputed, so drawing never boxes a fraction)
-const FAST_ON = 16;     // above this KPS press feedback snaps (no settle, no release fade) …
+const LINE = 2;        // catch direction holds: a line this many design px wide, centred in the lane
+const FAST_ON = 16;     // above this KPS press feedback snaps (no release fade) …
 const FAST_OFF = 12;    // … until it drops below this
 const PEAK_MIN = 5;     // peaks below this are the attempt warming up, not news
 const PEAK_QUIET = 2000; // gameplay ms between two new-peak marks
@@ -251,7 +252,7 @@ function clockSample(live) {
 }
 
 // ------------------------------------------------------------------ lanes
-let lanes = [];         // { src, label, zone, rest, hot, cap, labelEl, countEl, shownDown, shownText }
+let lanes = [];         // { src, label, zone, thin, edge, cap, labelEl, countEl, shownDown, shownText }
 let geometry = null;
 let signature = '';
 let currentMode = null;
@@ -260,11 +261,11 @@ let swapTimer = 0;
 let view = 'none';      // 'play' | 'results' | 'idle' | 'nogame' | 'none'
 
 // Colour roles from kit.css, read once per layout (canvas needs them as strings).
-const role = { text: '#efece5', you: '#ff963f', don: '#e8573e', kat: '#4f9fc4', display: '"Barlow Condensed"' };
+const role = { bar: 'rgba(239,236,229,0.4)', you: '#ff963f', don: '#e8573e', kat: '#4f9fc4', display: '"Barlow Condensed"' };
 function readRoles() {
   const style = getComputedStyle(root);
   const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
-  role.text = read('--text-1', role.text);
+  role.bar = read('--hair-strong', role.bar);
   role.you = read('--you', role.you);
   role.don = read('--don', role.don);
   role.kat = read('--kat', role.kat);
@@ -279,33 +280,36 @@ function keyCount() {
 }
 
 /**
- * Lanes for the ruleset. Bars are neutral history; the present (a held key, a press for its first
- * 150 ms) is 18-LAB amber, "you". osu!taiko keeps don/kat, which are game meaning (the zones).
+ * Lanes for the ruleset. Every bar is graphite history (--hair-strong) with a 2 px leading edge at
+ * the moment the key went down: 18-LAB amber ("you", the kit's lit rule), or don/kat in osu!taiko,
+ * where the zone is game meaning. Catch keys (directions, dash) are held most of the time, so they
+ * draw as a thin line instead of a filled bar.
  */
 function laneSpec(mode) {
   const v = values;
   const bind = pointer => keyLabel(v[pointer]);
   if (mode === 'osu') {
-    const spec = [{ src: 0, label: bind(P.osuK1) ?? 'K1', zone: '' }, { src: 1, label: bind(P.osuK2) ?? 'K2', zone: '' }];
-    if (cfg.smokeLane) spec.push({ src: 2, label: bind(P.osuSmoke) ?? 'SMK', zone: '' });
+    const spec = [{ src: 0, label: bind(P.osuK1) ?? 'K1', zone: '', thin: false }, { src: 1, label: bind(P.osuK2) ?? 'K2', zone: '', thin: false }];
+    if (cfg.smokeLane) spec.push({ src: 2, label: bind(P.osuSmoke) ?? 'SMK', zone: '', thin: false });
     return spec;
   }
   if (mode === 'taiko') {
     return [
-      { src: 0, label: bind(P.taikoOL) ?? 'K', zone: 'kat' },
-      { src: 1, label: bind(P.taikoIL) ?? 'D', zone: 'don' },
-      { src: 2, label: bind(P.taikoIR) ?? 'D', zone: 'don' },
-      { src: 3, label: bind(P.taikoOR) ?? 'K', zone: 'kat' },
+      { src: 0, label: bind(P.taikoOL) ?? 'K', zone: 'kat', thin: false },
+      { src: 1, label: bind(P.taikoIL) ?? 'D', zone: 'don', thin: false },
+      { src: 2, label: bind(P.taikoIR) ?? 'D', zone: 'don', thin: false },
+      { src: 3, label: bind(P.taikoOR) ?? 'K', zone: 'kat', thin: false },
     ];
   }
   if (mode === 'fruits') {
     // osu!stable never reports catch left/right, so those lanes only appear once they carry presses.
+    // Catch keys (directions and dash) are held most of the time: lines, not filled bars.
     const moves = v[P.client] === 'lazer' || tracks[0]?.ever || tracks[1]?.ever;
-    const dash = { src: 2, label: bind(P.catchDash) ?? 'DASH', zone: '' };
-    return moves ? [{ src: 0, label: bind(P.catchK1) ?? '←', zone: '' }, { src: 1, label: bind(P.catchK2) ?? '→', zone: '' }, dash] : [dash];
+    const dash = { src: 2, label: bind(P.catchDash) ?? 'DASH', zone: '', thin: true };
+    return moves ? [{ src: 0, label: bind(P.catchK1) ?? '←', zone: '', thin: true }, { src: 1, label: bind(P.catchK2) ?? '→', zone: '', thin: true }, dash] : [dash];
   }
   const spec = [];
-  for (let i = 0, n = keyCount(); i < n; i++) spec.push({ src: i, label: String(i + 1), zone: '' });
+  for (let i = 0, n = keyCount(); i < n; i++) spec.push({ src: i, label: String(i + 1), zone: '', thin: false });
   return spec;
 }
 
@@ -335,7 +339,7 @@ function computeGeometry(mode, n) {
   const capsD = v ? CAP_H : CAP_W;
   const readD = read && !side ? (v ? READ_H : READ_W) + READ_GAP : 0;
   const need = pad * 2 + capsD + readD + (tape ? CAP_GAP + MIN_TAPE : 0);
-  const u = clamp(Math.min(v ? W / COLUMN_W : H / ROW_H, (v ? H : W) / need), U_MIN, U_MAX);
+  const u = clamp(Math.min(v ? W / (tape ? COLUMN_W : STRIP_W) : H / ROW_H, (v ? H : W) / need), U_MIN, U_MAX);
 
   // Cross axis: lanes fill the box up to a sane thickness; the block centres on any rest.
   const p = Math.round(pad * u);
@@ -384,7 +388,7 @@ function computeGeometry(mode, n) {
     staticCtx.font = `600 100px ${role.display}`;
     const per100 = staticCtx.measureText('8,888').width;
     countPx = Math.min(COUNT_MAX * u, ((minLane - 2 * u) * 100) / per100);
-    if (countPx < COUNT_MIN * u) tight = true;
+    if (countPx < COUNT_MIN) tight = true; // the floor is in rendered px, whatever --u is
   }
 
   return {
@@ -438,8 +442,8 @@ function buildLanes(mode) {
     lit.className = 'lit';
     cap.append(labelEl, countEl, lit);
     frag.append(cap);
-    const rest = s.zone === 'don' ? role.don : s.zone === 'kat' ? role.kat : role.text;
-    return { ...s, rest, hot: s.zone ? rest : role.you, cap, labelEl, countEl, shownDown: false, shownText: '—' };
+    const edge = s.zone === 'don' ? role.don : s.zone === 'kat' ? role.kat : role.you;
+    return { ...s, edge, cap, labelEl, countEl, shownDown: false, shownText: '—' };
   });
   capsEl.replaceChildren(frag);
   resizeCanvas();
@@ -453,9 +457,7 @@ const BOX_H = 1;       // canvas height (device px)
 const BOX_TAPE = 2;    // tape length (mirror axis for caps at the end)
 const BOX_MIN = 3;     // shortest bar and press edge: 2 design px
 const BOX_EDGE = 4;    // the press edge drawn back from a bar's far end
-const BOX_REST = 5;    // released bar alpha
-const BOX_HEAT = 6;    // HEAT_STEPS + 1 settle alphas, 0 … 1
-const BOX_LANES = BOX_HEAT + HEAT_STEPS + 1; // per lane: across offset, thickness
+const BOX_LANES = 5;   // per lane: bar across offset, bar thickness, line across offset, line thickness
 
 function resizeCanvas() {
   if (!geometry) return;
@@ -467,18 +469,21 @@ function resizeCanvas() {
   const bh = Math.max(1, Math.round(cssH * dpr));
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   g.dpr = dpr;
-  const box = new Array(BOX_LANES + 2 * g.n).fill(null);
+  const box = new Array(BOX_LANES + 4 * g.n).fill(null);
   box[BOX_W] = bw;
   box[BOX_H] = bh;
   box[BOX_TAPE] = g.tapeLen * dpr;
   box[BOX_MIN] = Math.max(1, Math.round(2 * g.u * dpr));
   box[BOX_EDGE] = -Math.max(1, Math.round(2 * g.u * dpr));
-  box[BOX_REST] = BAR_REST;
-  for (let k = 0; k <= HEAT_STEPS; k++) box[BOX_HEAT + k] = k / HEAT_STEPS;
   for (let i = 0; i < g.n; i++) {
     const inset = Math.min(Math.round(3 * g.u), Math.floor(g.widths[i] / 6));
-    box[BOX_LANES + 2 * i] = Math.round((g.pos[i] + inset) * dpr);
-    box[BOX_LANES + 2 * i + 1] = Math.max(1, Math.round((g.widths[i] - inset * 2) * dpr));
+    const thick = Math.max(1, Math.round((g.widths[i] - inset * 2) * dpr));
+    const line = Math.min(thick, Math.max(1, Math.round(LINE * g.u * dpr)));
+    const across = Math.round((g.pos[i] + inset) * dpr);
+    box[BOX_LANES + 4 * i] = across;
+    box[BOX_LANES + 4 * i + 1] = thick;
+    box[BOX_LANES + 4 * i + 2] = across + ((thick - line) >> 1);
+    box[BOX_LANES + 4 * i + 3] = line;
   }
   g.box = box;
   keepFrame = false; // a resized canvas is blank: draw it again
@@ -683,7 +688,6 @@ function render() {
     if (!fast && liveKps > FAST_ON) { fast = true; flag(root, 'data-fast', true); }
     else if (fast && liveKps < FAST_OFF) { fast = false; flag(root, 'data-fast', false); }
   }
-  const settle = motion === 'full' && !fast;
 
   if (g.tape) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -699,58 +703,46 @@ function render() {
     }
     const min = box[BOX_MIN];
     const edge = box[BOX_EDGE];
-    const settleMap = SETTLE_MS * ck[CK_RATE]; // settle window in gameplay ms
     for (let li = 0; li < lanes.length; li++) {
       const lane = lanes[li];
       const t = tracks[lane.src];
       if (!t || t.size === 0) continue;
-      const across = box[BOX_LANES + 2 * li];
-      const thick = box[BOX_LANES + 2 * li + 1];
-      // History: every bar at rest, its press edge (the moment the key went down) crisp.
-      ctx.fillStyle = lane.rest;
+      const across = box[BOX_LANES + 4 * li];
+      const thick = box[BOX_LANES + 4 * li + 1];
+      const bodyAt = lane.thin ? box[BOX_LANES + 4 * li + 2] : across;
+      const body = lane.thin ? box[BOX_LANES + 4 * li + 3] : thick;
+      // Bodies first in graphite, then the leading edges on top, so one fill colour per pass; the
+      // first pass keeps each bar's device-pixel ends in `spans` for the second.
+      ctx.fillStyle = role.bar;
+      let m = 0;
       for (let k = 0, i = t.head; k < t.size; k++) {
         i = i === 0 ? RING - 1 : i - 1;
-        let end = t.ends[i];
-        const held = Number.isNaN(end);
-        if (held) { end = now; anyHeld = true; }
+        const e = t.ends[i];
+        const held = e !== e;
+        if (held) anyHeld = true;
+        // Both arms are doubles: a Smi 0 on one side would make Maglev box `near` on every bar.
+        const end = held ? now : e;
         const near = Math.max(0, (now - end) * pxPerMs);
         if (near >= g.tapeLen) break;
         const far = Math.min(g.tapeLen, Math.max(0, (now - t.starts[i]) * pxPerMs));
-        anyVisible = true;
         const a = Math.round(near * dpr) | 0;
         const b = Math.round(far * dpr) | 0;
-        ctx.globalAlpha = box[BOX_REST];
-        if (b - a < min) {
-          if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick);
-          ctx.globalAlpha = 1;
-          if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick);
-        } else {
-          if (g.v) ctx.fillRect(across, a, thick, b - a); else ctx.fillRect(a, across, b - a, thick);
-          ctx.globalAlpha = 1;
-          if (g.v) ctx.fillRect(across, b, thick, edge); else ctx.fillRect(b, across, edge, thick);
+        spans[m++] = a;
+        spans[m++] = b;
+        if (b - a > min) {
+          if (g.v) ctx.fillRect(bodyAt, a, body, b - a); else ctx.fillRect(a, bodyAt, b - a, body);
         }
       }
-      // The present on top: a held key at full strength, a release settling to rest over SETTLE_MS.
-      ctx.fillStyle = lane.hot;
-      for (let k = 0, i = t.head; k < t.size; k++) {
-        i = i === 0 ? RING - 1 : i - 1;
-        let end = t.ends[i];
-        let level = HEAT_STEPS;
-        if (Number.isNaN(end)) end = now;
-        else {
-          const age = now - end;
-          if (!settle || age >= settleMap) break;
-          level = Math.ceil((1 - age / settleMap) * HEAT_STEPS) | 0;
-          if (level <= 0) break;
-        }
-        const near = Math.max(0, (now - end) * pxPerMs);
-        if (near >= g.tapeLen) break;
-        const far = Math.min(g.tapeLen, Math.max(0, (now - t.starts[i]) * pxPerMs));
-        const a = Math.round(near * dpr) | 0;
-        let len = (Math.round(far * dpr) | 0) - a;
-        if (len < min) len = min;
-        ctx.globalAlpha = box[BOX_HEAT + level];
-        if (g.v) ctx.fillRect(across, a, thick, len); else ctx.fillRect(a, across, len, thick);
+      if (m === 0) continue;
+      anyVisible = true;
+      // Leading edge: the moment the key went down, across the whole lane; a tap shorter than the
+      // edge is all edge.
+      ctx.fillStyle = lane.edge;
+      for (let j = 0; j < m; j += 2) {
+        const a = spans[j];
+        const b = spans[j + 1];
+        if (b - a <= min) { if (g.v) ctx.fillRect(across, a, thick, min); else ctx.fillRect(a, across, min, thick); }
+        else if (g.v) ctx.fillRect(across, b, thick, edge); else ctx.fillRect(b, across, edge, thick);
       }
     }
   }

@@ -245,7 +245,7 @@ function observe(key, t, kiai, brk) {
 // renderer serves it too). Its [TimingPoints] effects (bit 1 = kiai) and [Events] breaks are read
 // the way vosu reads them for /beatmap/isKiai and /beatmap/isBreak, so the drawn sections and the
 // live flags agree. One fetch and parse per map checksum, nothing per frame; a missing or failed
-// file (an older server, the dev mock) leaves the learning path above in charge.
+// file (an older server) leaves the learning path above in charge.
 const MAP_FILE = '/files/beatmap/file';
 const fileMarks = new Map(); // checksum → { kiai, brk } | null (no usable file); the last 16 maps
 const fileLoad = { key: '', attempt: 0, timer: 0 };

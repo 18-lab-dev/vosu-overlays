@@ -774,6 +774,48 @@ function background() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 55% 22%)"/><stop offset="1" stop-color="hsl(${(hue + 60) % 360} 45% 9%)"/></linearGradient><radialGradient id="r" cx=".72" cy=".3" r=".6"><stop offset="0" stop-color="hsl(${hue} 80% 62% / .55)"/><stop offset="1" stop-color="transparent"/></radialGradient></defs><rect width="1920" height="1080" fill="url(#g)"/><rect width="1920" height="1080" fill="url(#r)"/>${Array.from({ length: 14 }, (_, i) => `<circle cx="${(i * 389) % 1920}" cy="${(i * 233) % 1080}" r="${60 + (i * 37) % 180}" fill="none" stroke="hsl(${hue} 70% 70% / .12)" stroke-width="${2 + i % 5}"/>`).join('')}</svg>`;
 }
 
+/**
+ * The current map's .osu, as vosu (and tosu) serve it at /files/beatmap/file. Its kiai and break
+ * sections match the live /beatmap/isKiai and /beatmap/isBreak flags above: a red line at the first
+ * object, inherited points switching kiai (effects bit 1) on at 30 s and 100 s and off at 52 s and
+ * 125 s, and one break 61.5–66.5 s. No hit objects: no overlay reads them from the file.
+ */
+function beatmapFile() {
+  const { mode } = config;
+  const map = MAPS[mode];
+  const inherited = (time, kiai) => `${time},-100,4,2,0,70,0,${kiai ? 1 : 0}`;
+  return [
+    'osu file format v14',
+    '',
+    '[General]',
+    `Mode: ${MODE_NUMBER[mode]}`,
+    '',
+    '[Metadata]',
+    `Title:${map.title}`,
+    `Artist:${map.artist}`,
+    `Creator:${map.mapper}`,
+    `Version:${mode === 'mania' ? `${config.keys}K ${map.version}` : map.version}`,
+    `BeatmapID:${129891 + MODE_NUMBER[mode]}`,
+    'BeatmapSetID:39804',
+    '',
+    '[Difficulty]',
+    `CircleSize:${mode === 'mania' ? config.keys : map.cs}`,
+    `OverallDifficulty:${map.od}`,
+    '',
+    '[Events]',
+    '//Break Periods',
+    '2,61500,66500',
+    '',
+    '[TimingPoints]',
+    `${scenario.first},${scenario.beat},4,2,0,70,1,0`,
+    inherited(30000, true),
+    inherited(52000, false),
+    inherited(100000, true),
+    inherited(125000, false),
+    '',
+  ].join('\r\n');
+}
+
 async function assets(path) {
   if (VOSU_ASSETS) {
     const file = normalize(join(VOSU_ASSETS, path.slice('/assets/'.length)));
@@ -868,6 +910,8 @@ Bun.serve({
       return Response.json({ md5: `mock${config.mode}${config.keys}`.padEnd(32, '0'), mapTimingPoints: [{ startTime: scenario.first, beatLength: scenario.beat }] });
     }
     if (path === '/files/beatmap/background') return new Response(background(), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } });
+    // vosu and tosu both serve the current map's .osu here (compat=tosu too).
+    if (path === '/files/beatmap/file') return new Response(beatmapFile(), { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
     if (path.toLowerCase() === '/files/skin/skin.ini') {
       // vosu serves the current skin's files; the mock serves a skin.ini placed beside the backdrops.
       const file = STAGE_BACKDROPS ? join(STAGE_BACKDROPS, 'skin.ini') : '';

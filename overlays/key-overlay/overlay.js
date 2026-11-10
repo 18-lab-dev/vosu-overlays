@@ -20,6 +20,7 @@ const GAP_H = 2;        // between lanes (rows: four taiko lanes share a 96 px r
 const LANE_MAX_V = 140; // widest column before the block stops growing and centres
 const LANE_MAX_H = 40;  // thickest row
 const CAP_H = 56;       // caps (vertical): key code over count
+const CAP_FILL = 72;    // tallest caps when they are the whole overlay (no tape)
 const CAP_W = 88;       // caps (horizontal): key code and count on one line
 const CAP_GAP = 4;      // caps ↔ tape
 const READ_H = 36;      // readout row (vertical)
@@ -317,29 +318,34 @@ function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
  * unless set. --u is 1 at the default boxes (a 256 px column, a 96 px row) and follows the box's
  * cross axis, shrinking further when the long axis cannot hold caps, readout and a short tape.
  * The lanes fill the cross axis (mania keeps the skin's column proportions); the tape takes the
- * rest of the long axis. Without a tape (osu!mania by default) the block is content-sized and sits
- * on the caps' side of the box.
+ * rest of the long axis. Without a tape (osu!mania by default) the caps are always one row of
+ * columns across the box (auto orientation), as tall as the box allows up to CAP_FILL; in a wide
+ * box the KPS readout sits beside them, and a tall box keeps the caps on their side.
  */
 function computeGeometry(mode, n) {
   const W = Math.max(1, innerWidth);
   const H = Math.max(1, innerHeight);
-  const v = cfg.orientation === 'auto' ? H > W : cfg.orientation === 'vertical';
-  const caps = cfg.align === 'auto' ? (v ? 'end' : 'start') : cfg.align;
   const tape = mode !== 'mania' || cfg.maniaTape;
+  // Rows only make sense for a tape travelling sideways: caps alone are one row of columns.
+  const v = cfg.orientation === 'auto' ? !tape || H > W : cfg.orientation === 'vertical';
+  const caps = cfg.align === 'auto' ? (v ? 'end' : 'start') : cfg.align;
   const pad = cfg.backing === 'none' ? 0 : PAD;
   const read = cfg.showKps;
+  const side = read && !tape && v && W > H; // readout beside the caps, not above them
   const capsD = v ? CAP_H : CAP_W;
-  const readD = read ? (v ? READ_H : READ_W) + READ_GAP : 0;
+  const readD = read && !side ? (v ? READ_H : READ_W) + READ_GAP : 0;
   const need = pad * 2 + capsD + readD + (tape ? CAP_GAP + MIN_TAPE : 0);
   const u = clamp(Math.min(v ? W / COLUMN_W : H / ROW_H, (v ? H : W) / need), U_MIN, U_MAX);
 
   // Cross axis: lanes fill the box up to a sane thickness; the block centres on any rest.
   const p = Math.round(pad * u);
   const crossBox = v ? W : H;
+  const sideLen = side ? Math.round((READ_W + READ_GAP) * u) : 0;
+  const crossFree = crossBox - 2 * p - sideLen;
   // Narrow columns (osu!mania 7K in a 256 px column) close up to 2 px so their counts keep the 14 px floor.
-  const wide = v && (crossBox - 2 * p - (n - 1) * GAP_V * u) / n >= 40 * u;
+  const wide = v && (crossFree - (n - 1) * GAP_V * u) / n >= 40 * u;
   const gap = Math.max(1, Math.round((wide ? GAP_V : GAP_H) * u));
-  const span = Math.max(n * 4, Math.floor(Math.min(crossBox - 2 * p, n * (v ? LANE_MAX_V : LANE_MAX_H) * u + (n - 1) * gap)));
+  const span = Math.max(n * 4, Math.floor(Math.min(crossFree, n * (v ? LANE_MAX_V : LANE_MAX_H) * u + (n - 1) * gap)));
   const columns = mode === 'mania' && maniaGeometry?.columnWidth?.length === n ? maniaGeometry.columnWidth : null;
   let total = 0;
   for (let i = 0; i < n; i++) total += columns ? columns[i] : 1;
@@ -349,14 +355,16 @@ function computeGeometry(mode, n) {
   let used = 0;
   for (let i = 0; i < n; i++) { widths[i] = Math.max(1, Math.floor((free * (columns ? columns[i] : 1)) / total)); used += widths[i]; }
   for (let i = 0, at = Math.floor((free - used) / 2); i < n; i++) { pos[i] = at; at += widths[i] + gap; }
-  const cross = span + 2 * p;
+  const cross = span + sideLen + 2 * p;
 
   // Long axis.
-  const capsLen = Math.round(capsD * u);
-  const readLen = read ? Math.round((v ? READ_H : READ_W) * u) : 0;
-  const readGap = read ? Math.round(READ_GAP * u) : 0;
-  const capGap = tape ? Math.round(CAP_GAP * u) : 0;
+  const readLen = read && !side ? Math.round((v ? READ_H : READ_W) * u) : 0;
+  const readGap = read && !side ? Math.round(READ_GAP * u) : 0;
   const alongBox = v ? H : W;
+  // Caps alone fill the box's height (a 256×96 strip) up to CAP_FILL; with a tape they keep CAP_H.
+  const capsLen = tape ? Math.round(capsD * u)
+    : Math.round(clamp(alongBox - 2 * p - readLen - readGap, capsD * u, (v ? CAP_FILL : CAP_W) * u));
+  const capGap = tape ? Math.round(CAP_GAP * u) : 0;
   const tapeLen = tape ? Math.max(Math.round(MIN_TAPE * u), alongBox - 2 * p - capsLen - capGap - readLen - readGap) : 0;
   const along = 2 * p + readLen + readGap + tapeLen + capGap + capsLen;
   const alongAt = tape ? Math.max(0, Math.round((alongBox - along) / 2)) : caps === 'end' ? Math.max(0, alongBox - along) : 0;
@@ -365,6 +373,7 @@ function computeGeometry(mode, n) {
   const tapeAt = caps === 'end' ? p + readLen + readGap : p + capsLen + capGap;
   const readAt = caps === 'end' ? p : p + capsLen + capGap + tapeLen + readGap;
   const rect = (a, len) => (v ? { x: p, y: a, w: span, h: len } : { x: a, y: p, w: len, h: span });
+  const readRect = side ? { x: p + span + Math.round(READ_GAP * u), y: capsAt, w: sideLen - Math.round(READ_GAP * u), h: capsLen } : rect(readAt, readLen);
 
   // Count size: the largest that fits "8,888" in the narrowest column (rows use one size).
   let minLane = Infinity;
@@ -379,9 +388,9 @@ function computeGeometry(mode, n) {
   }
 
   return {
-    v, caps, flip: caps === 'end', tape, read, n, u, widths, pos, tapeLen, capsLen,
+    v, caps, flip: caps === 'end', tape, read, side, n, u, widths, pos, tapeLen, capsLen,
     x: v ? crossAt : alongAt, y: v ? alongAt : crossAt, w: v ? cross : along, h: v ? along : cross,
-    readRect: rect(readAt, readLen), tapeRect: rect(tapeAt, tapeLen), capsRect: rect(capsAt, capsLen),
+    readRect, tapeRect: rect(tapeAt, tapeLen), capsRect: rect(capsAt, capsLen),
     countPx: Math.floor(countPx / u * 10) / 10, tight, dpr: 0, box: null,
   };
 }
@@ -399,6 +408,7 @@ function buildLanes(mode) {
   attr(root, 'data-orient', g.v ? 'v' : 'h');
   attr(root, 'data-caps', g.caps);
   attr(root, 'data-counts', cfg.showCounts ? '1' : '0');
+  attr(root, 'data-read', g.side ? 'side' : 'row');
   root.style.cssText = `--u:${g.u};left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`;
   place(el.read, g.readRect);
   place(el.tapeBox, g.tapeRect);

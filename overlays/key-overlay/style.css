@@ -17,6 +17,8 @@ body { position: relative; }
 .read[hidden] { display: none; }
 .ko[data-orient="h"] .read { flex-direction: column; align-items: flex-start; justify-content: center; gap: var(--s-2); }
 .ko[data-orient="h"][data-caps="end"] .read { align-items: flex-end; }
+/* Caps alone in a wide box (osu!mania 256×96): the readout stacks beside them, right-aligned. */
+.ko[data-read="side"] .read { flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--s-1); }
 .peak { position: relative; display: inline-flex; align-items: baseline; gap: var(--s-1); }
 .peak .kit-value { font-size: calc(var(--u, 1) * 24px); }
 .read[data-empty] .kit-value { color: var(--text-3); }

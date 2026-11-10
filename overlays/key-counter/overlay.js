@@ -62,22 +62,21 @@ const TAIKO_ZONES = ['kat', 'don', 'don', 'kat'];
 
 /**
  * Caps to show: [{src: index into keys.all, code, long, title, zone}]. `code`/`long` come from the
- * set's one key-name source (keyLabels: K1 K2 M1 M2, L·KAT…, LEFT RIGHT DASH, 1…N), never the
+ * set's one key-name source (keyLabels: K1 K2 SMOKE, L·KAT…, LEFT RIGHT DASH, 1…N), never the
  * player's keybind letters; `title` is a sentence-case label used instead of the code; `zone` the
- * taiko drum zone. osu!'s mouse buttons (M1, M2) get a cap only once they have been pressed
- * (`extra`: bit 0 = M1, bit 1 = M2).
+ * taiko drum zone. osu!'s smoke key gets a cap only once it has been pressed (`smoke`).
  */
-function layoutFor(mode, client, columns, extra) {
+function layoutFor(mode, client, columns, smoke) {
   if (mode === 'fruits' && client === 'stable') {
     // osu!stable records the catcher position, not left/right presses: only dash is real there,
     // and dashes per second mean nothing, so it is one cap that says what it counts.
     return [{ src: 2, title: 'Dash presses', long: keyLabels('fruits', 1).long[0] }];
   }
-  const count = mode === 'osu' ? 4 : mode === 'taiko' ? 4 : mode === 'fruits' ? 3 : Math.min(columns, MAX_KEYS);
+  const count = mode === 'osu' ? 3 : mode === 'taiko' ? 4 : mode === 'fruits' ? 3 : Math.min(columns, MAX_KEYS);
   const names = keyLabels(mode, count);
   const caps = [];
   for (let i = 0; i < count; i++) {
-    if (mode === 'osu' && i >= 2 && !(extra & (1 << (i - 2)))) continue;
+    if (mode === 'osu' && i === 2 && !smoke) continue;
     caps.push({ src: i, code: names.short[i], long: names.long[i], zone: mode === 'taiko' ? TAIKO_ZONES[i] : '' });
   }
   return caps;
@@ -89,14 +88,15 @@ const prev = new Int32Array(MAX_KEYS);   // last counts, for presses since the p
 const counts = new Float64Array(MAX_KEYS);
 const lit = new Uint8Array(MAX_KEYS);
 const hist = new Uint8Array(HISTORY);    // highest KPS per 250 ms bucket
-// t0: map time the attempt was first seen; first/last: map time of the first and last press seen.
-const att = { seeded: false, n: 0, t0: 0, idx: -1, taps: 0, first: 0, last: 0, rate: 1, valid: false };
+// t0: map time the attempt was first seen; first/last: map time of the first and last press seen;
+// pressAt: the newest press's gameplay time (pressedAt), for KPS without the clock.
+const att = { seeded: false, n: 0, t0: 0, idx: -1, taps: 0, first: 0, last: 0, rate: 1, pressAt: -Infinity, valid: false };
 
 function resetAttempt() {
   kps.reset();
   hist.fill(0);
   prev.fill(0); counts.fill(0); lit.fill(0);
-  att.seeded = false; att.n = 0; att.idx = -1; att.taps = 0; att.first = 0; att.last = 0; att.valid = false;
+  att.seeded = false; att.n = 0; att.idx = -1; att.taps = 0; att.first = 0; att.last = 0; att.pressAt = -Infinity; att.valid = false;
   peakState.at = -Infinity;
 }
 
@@ -117,7 +117,7 @@ function readKeys(values, mode) {
 
 // ---------------------------------------------------------------- incoming data
 const view = { status: 'connecting', phase: 'connecting', mode: null, client: 'stable', caps: [], sig: '', columns: 0 };
-const lk = { mode: undefined, client: undefined, columns: -1, extra: 0 };
+const lk = { mode: undefined, client: undefined, columns: -1, smoke: false };
 let lastColumns = 0;
 let layoutDirty = true;
 let kpsNow = UNKNOWN;
@@ -140,12 +140,12 @@ function onFrame(values) {
     }
     loadSkin(columns, values[P.skin]);
   }
-  // osu!'s mouse buttons join the caps once used (a cap that never lights is noise).
-  const extra = mode === 'osu' && src ? (src.length > 2 && num(src[2].count) > 0 ? 1 : 0) | (src.length > 3 && num(src[3].count) > 0 ? 2 : 0) : 0;
+  // osu!'s smoke key joins the caps once used (a cap that never lights is noise).
+  const smoke = mode === 'osu' && !!src && src.length > 2 && num(src[2].count) > 0;
   const client = values[P.client] === 'lazer' ? 'lazer' : 'stable';
-  if (mode !== lk.mode || client !== lk.client || columns !== lk.columns || extra !== lk.extra) {
-    lk.mode = mode; lk.client = client; lk.columns = columns; lk.extra = extra;
-    const caps = mode ? layoutFor(mode, client, columns, extra) : [];
+  if (mode !== lk.mode || client !== lk.client || columns !== lk.columns || smoke !== lk.smoke) {
+    lk.mode = mode; lk.client = client; lk.columns = columns; lk.smoke = smoke;
+    const caps = mode ? layoutFor(mode, client, columns, smoke) : [];
     const sig = `${mode}|${client}|${caps.map(c => `${c.src}:${c.code || c.title || ''}`).join(',')}`;
     if (sig !== view.sig) {
       const keysetChanged = view.mode !== mode || view.columns !== columns || (mode === 'fruits' && view.caps.length !== caps.length);
@@ -161,7 +161,9 @@ function onFrame(values) {
     const rate = num(values[P.rate]) > 0 ? values[P.rate] : 1;
     kps.ingest(values[P.all], live, rate);
     track(src, live, rate);
-    kpsNow = isKnown(live) ? kps.at(live) : UNKNOWN;
+    // Without the clock (readout off, or the first frame of play) KPS is read at the newest press:
+    // enough to decide whether press feedback snaps; it is not shown.
+    kpsNow = isKnown(live) ? kps.at(live) : att.pressAt > -Infinity ? kps.at(att.pressAt) : UNKNOWN;
     if (isKnown(live)) history(live, rate);
     att.valid = true;
   } else if (phase === 'results') {
@@ -191,14 +193,14 @@ function track(src, live, rate) {
   if (!att.seeded || n !== att.n) {
     // First sight of this attempt: take the counts as a baseline instead of inventing a burst.
     for (let i = 0; i < n; i++) prev[i] = num(src[i].count);
-    att.seeded = true; att.n = n; att.t0 = isKnown(live) ? live : 0; att.idx = -1;
+    att.seeded = true; att.n = n; att.t0 = live; att.idx = -1; // live may still be UNKNOWN: history() fills it
   }
   for (let i = 0; i < n; i++) {
     const c = num(src[i].count);
     if (c < prev[i]) { // retry or rewind: a new attempt (createKps resets itself on the same signal)
       resetAttempt();
       for (let j = 0; j < n; j++) prev[j] = num(src[j].count);
-      att.seeded = true; att.n = n; att.t0 = isKnown(live) ? live : 0;
+      att.seeded = true; att.n = n; att.t0 = live;
       break;
     }
   }
@@ -209,6 +211,8 @@ function track(src, live, rate) {
     if (d > 0) {
       att.taps += d < 64 ? d : 64;
       if (isKnown(live)) { if (att.taps === d) att.first = live; att.last = live; att.rate = rate; }
+      const at = key.pressedAt;
+      if (typeof at === 'number' && at > att.pressAt) att.pressAt = at;
     }
     prev[i] = c;
     counts[i] = c;
@@ -219,6 +223,7 @@ function track(src, live, rate) {
 /** Highest KPS per 250 ms of real time since the attempt began. */
 function history(live, rate) {
   const k = isKnown(kpsNow) ? kpsNow : 0;
+  if (!isKnown(att.t0)) att.t0 = live; // the first frame of play can arrive before the clock does
   const idx = Math.floor((live - att.t0) / rate / BUCKET_MS);
   if (idx < 0 || idx >= HISTORY) return;
   if (idx !== att.idx) { att.idx = idx; sparkDirty = true; }
@@ -226,6 +231,8 @@ function history(live, rate) {
 }
 
 function onStatus(state) {
+  // A deliberate re-subscription (the clock joining or leaving) is not a connection loss.
+  if (resubscribing) { if (state === 'connecting') return; resubscribing = false; }
   if (state === view.status) return;
   view.status = state;
   if (state !== 'live') { setPhase(state); render(performance.now()); }
@@ -247,6 +254,22 @@ function setPhase(phase) {
     layoutDirty = true; // the readout swaps between live and held; history spans 10 s or the attempt
   }
   if (phase === 'results' || was === 'results') sparkDirty = true;
+  syncClock();
+}
+
+// ---------------------------------------------------------------- the live clock
+// /beatmap/time/live changes on every vosu tick, so following it costs a parsed message per tick.
+// It is needed only while the KPS readout is on screen in play (the live count decays with map
+// time); otherwise the page follows everything but the clock and wakes only when data changes.
+const CLOCK_POINTERS = Object.values(P);
+const BASE_POINTERS = CLOCK_POINTERS.filter(pointer => pointer !== P.live);
+let sub = null, clockOn = null, resubscribing = false;
+function syncClock() {
+  const want = statsMode !== 'off' && view.phase === 'play';
+  if (want === clockOn) return;
+  clockOn = want;
+  if (sub) { resubscribing = true; sub.close(); }
+  sub = subscribe(want ? CLOCK_POINTERS : BASE_POINTERS, onFrame, { onStatus });
 }
 
 // ---------------------------------------------------------------- mania column proportions
@@ -326,8 +349,8 @@ function codeWidth(specs) {
 /**
  * Builds the caps and sizes every column for the box. Layout time only (allocates freely).
  * When the box is too narrow, fields drop in order instead of text shrinking below the type
- * scale: osu!'s mouse-button caps first, then the hero (the readout steps down to 32 px, with the
- * mouse caps back if that fits), then the readout; only then does --u fall below 1.
+ * scale: osu!'s smoke cap first, then the hero (the readout steps down to 32 px, with the smoke
+ * cap back if that fits), then the readout; only then does --u fall below 1.
  */
 function layout() {
   layoutDirty = false;
@@ -342,7 +365,7 @@ function layout() {
   let u = H / BASE_H;
   let total = false, sparkShown = false;
   let readout = kpsShown ? 'full' : 'off';
-  // Row layout plan, decided before the caps are built (osu!'s mouse-button caps may drop).
+  // Row layout plan, decided before the caps are built (osu!'s smoke cap may drop).
   let avail = W / u - 2 * pad, capNeed = CAP_MIN, capW = CAP_MIN, capPad = 8;
   const title = !!specs[0]?.title;
   if (!vertical && mode !== 'mania') {
@@ -352,8 +375,8 @@ function layout() {
     const readW = r => (r === 'full' ? STATS_W + GAP : r === 'compact' ? COMPACT_W + COMPACT_GAP : 0);
     if (readout === 'full') {
       // First plan that fits, in the order fields are given up.
-      const extra = mode === 'osu' && specs.length > 2;
-      const plans = [['full', specs.length], ['full', extra ? 2 : 0], ['compact', specs.length], ['compact', extra ? 2 : 0], ['off', specs.length]];
+      const smoke = mode === 'osu' && specs.length > 2;
+      const plans = [['full', specs.length], ['full', smoke ? 2 : 0], ['compact', specs.length], ['compact', smoke ? 2 : 0], ['off', specs.length]];
       for (const [r, k] of plans) {
         if (!k || capsW(k) + readW(r) > avail) continue;
         readout = r; specs = specs.slice(0, k);
@@ -446,6 +469,7 @@ function layout() {
   }
   shown.kps = shown.peak = shown.total = shown.label = null;
   sparkDirty = true;
+  syncClock(); // the readout may have come or gone
 }
 
 // ---------------------------------------------------------------- render (per data frame; writes only changes)
@@ -602,7 +626,7 @@ new ResizeObserver(([entry]) => {
   render(performance.now());
 }).observe(document.body);
 
-const sub = subscribe(Object.values(P), onFrame, { onStatus });
+syncClock();
 
 const DEFAULTS = {
   motion: 'full', backing: 'scrim', marks: 'neutral', showKps: true, orientation: 'auto', align: 'center',

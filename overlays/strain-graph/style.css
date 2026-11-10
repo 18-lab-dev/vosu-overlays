@@ -29,7 +29,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .slot > :not([data-out]) { transition-delay: var(--dur-fast); }
 .chip--kiai { color: var(--map); }
 .chip--break { color: var(--text-2); }
-.w[data-marks="off"] .chip { display: none; }
+.w[data-chips="off"] .chip { display: none; }
 
 .legend { display: inline-flex; align-items: center; gap: var(--s-3); }
 .legend span { display: inline-flex; align-items: center; gap: var(--s-1); }
@@ -98,3 +98,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .w[data-orient="v"][data-track="on"] { bottom: 0; right: auto; }
 .w[data-orient="v"][data-track="on"] .body { flex: 1 1 auto; }
 .w[data-orient="v"][data-track="on"][data-align="right"] { left: auto; right: 0; }
+
+/* Narrow box (the 216 px osu!/catch column): when title and clock do not fit at the kit's sizes,
+   the total gives way (overlay.js measures it) instead of any text shrinking below 14 px. */
+.w[data-tight="on"] .clock .total { display: none; }

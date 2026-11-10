@@ -42,6 +42,7 @@ const breakChip = $('break');
 const statusText = $('status');
 const nowText = $('now');
 const totalText = $('total');
+const headRow = document.querySelector('.head');
 const ctx = canvas.getContext('2d', { alpha: true });
 const liftCtx = liftCanvas.getContext('2d', { alpha: true });
 
@@ -65,7 +66,7 @@ const UNDER = 'rgb(11 12 13 / 0.6)';
 // The map's identity inks (--map: the map's tone, or neutral); rebuilt, with a re-raster, only
 // when the map colour changes. Unplayed strain is neutral; nothing here is amber ("you").
 const INK = {
-  map: '', litEdge: '', base: '', bandDim: '', wash: '',
+  map: '', litEdge: '', base: '', bandDim: '', wash: '', kiaiHi: '', kiaiEdge: '',
   dimFill: rgba(C.text1, 0.12), dimEdge: rgba(C.text1, 0.55), hair: rgba(C.text1, 0.22), grid: rgba(C.text1, 0.1),
   preview: C.text3,
   // Per-skill bands: tonal steps of the map colour (lighter, the colour, darker, neutral).
@@ -78,6 +79,8 @@ function setTint(hex) {
   INK.base = rgba(hex, 0.55);
   INK.bandDim = rgba(hex, 0.8);
   INK.wash = rgba(hex, 0.16);
+  INK.kiaiHi = mix(hex, C.text1, 0.5);
+  INK.kiaiEdge = mix(hex, C.text1, 0.7);
   INK.skills[0] = hex;
   INK.skills[1] = mix(hex, C.text1, 0.5);
   INK.skills[2] = mix(hex, C.ground, 0.45);
@@ -103,7 +106,7 @@ const reveal = plot.animate(REVEAL_H, { duration: MOTION_MS.slow, easing: 'cubic
 reveal.finish();
 
 // ---------------------------------------------------------------- state
-const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, motion: 'full', backing: 'scrim', mapTint: true };
+const opts = { orientation: 'auto', align: 'left', view: 'combined', showTime: true, showMarks: true, showInSelect: true, motion: 'full', backing: 'scrim', marks: 'neutral', mapTint: true };
 const view = { phase: null, kiai: false, brk: false, checksum: '', status: 'connecting', show: 'status', motion: 'full', legend: false };
 // The set's map clock: span (first → last object, else the audio), elapsed and total.
 const clock = createMapClock();
@@ -123,7 +126,7 @@ const graph = { skills: [], start: 0, span: 0, fromClock: false, clockStart: NaN
 // Device-pixel geometry. u runs along time (0..L), v across it (0 = peak side, T = baseline).
 const size = { w: 0, h: 0, cssW: 0, cssH: 0, cssL: 0, ratio: 1, lw: 1, L: 0, T: 0 };
 const geo = { vertical: false, align: 'left', m: [1, 0, 0, 1, 0, 0] }; // ints only: no boxing per setTransform
-const drawn = { px: -2, sec: -2, total: -1 };
+const drawn = { px: -2, sec: -2, total: -1, nowLen: -1 };
 const lifted = { u0: -1, u1: -1 }; // the kiai section the lift layer holds (device px)
 const TAU = Math.PI * 2;
 let needleX = 0.5, needleR = 3; // needle centre offset from the playhead column, radius (device px)
@@ -131,6 +134,12 @@ const lit = document.createElement('canvas');
 const dim = document.createElement('canvas');
 const litCtx = lit.getContext('2d');
 const dimCtx = dim.getContext('2d');
+// The same silhouette in its kiai look (lighter map tone, played and ahead): kiai sections are
+// blitted from these over the plain layers, so kiai shows in the fill itself.
+const kiaiLit = document.createElement('canvas');
+const kiaiDim = document.createElement('canvas');
+const kiaiLitCtx = kiaiLit.getContext('2d');
+const kiaiDimCtx = kiaiDim.getContext('2d');
 const NONE = new Float32Array(0);
 let surface = NONE; // silhouette v per u column, for the playhead needle
 let rawLevel = NONE; // one skill resampled per u column (raster scratch)
@@ -376,6 +385,7 @@ function layoutBox() {
     reveal.effect.setKeyframes(vertical ? REVEAL_V : REVEAL_H);
     resize(size.cssW, size.cssH, true);
   }
+  fitHead();
 }
 
 // ---------------------------------------------------------------- model
@@ -519,9 +529,14 @@ function raster() {
   rasterDirty = false;
   frameDirty = true;
   const { w, h, lw, L, T, ratio } = size;
-  if (lit.width !== w || lit.height !== h) { lit.width = dim.width = w; lit.height = dim.height = h; }
+  if (lit.width !== w || lit.height !== h) {
+    lit.width = dim.width = kiaiLit.width = kiaiDim.width = w;
+    lit.height = dim.height = kiaiLit.height = kiaiDim.height = h;
+  }
   litCtx.setTransform(1, 0, 0, 1, 0, 0); litCtx.clearRect(0, 0, w, h);
   dimCtx.setTransform(1, 0, 0, 1, 0, 0); dimCtx.clearRect(0, 0, w, h);
+  kiaiLitCtx.setTransform(1, 0, 0, 1, 0, 0); kiaiLitCtx.clearRect(0, 0, w, h);
+  kiaiDimCtx.setTransform(1, 0, 0, 1, 0, 0); kiaiDimCtx.clearRect(0, 0, w, h);
   computeTicks();
   // Map ms → device px along time for the playhead and the kiai/break sections.
   graph.k = graph.span && L ? L / graph.span : 0;
@@ -621,6 +636,34 @@ function raster() {
   };
   paint(litCtx, true);
   paint(dimCtx, false);
+  if (!graph.skills.length) return; // a bare track marks kiai with its band only
+  // Kiai: the plain layer under a lighter map sheen and a light edge (played), or a map wash and
+  // a map edge where it is still ahead, so a kiai section reads as a lit block of the silhouette.
+  paint(kiaiLitCtx, true);
+  area(kiaiLitCtx, levels[0], top);
+  const sheen = kiaiLitCtx.createLinearGradient(0, ceiling, 0, floor);
+  sheen.addColorStop(0, rgba(INK.kiaiHi, 0.95));
+  sheen.addColorStop(1, rgba(INK.kiaiHi, 0.55));
+  kiaiLitCtx.fillStyle = sheen;
+  kiaiLitCtx.fill();
+  edge(kiaiLitCtx, top, INK.kiaiEdge, true);
+  paint(kiaiDimCtx, false);
+  area(kiaiDimCtx, levels[0], top);
+  kiaiDimCtx.fillStyle = rgba(INK.map, 0.42);
+  kiaiDimCtx.fill();
+  edge(kiaiDimCtx, top, INK.kiaiEdge, true);
+}
+
+/** Kiai sections in the fill: each run's u-range comes from the kiai layers, played part from the
+ *  lit one and the part still ahead from the dim one (identity transform, like blit). */
+function kiaiFill(split) {
+  const list = marks.kiai, k = graph.k, s = graph.start, L = size.L;
+  for (let i = 0; i < list.length; i++) {
+    const run = list[i];
+    const u0 = clamp(Math.round((run[0] - s) * k), 0, L), u1 = clamp(Math.round((run[1] - s) * k), 0, L);
+    blit(kiaiLit, u0, u1 < split ? u1 : split);
+    blit(kiaiDim, u0 > split ? u0 : split, u1);
+  }
 }
 
 // ---------------------------------------------------------------- frame
@@ -656,20 +699,22 @@ function blit(layer, u0, u1) {
   else ctx.drawImage(layer, u0, 0, u1 - u0, T, u0, 0, u1 - u0, T);
 }
 
-/** The active kiai section, lifted: a map wash over the silhouette and a brighter, thicker band
- *  on the baseline. Its layer fades in and out with the section (CSS), so it is redrawn only when
- *  the section's extent moves by a device pixel. */
+/** The active kiai section, lifted: the part still ahead of the playhead in its played kiai look,
+ *  clipped to the silhouette, over a brighter, thicker band on the baseline. Its layer fades in
+ *  and out with the section (CSS), so it is redrawn only when that range moves by a device pixel. */
 function drawLift(u0, u1) {
   lifted.u0 = u0;
   lifted.u1 = u1;
-  const { w, h, lw, T } = size;
+  const { w, h, lw, L, T } = size;
   const m = geo.m;
   liftCtx.setTransform(1, 0, 0, 1, 0, 0);
   liftCtx.clearRect(0, 0, w, h);
   if (u1 <= u0) return;
+  if (graph.skills.length) {
+    if (geo.vertical) liftCtx.drawImage(kiaiLit, 0, L - u1, T, u1 - u0, 0, L - u1, T, u1 - u0);
+    else liftCtx.drawImage(kiaiLit, u0, 0, u1 - u0, T, u0, 0, u1 - u0, T);
+  }
   liftCtx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
-  liftCtx.fillStyle = INK.wash;
-  liftCtx.fillRect(u0, 0, u1 - u0, T - lw);
   liftCtx.fillStyle = C.text1;
   liftCtx.fillRect(u0, kiaiBand() - lw, u1 - u0, 3 * lw);
 }
@@ -690,6 +735,7 @@ function writeMeta() {
   setData(widget, 'phase', view.phase || 'none');
   setText(titleText, view.phase === 'select' ? 'Strain preview' : 'Strain');
   updateSlot();
+  fitHead();
   liftCanvas.classList.toggle('on', view.kiai && opts.showMarks && show === 'on');
   statusText.hidden = show !== 'status';
   setText(statusText, view.status === 'offline' ? 'vosu offline' : view.status === 'live' ? 'osu! not running' : 'Connecting…');
@@ -709,6 +755,16 @@ function writeLegend() {
     }
   }
   updateSlot();
+  fitHead();
+}
+
+/** Narrow boxes (the 216 px osu!/catch column): when the title and the clock do not fit on one
+ *  line at the kit's sizes, the total ("of 2:24") is dropped instead of shrinking any text below
+ *  14 px. Measured only when the header's text or the box changes (one layout read). */
+function fitHead() {
+  if (view.show !== 'on' || geo.vertical) { setData(widget, 'tight', 'off'); return; }
+  setData(widget, 'tight', 'off');
+  if (headRow.scrollWidth > headRow.clientWidth) setData(widget, 'tight', 'on');
 }
 
 function frame() {
@@ -726,12 +782,17 @@ function frame() {
   if (!placed(tick.live)) locate();
   const px = head.px, sec = head.sec;
   // Readouts format only when their value moves: the clock once a second, the total per model.
-  if (sec !== drawn.sec || frameDirty) setText(nowText, sec >= 0 ? formatDuration(sec * 1000) : DASH);
+  if (sec !== drawn.sec || frameDirty) {
+    setText(nowText, sec >= 0 ? formatDuration(sec * 1000) : DASH);
+    // Tabular figures: the clock's width only changes with its length (— → 0:00 → 10:00).
+    const len = nowText.$text.length;
+    if (len !== drawn.nowLen) { drawn.nowLen = len; fitHead(); }
+  }
   drawn.sec = sec;
   if (frameDirty) {
     const total = graph.fromClock ? clock.total() : NaN;
     const shown = isKnown(total) ? Math.floor(total / 1000) : -1;
-    if (shown !== drawn.total) { drawn.total = shown; setText(totalText, shown >= 0 ? 'of ' + formatDuration(total) : ''); }
+    if (shown !== drawn.total) { drawn.total = shown; setText(totalText, shown >= 0 ? 'of ' + formatDuration(total) : ''); fitHead(); }
   }
   if (px === drawn.px && !frameDirty) return;
   drawn.px = px;
@@ -747,8 +808,11 @@ function frame() {
     blit(lit, 0, px);
     blit(dim, px, L);
   } else ctx.drawImage(lit, 0, 0);
-  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   const split = play && px >= 0 ? px : L;
+  if (marksOn && graph.skills.length) kiaiFill(split);
+  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  // While the map is in kiai the playhead widens to 3 px: the section shows from its first frame.
+  const kiaiNow = view.kiai && opts.showMarks && marksOn;
   if (marksOn) {
     // Breaks are gaps in the fill; kiai is a 2 px map band on the baseline, lighter where played.
     runs(ctx, marks.brk, 0, graph.skills.length ? T - lw : T, 0, L, true);
@@ -761,16 +825,21 @@ function frame() {
   if (view.kiai && marksOn && view.motion === 'full') {
     const found = activeKiai(tick.live);
     const k = graph.k, s = graph.start;
-    const u0 = found ? clamp(Math.round((active.a - s) * k), 0, L) : 0;
+    // The lift covers what is still ahead in the section (behind the playhead the fill already
+    // has its kiai look), and never the playhead itself: its layer sits above the graph.
+    const ahead = split < L ? split + 2 * lw : L;
+    let u0 = found ? clamp(Math.round((active.a - s) * k), 0, L) : 0;
+    if (u0 < ahead) u0 = ahead;
     const u1 = found ? clamp(Math.round((active.b - s) * k), 0, L) : 0;
     if (u0 !== lifted.u0 || u1 !== lifted.u1) drawLift(u0, u1);
   }
   if (px >= 0) {
     const u = Math.min(px, L - lw);
     ctx.fillStyle = UNDER;
-    ctx.fillRect(u - lw, 0, 3 * lw, T);
-    ctx.fillStyle = play ? INK.litEdge : INK.preview;
-    ctx.fillRect(u, 0, lw, T);
+    ctx.fillRect(u - (kiaiNow ? 2 : 1) * lw, 0, (kiaiNow ? 5 : 3) * lw, T);
+    ctx.fillStyle = play ? (kiaiNow ? INK.kiaiEdge : INK.litEdge) : INK.preview;
+    if (kiaiNow) ctx.fillRect(u - lw, 0, 3 * lw, T);
+    else ctx.fillRect(u, 0, lw, T);
     // Needle: where the playhead meets the strain silhouette.
     if (graph.skills.length) {
       ctx.beginPath();
@@ -814,6 +883,8 @@ new ResizeObserver(entries => {
   resize(box.width, box.height);
 }).observe(plot);
 addEventListener('resize', layoutBox);
+// Text widths change once the bundled fonts arrive (they load on first use, after this runs).
+document.fonts.addEventListener('loadingdone', fitHead);
 
 // ---------------------------------------------------------------- settings + subscription
 settings({ ...opts }, s => {
@@ -830,7 +901,7 @@ settings({ ...opts }, s => {
   const tintChanged = tint !== opts.mapTint;
   opts.mapTint = tint;
   setData(widget, 'time', opts.showTime ? 'on' : 'off');
-  setData(widget, 'marks', opts.showMarks ? 'on' : 'off');
+  setData(widget, 'chips', opts.showMarks ? 'on' : 'off');
   layoutBox();
   if (tintChanged) loadPalette(view.checksum);
   else applyColors();

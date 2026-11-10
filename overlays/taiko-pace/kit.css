@@ -119,30 +119,38 @@ html[data-theme] { color-scheme: normal; }
 }
 .kit[data-backing="none"] { text-shadow: var(--shade); }
 
-/* Signature: amber registration marks at the box's top-left and bottom-right corners, the same on
-   every overlay (2 px stroke, 12 px arms, on the corner). Drawn by .kit::after; do not use it. */
+/* Signature: registration marks at the box's top-left and bottom-right corners, the same on every
+   overlay (2 px stroke, 12 px arms, on the corner). Drawn by .kit::after; do not use it. The
+   `marks` setting picks them with data-marks on the root: neutral (default, also without the
+   attribute: warm white at 40 %), amber (both corners in --you), tl (amber, top-left only), none. */
 .kit::after {
   --arm: calc(var(--u, 1) * 12px);
   --stroke: max(2px, calc(var(--u, 1) * 2px));
+  --mark: var(--hair-strong);
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(var(--you), var(--you)) left top / var(--arm) var(--stroke) no-repeat,
-    linear-gradient(var(--you), var(--you)) left top / var(--stroke) var(--arm) no-repeat,
-    linear-gradient(var(--you), var(--you)) right bottom / var(--arm) var(--stroke) no-repeat,
-    linear-gradient(var(--you), var(--you)) right bottom / var(--stroke) var(--arm) no-repeat;
+    linear-gradient(var(--mark), var(--mark)) left top / var(--arm) var(--stroke) no-repeat,
+    linear-gradient(var(--mark), var(--mark)) left top / var(--stroke) var(--arm) no-repeat,
+    linear-gradient(var(--mark), var(--mark)) right bottom / var(--arm) var(--stroke) no-repeat,
+    linear-gradient(var(--mark), var(--mark)) right bottom / var(--stroke) var(--arm) no-repeat;
 }
+.kit:is([data-marks="amber"], [data-marks="tl"])::after { --mark: var(--you); }
+.kit[data-marks="tl"]::after { background-size: var(--arm) var(--stroke), var(--stroke) var(--arm), 0 0, 0 0; }
 /* The marks leave with the card: an overlay hiding its .kit root fades them with it; one hiding
    only its content still gets them faded out here. */
 .kit::after { transition: opacity var(--dur-base) var(--ease-out); }
 .kit[data-view="hidden"]::after { opacity: 0; }
-.kit[data-signature="off"]::after { display: none; }
+.kit:is([data-marks="none"], [data-signature="off"])::after { display: none; }
 
 /* ------------------------------------------------------------------ type
-   Sizes at --u = 1 on a 1080p canvas. Nothing a viewer needs to read is below 14 px (≈ 9 px on a
-   720p stream). One hero per overlay. Labels are sentence case in Barlow, never mono caps. */
+   Sizes at --u = 1 on a 1080p canvas, and every overlay's --u is 1 at each of its placement boxes:
+   there, no computed font size a viewer needs is below 14 px (≈ 9 px on a 720p stream); units and
+   essential captions are 16. Smaller boxes than any placement (replay-renderer layers sized down)
+   scale freely so compact layouts keep their fields. One hero per overlay. Labels are sentence case
+   in Barlow, never mono caps. */
 .kit-hero {
   font: 600 calc(var(--u, 1) * 52px)/1 var(--font-display);
   letter-spacing: -.01em;
@@ -175,10 +183,11 @@ html[data-theme] { color-scheme: normal; }
   color: var(--text-3);
 }
 /* Units follow their number: lowercase in markup (px ms pp kps bpm), 40 % of the number, never
-   below 14 px. `%`, `×` and `★` attach without the gap (.kit-unit.tight). */
+   below 16 px at --u = 1 (units carry meaning). `%`, `×` and `★` attach without the gap
+   (.kit-unit.tight). */
 .kit-unit {
   margin-left: .2em;
-  font: 500 max(calc(var(--u, 1) * 14px), .4em)/1 var(--font-body);
+  font: 500 max(calc(var(--u, 1) * 16px), .4em)/1 var(--font-body);
   letter-spacing: .01em;
   color: var(--text-2);
 }

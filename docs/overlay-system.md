@@ -29,6 +29,8 @@ Owner decisions this system implements (2026-11-09): data osu!'s HUD already sho
 
 Sizes at `--u: 1` on a 1080p canvas; every size scales with `--u`. On a 720p stream 14 px becomes ≈ 9 px, the smallest size that survives H.264. Numerals are tabular everywhere (`.kit` sets `tabular-nums lining-nums`).
 
+**The floor, as computed font size.** At every placement box in an overlay's `metadata.txt`, no text a viewer needs has a computed `font-size` below 14 px (`.kit-tick` is the only exemption); units and captions that carry essential information (a gap, a budget, a unit) are 16 px. The rule is about the CSS size, not glyph height: 14 px Barlow digits are 10–12 px tall, which is expected. Every overlay sets `--u = 1` at each of its placement boxes (its reference size per box), so the roles below hold the floor there by construction. When a box is too small for the floor, the overlay drops a field (lowest-priority first) rather than shrinking text. Boxes smaller than every placement box (a replay-renderer layer the user sized down, e.g. 474×72) are compact mode: `--u` goes below 1 and text scales with it, so a compact layout keeps its drum, counts or rows instead of overflowing. The kit therefore does not clamp roles with `max(14px, …)`: at a placement box it would change nothing (`--u` is 1), and below one it would overflow the compact layouts. Check with the stage's `floor=1` (red outline on anything under 14 px, list in `#floor`).
+
 | Role | Class | Font | Size / line | Colour | Use |
 | --- | --- | --- | --- | --- | --- |
 | Hero | `kit-hero` | Barlow Condensed 600 | 52 / 1 | `--text-1` | The one number the overlay exists for (pp, UR, ratio, rank, OK budget). Exactly one per overlay. |
@@ -36,8 +38,8 @@ Sizes at `--u: 1` on a 1080p canvas; every size scales with `--u`. On a 720p str
 | Title | `kit-title` | Barlow 600 | 20 / 1.2 | `--text-1` | Map title, player name. Two lines max, ellipsis at the character level. |
 | Text | `kit-text` | Barlow 500 | 16 / 1.25 | `--text-2` | Artist, difficulty, mapper, secondary text. |
 | Label | `kit-label` | Barlow 500 | 14 / 1.15 | `--text-2` | What a number is: `If FC`, `Gap to #12`. Sentence case, no mono caps, no colon. |
-| Caption | `kit-caption` | Barlow 400 | 14 / 1.2 | `--text-3` | Context: `last 10 s`, `of 2:24`, `mapped by …`. |
-| Unit | `kit-unit` | Barlow 500 | 40 % of its number, ≥ 14 | `--text-2` | Inside the number's element, lowercase in markup: `px ms pp kps bpm`. `%`, `×`, `★` take `kit-unit tight` (no gap). |
+| Caption | `kit-caption` | Barlow 400 | 14 / 1.2 | `--text-3` | Context a viewer can do without: `last 10 s`, `of 2:24`, `mapped by …`. Captions that carry the datum (a gap such as `−88,938 to #12`, a budget) use `kit-text` (16). |
+| Unit | `kit-unit` | Barlow 500 | 40 % of its number, ≥ 16 | `--text-2` | Inside the number's element, lowercase in markup: `px ms pp kps bpm`. `%`, `×`, `★` take `kit-unit tight` (no gap). |
 | Code | `kit-code` | IBM Plex Mono 500 caps | 14 / 1 | `--text-2` | Things that are caps in the game: mods `HDDT`, keys `K1 M2`, `FAIL`. |
 | Tick | `kit-tick` | IBM Plex Mono 400 | 11 / 1 | `--text-3` | Purely decorative axis ticks a viewer never needs. The only role below 14. |
 | Fraction | `kit-frac` | inherits | 60 % | `--text-2` | The small decimal after a hero (`1,075.3`), inside the hero element. |
@@ -52,8 +54,9 @@ All in `kit.css`. Never use a game colour for anything but its game meaning, and
 | --- | --- | --- |
 | `--text-1` / `--text-2` / `--text-3` | `#efece5` / `#d3cfc6` / `#ada99f` | Values / labels, units, secondary text / captions, dash. Warm-tinted; all pass 4.5:1 at 14 px on the scrim over a white background. |
 | `--hair`, `--hair-strong` | 22 % / 40 % warm white | Hairlines, tracks, unplayed outlines / axes, panel edge. |
-| `--you` (`--on-you`) | `#ff963f` 18-LAB amber | You and the signature: your leaderboard row's rule and rank, the registration marks, lit/pressed keys (as an underline), a "you" hero accent. Constant on every map. |
-| `--map` | map tone 80 (`--map-accent`) or `--map-neutral` `#c9c4ba` | Map identity only: progress fill, playhead, strain fill, the title's star, map-derived graphics. Neutral without a palette or with `mapTint` off. |
+| `--you` (`--on-you`) | `#ff963f` 18-LAB amber | You, and only you: your leaderboard row's rule and rank, your profile tile, your pp-rail fill, lit/pressed keys (as an underline, never a filled slab), a "you" hero accent. At most one amber element per overlay at rest. Constant on every map. |
+| `--map` | map tone 80 (`--map-accent`) or `--map-neutral` `#c9c4ba` | Map identity only: progress fill, playhead, strain fill, the title's star, map-derived graphics. Neutral without a palette or with `mapTint` off. Never amber: a map hue within 30° of `--you` (HCT hue 55) is desaturated to a warm grey (`mapChroma()` in `mapPalette()`), so an orange background cannot paint its strain in the "you" colour. |
+| `--mark` | `--hair-strong` (default) or `--you` | The registration marks, per the `marks` setting (see [Signature](#signature)). |
 | `--j-max` `--j-great` `--j-good` `--j-ok` `--j-meh` `--j-miss` | `#efece5` `#7fa6cf` `#6fbf8e` `#b8b5ad` `#dcc35a` `#ef5b4f` | Judgements (MAX/320, 300, 200/katu, 100, 50, miss/slider break/FAIL). `--j-meh` moved from amber to yellow so 50s never read as "you". |
 | `--early`, `--late` | `#69b7d6`, `#e58aa6` | Timing direction on hit-error displays only. Not amber, not judgement colours. |
 | `--don`, `--kat` | `#e8573e`, `#4f9fc4` | Taiko colours (zones, notes). |
@@ -99,7 +102,15 @@ Every backing, `none` included, gets the same `--pad` padding from `.kit`, so th
 
 ## Signature
 
-**Amber registration marks** on every overlay: two L-shaped marks, 2 px stroke, 12 px arms (× `--u`), on the top-left and bottom-right corners of the `.kit` box, in `--you`. They are drawn by `.kit::after` from static gradients (no DOM, painted once), identical on every overlay and every backing, and they fade out with the card (`--dur-base`) when the root gets `data-view="hidden"`. They make the set read as authored drafting work (registration marks are the drafting sheet's own device, and DRAFTING is 18-LAB's second mode) without a logo, in the one colour that never changes. Do not add other corner brackets, rules or badges; `data-signature="off"` exists only for the kit demo.
+**Registration marks** on every overlay: two L-shaped marks, 2 px stroke, 12 px arms (× `--u`), on the top-left and bottom-right corners of the `.kit` box. They are drawn by `.kit::after` from static gradients (no DOM, painted once), identical on every overlay and every backing, and they fade out with the card (`--dur-base`) when the root gets `data-view="hidden"`. They make the set read as authored drafting work (registration marks are the drafting sheet's own device, and DRAFTING is 18-LAB's second mode) without a logo.
+
+Their colour is the per-overlay `marks` setting, written to `data-marks` on the root by `applyKitSettings()`:
+- **neutral** (default; also when the attribute is missing): warm white at 40 % (`--hair-strong`). A stack of overlays no longer reads as a ladder of orange brackets, and amber stays free to mean "you".
+- **amber**: both marks in `--you`; for the overlay that is about you (leaderboard, profile-card) if the streamer wants the signature there.
+- **tl**: amber, top-left mark only.
+- **none**: no marks.
+
+Do not add other corner brackets, rules or badges; `data-signature="off"` exists only for the kit demo.
 
 ## Spacing
 
@@ -136,13 +147,16 @@ Rules (with the motion brief):
 
 ## Settings
 
-Every overlay carries `motion` and `backing`; `mapTint` only where it has a map-identity element (progress, playhead, star, strain fill, map-derived graphics), since it would be a no-op elsewhere; `hudFields` only where it shows HUD data; `show…` toggles only for shared secondary values. Copy these into `settings.json` (edit only the description's overlay-specific part):
+Every overlay carries `motion`, `backing` and `marks`; `mapTint` only where it has a map-identity element (progress, playhead, star, strain fill, map-derived graphics), since it would be a no-op elsewhere; `hudFields` only where it shows HUD data; `show…` toggles only for shared secondary values. Copy these into `settings.json` (edit only the description's overlay-specific part; `marks` is identical everywhere, placed right after `backing`), and list every one of them in the defaults you pass to `settings()` so it reaches `applyKitSettings()`:
 
 ```json
 {"uniqueID":"motion","type":"options","title":"Motion","options":["full","reduced","off"],"description":"full = values ease, events flash, kiai sections breathe. reduced = values and enter/exit still ease; no pulses, flashes or kiai ambience. off = everything instant.","value":"full"}
 ```
 ```json
 {"uniqueID":"backing","type":"options","title":"Backing","options":["scrim","panel","none"],"description":"scrim = a dark field with soft edges that keeps small text readable on bright maps. panel = a solid graphite panel. none = text straight on the game with a contrast shadow; only for a dimmed background.","value":"scrim"}
+```
+```json
+{"uniqueID":"marks","type":"options","title":"Corner marks","options":["neutral","amber","tl","none"],"description":"The 18-LAB registration marks on the box's top-left and bottom-right corners. neutral = warm white. amber = both in 18-LAB amber. tl = amber, top-left only. none = no marks.","value":"neutral"}
 ```
 ```json
 {"uniqueID":"mapTint","type":"checkbox","title":"Map colour","description":"Colour the map's identity (progress, star, strain fill) from the map's background. Off = neutral. Your own highlights stay 18-LAB amber either way.","value":true}
@@ -174,7 +188,11 @@ Each value several overlays show has one computation (in `vosu-overlay.js`) and 
 | Kiai, beat | `createBeatClock()` (`/json/sc` per checksum, `/beatmap/isKiai`) | — (motion only) | — |
 | Score, accuracy, combo, judgement counts | none: osu!'s HUD owns them | — | `hudFields` off (judgement-ratio, taiko-pace, fruit-ledger) |
 
-Declared alternatives (pick one; they share a slot and overlap by design, or sit in separate slots where there is room): **now-playing / now-playing-ticker** (map identity; in osu!, catch and taiko the ticker has its own top slot, in mania they share the top-left); **catcher-trail / catcher-heatmap** (the same catcher data); **taiko-drum / key-overlay / key-counter** in taiko (the taiko input display); **key-overlay / key-counter** in catch (shared slot) and in mania (separate slots: both are caps with counts there; key-overlay's tape is opt-in in mania).
+Declared alternatives (pick one; they share a slot and overlap by design, or sit in separate slots where there is room):
+- **now-playing / now-playing-ticker**: map identity. In osu!, catch and taiko the ticker has its own top slot; in mania they share the top-left.
+- **key-overlay / key-counter**, in every ruleset: both show per-key presses. Separate slots in osu! and mania, a shared slot in catch, and in taiko the shared input slot with taiko-drum (**taiko-drum / key-overlay / key-counter**).
+- **kps-graph / key-counter's KPS**, in mania: kps-graph owns KPS there. Overlays cannot see each other, so key-counter cannot hide its copy by itself: when both run, turn key-counter's `showKps` off (its setting description says so).
+- **catcher-trail / catcher-heatmap**: the same catcher data.
 
 ## Shared JS (vosu-overlay.js)
 
@@ -187,8 +205,34 @@ All allocation-free on the per-frame path once V8 has optimised them; create obj
 | `createKps()` → `.ingest(keysAll, live, rate)`, `.at(live)`, `.peak`, `.total`, `.available`, `.expiresAt`, `.reset()`; `KPS_WINDOW_MS` | Keys per second. Feed `/keys/all` with `/beatmap/time/live` and the clock rate; `expiresAt` is the map time of the next drop (schedule one wake-up, no loop). |
 | `createMapClock()` → `.sample(live, rate, first, last, mp3, pageNow)`, `.now(pageNow)`, `.elapsed(mapMs)`, `.total()`, `.progress(mapMs)`; `MAP_TIME_POINTERS` | Map time and progress. |
 | `createBeatClock({ onChange })` → `.setMap(checksum)`, `.setKiai(on)`, `.at(mapMs)` (sets `.index`, `.phase`, `.beatLength`), `.hasBeat`, `.kiai`; `BEAT_POINTERS` | Beat phase for beat-synced motion; kiai only without `/json/sc`. |
-| `motionLevel(v)`, `applyKitSettings(root, settings)`, `MOTION_LEVELS`, `MOTION_MS`, `BACKINGS` | Shared settings → `data-motion` / `data-backing` / `data-map-tint`. |
+| `motionLevel(v)`, `applyKitSettings(root, settings)`, `MOTION_LEVELS`, `MOTION_MS`, `BACKINGS`, `MARKS` | Shared settings → `data-motion` / `data-backing` / `data-map-tint` / `data-marks` (marks only for a known value). |
+| `mapChroma(hue, chroma)`, `YOU_HUE`, `YOU_HUE_GUARD` | The map-tint guard `mapPalette()` applies (hues within 30° of amber drop to chroma 8). |
+| `keyLabels(ruleset, keyCount)` → `{ short, long }` | The one name per key (see [Words](#words)). Frozen, cached. |
+| `ELLIPSIS`, `NAME_KEEP`, `ellipsize(text, length)`, `splitTitle(title)`, `fitFields(fields, fits)` | Single-line truncation (see [Words](#words)). Run on text changes, not per frame. |
 | `subscribe`, `settings`, `fit`, `activeMode`, `isPlaying`, `mean`, `unstableRate`, `formatDuration`, `osuLayout`, `maniaSkin`, `mapPalette`, `applyPalette` | Unchanged. |
+
+## Words
+
+**Key names.** One source, `keyLabels(ruleset, keyCount)`, in vosu's `keys.all` order. `short` goes on caps in `kit-code`; `long` is for labels and accessible names.
+
+| Ruleset | short | long |
+| --- | --- | --- |
+| osu! | `K1` `K2` (+ `M1` `M2` when the list carries the mouse buttons) | Key 1, Key 2, Mouse 1, Mouse 2 |
+| taiko | `L·KAT` `L·DON` `R·DON` `R·KAT` (left rim, left centre, right centre, right rim) | Left kat, Left don, Right don, Right kat |
+| catch | `LEFT` `RIGHT` `DASH` (stable reports only dash: `DASH`) | Left, Right, Dash |
+| mania | `1` … `N`, left to right | Key 1 … Key N |
+
+Never the player's keybind letters (`Z`, `X`, `LSHFT`) or arrows: the same key must read the same in every overlay.
+
+**Truncation.** Single lines are cut with `fitFields(fields, fits)`:
+- Each field has an `order` (lower gives way first) and a `keep`. Equal orders shrink the longest first.
+- `keep: NAME_KEEP` (16) for player and mapper names: a name of 16 characters or fewer is never cut.
+- `keep: 0` lets a field go entirely; `Infinity` keeps it whole.
+- Map lines: the title's bracketed suffix (from `splitTitle()`, e.g. `(covered by …)`, `[TV Size]`) gives way first, then the difficulty name, then the title (keep ≥ 8), never a short mapper.
+- Every cut uses `ellipsize()`: a real `…` (never `...`), with trailing spaces and punctuation (`, ; : - – — ( [ / ·`) removed before it, so `Nanahira, …` becomes `Nanahira…`.
+- `fits(texts)` measures the candidate line (a canvas `measureText` with the line's font, or the element's `scrollWidth`).
+
+**Phrasing.** The mapper is `mapped by X` everywhere (now-playing, the ticker): `by X` reads as the artist. The full-combo value is `If FC` everywhere, label or phrase (`If FC 385 pp`, `+102 pp · If FC`), never `if FC` or `IF FC`. Gaps name their target in every form: `−88,938 to #12`, in the strip too.
 
 ## Placement
 
@@ -199,26 +243,37 @@ All allocation-free on the per-frame path once V8 has optimised them; create obj
 | Axis | Anchor | Page edge it sets | Resolves to |
 | --- | --- | --- | --- |
 | x | `left+N`, `right-N`, `center±N` | left / right / centre | screen |
-| x | `hud-gap±N` | centre | the gap in the top HUD between the health bar and the score: stable 1125 (HP bar ends 735, score starts 1515), lazer Argon 1112 (wedge ends 534, accuracy column starts 1690) |
 | x | `stage-left-N`, `stage-right+N`, `stage-center±N` | right / left / centre | mania stage: stable left edge at ColumnStart (skin.ini, default 136 × 2.25), lazer centred; width from the skin's columns |
 | y | `top+N`, `bottom-N`, `center±N` | top / bottom / centre | screen |
 | y | `lane-top-N`, `lane-bottom+N` | bottom / top | taiko lane (other rulesets: playfield/stage): stable 304–585, lazer 604–886 |
 
-Numbers are px on 1920×1080. Stage, lane and HUD anchors resolve per client in the mock (`client=stable|lazer`).
+Numbers are px on 1920×1080. Stage and lane anchors resolve per client in the mock (`client=stable|lazer`). There is no HUD-relative anchor: vosu reports whether the HUD is shown (`/settings/interfaceVisible`, both clients), but a placement is static and the host positions the page, so it cannot follow that switch. Slots are chosen to clear the default HUD whether it is on or off.
 
 ### Game geometry (1920×1080)
 
 | Ruleset | osu!stable | osu!lazer |
 | --- | --- | --- |
-| osu!, catch playfield | 384–1536 × 126–990; objects reach 82 px further (CS 4 radius) | 384–1536 × 108–972 (8 osu! px higher), same reach |
+| osu!, catch playfield | 384–1536 × 126–990 | 384–1536 × 108–972 (8 osu! px higher) |
 | taiko lane | 0–1920 × 304–585; mascot top-left (40–340 × 80–290) | review frames (replay renderer, owner's layout): 0–1920 × 604–886, mascot 0–300 × 330–610. Stock lazer puts the lane where stable does (`TaikoPlayfieldAdjustmentContainer`, Y = 135/480), so anchors that clear both clear stock lazer. |
 | mania stage | left edge at ColumnStart; owner's skin: 4K 645–1257, 7K 488–1381; HP bar just right of the stage | centred: 4K 654–1266, 7K 513–1407 |
 | HUD (default) | HP bar 15–735 × 12–48; score 1515–1905 × 8–80; accuracy to y 122; combo 15–275 × 981–1075 (osu!, catch); hit error 760–1160 × 1048–1074 (osu!) | Argon: score/health 16–550 × 8–124; accuracy + pp 1690–1904 × 20–136; **song progress along the bottom 96–1824 × 1016–1072** (also in Triangles and the owner's skin); combo 50–300 × 897–987 (osu!, taiko); hit-error bars at the side edges 330–750 |
 
+**What reaches past the playfield** (both clients share x 384–1536; numbers for the right edge, the left is symmetric). From lazer's source: a circle's radius is (54.4 − 4.48 × CS) osu! px × 2.25 on screen; its approach circle starts at 4× that radius and shrinks to 1× over the preempt while fading in to 0.9 opacity over min(2 × fade-in, preempt) (`DrawableHitCircle`, `OsuHitObject`). Stable's source is obfuscated; lazer's comments say it matches stable [not checked against stable itself]. The catch catcher is 106.75 × (1 − 0.7 × (CS − 5) / 5) osu! px wide (× 2.25 on screen) and its centre can stand on the edge, so half of it reaches past.
+
+| CS | Circle edge | Approach circle at 45 % opacity (AR ≥ 8; AR 5) | Approach circle at its start (invisible) | Catch catcher edge |
+| --- | --- | --- | --- | --- |
+| 3 | 1628 | 1766; 1812 | 1905 | 1690 |
+| 4 | 1618 | 1741; 1782 | 1864 | 1673 |
+| 5 | 1608 | 1716; 1752 | 1824 | 1656 |
+| 6 | 1598 | 1691; 1722 | 1784 | — |
+
+No usable column clears approach circles: clearing them at 45 % opacity at CS 4 would leave 131 px of column. The columns start at **x 1680** (left column ends at 240). That clears every hit object at any CS by ≥ 22 px, clears the catch catcher at CS ≥ 4, and shortens an edge object's approach-circle overlap: for an object on the playfield's right edge at CS 4, AR 9 the approach circle crosses x 1640 for 547 ms, reaching 82 % opacity before it leaves; x 1680 cuts that to 449 ms and 67 %. Only objects in the outer ≈ 16 % of the playfield's width send an approach circle into the column at all.
+
 ### Grid
 
-- **Page gutter 24 px** from screen edges and between overlays; at least 24 px from the taiko lane and the mania stage. In osu!/catch the side columns sit 104 px from the playfield, outside the object reach (22 px past a CS 4 circle centred on the playfield edge; lower CS reaches further, which is rare at the very edge).
-- **Columns** in osu!/catch: left 24–280, right 1640–1896 (256 wide: the space outside the object reach). Column tops at y 144 (below both clients' top HUD). Left column ends at y 952 (stable combo); the bottom row ends at **y 1008 (`bottom-72`)**, above lazer's song progress.
+- **Page gutter 24 px** from screen edges and between overlays; at least 24 px from the taiko lane and the mania stage. In osu!/catch the side columns sit 144 px from the playfield (see the reach table above).
+- **Columns** in osu!/catch: left 24–240, right 1680–1896 (**216 wide**). Column tops at y 144 (below both clients' top HUD). Left column ends at y 952 (stable combo); the bottom row ends at **y 1008 (`bottom-72`)**, above lazer's song progress.
+- **Ticker** in osu!, catch and taiko: centred, 400×32 at `top+4` (x 760–1160). It clears stable's default HP bar (ends x 735) and score (starts x 1515) and lazer Argon's top HUD (wedge ends 534, accuracy column starts 1690) by ≥ 24 px whether the HUD is on or off. The bottom edge is no clearer in osu!: circles reach y 1072 there, and stable's hit-error meter and lazer's song progress sit along it.
 - **Taiko**: a top band (y 144–256, from x 368, right of the stable mascot) for identity, a focus row directly under the lane (`lane-bottom+24`, from x 320, right of lazer's combo) for input and pace, and a bottom-right row (`bottom-72`) for pp and the player tag.
 - **Mania**: screen-edge columns (left 24–280, right 1640–1896, both starting at y 144 like the other rulesets, below lazer Argon's score/health block at 16–550 × 8–124) plus two stage-hugging vertical strips (`stage-left-24`, `stage-right+72`, clear of the skin's HP bar).
 - `results-card` (results only) sits at the top right (1056–1896 × 24–120), where no overlay that shows on results lives.
@@ -231,24 +286,24 @@ Positions are `x,y` of the box's top-left, stable · lazer.
 
 | Slot | Overlay | Anchor | Box | x,y stable · lazer |
 | --- | --- | --- | --- | --- |
-| T | now-playing-ticker | `hud-gap`, `top+4` | 720×32 | 765,4 · 752,4 |
-| L1 | leaderboard | `left+24`, `top+144` | 256×400 | 24,144 |
-| L2 | key-overlay | `left+24`, `bottom-248` | 256×264 | 24,568 |
-| L3 | key-counter | `left+24`, `bottom-128` | 256×96 | 24,856 |
-| R1 | now-playing | `right-24`, `top+144` | 256×192 | 1640,144 |
-| R2 | strain-graph | `right-24`, `top+360` | 256×96 | 1640,360 |
-| R3 | profile-card | `right-24`, `bottom-504` | 256×96 | 1640,480 |
-| R4 | aim-scatter | `right-24`, `bottom-240` | 256×240 | 1640,600 |
-| R5 | pp-counter | `right-24`, `bottom-72` | 256×144 | 1640,864 |
+| T | now-playing-ticker | `center`, `top+4` | 400×32 | 760,4 |
+| L1 | leaderboard | `left+24`, `top+144` | 216×400 | 24,144 |
+| L2 | key-overlay (or key-counter; alternatives) | `left+24`, `bottom-248` | 216×264 | 24,568 |
+| L3 | key-counter (or key-overlay; alternatives) | `left+24`, `bottom-128` | 216×96 | 24,856 |
+| R1 | now-playing | `right-24`, `top+144` | 216×192 | 1680,144 |
+| R2 | strain-graph | `right-24`, `top+360` | 216×96 | 1680,360 |
+| R3 | profile-card | `right-24`, `bottom-504` | 216×96 | 1680,480 |
+| R4 | aim-scatter | `right-24`, `bottom-240` | 216×240 | 1680,600 |
+| R5 | pp-counter | `right-24`, `bottom-72` | 216×144 | 1680,864 |
 | X | results-card (results) | `right-24`, `top+24` | 840×96 | 1056,24 |
 
-**osu!catch**: the osu! grid with catch overlays in the same slots: T ticker, L1 leaderboard, L2 key-overlay (key-counter is its alternative here: `left+24`, `bottom-248`, 256×96 → 24,736), L3 fruit-ledger (`left+24`, `bottom-128`, 256×96 → 24,856), R1 now-playing, R2 strain-graph, R3 profile-card, **R4 catcher-heatmap or catcher-trail** (`right-24`, `bottom-240`, 256×240 → 1640,600), R5 pp-counter, X results-card.
+**osu!catch**: the osu! grid with catch overlays in the same slots: T ticker, L1 leaderboard, L2 key-overlay (key-counter is its alternative here: `left+24`, `bottom-248`, 216×96 → 24,736), L3 fruit-ledger (`left+24`, `bottom-128`, 216×96 → 24,856), R1 now-playing, R2 strain-graph, R3 profile-card, **R4 catcher-heatmap or catcher-trail** (`right-24`, `bottom-240`, 216×240 → 1680,600), R5 pp-counter, X results-card.
 
 **osu!taiko**
 
 | Slot | Overlay | Anchor | Box | x,y stable · lazer |
 | --- | --- | --- | --- | --- |
-| T | now-playing-ticker | `hud-gap`, `top+4` | 720×32 | 765,4 · 752,4 |
+| T | now-playing-ticker | `center`, `top+4` | 400×32 | 760,4 |
 | A1 | now-playing | `right-1032`, `top+144` | 520×104 | 368,144 |
 | A2 | strain-graph | `right-528`, `top+144` | 480×112 | 912,144 |
 | A3 | leaderboard | `right-24`, `top+144` | 480×72 | 1416,144 |
@@ -275,20 +330,34 @@ Positions are `x,y` of the box's top-left, stable · lazer.
 
 `ratings-timeline` and `stream-interstitial` are full-screen pages (1920×1080) and have no placement.
 
-Checked on the stage (`?id=*&boxes=1&layout=2`, boxes from `#placements`, busy rect from `#geometry`) for every ruleset × client above, mania at 4K and 7K: no two boxes outside a declared alternative group come closer than 24 px; every box clears the playfield/lane/stage by 24 px or more and stays outside the osu!/catch object reach, except the ticker in lazer, whose bottom 10 px meet the reach of a circle at the very top edge of lazer's playfield (the critique's prescription: ≤ 32 px tall at `top+4`, with the scrim).
+Checked on the stage (`?id=*&boxes=1&layout=2`, boxes from `#placements`, busy rect and reaches from `#geometry`) for every ruleset × client above, mania at 4K and 7K: no two boxes outside a declared alternative group come closer than 24 px; every box clears the playfield/lane/stage by 24 px or more and stays outside the osu!/catch object reach. Approach circles of edge objects cross the osu! columns as tabled above; the ticker's bottom 10 px meet the reach of a circle at the very top edge of lazer's playfield (the critique's prescription: ≤ 32 px tall at `top+4`, with the scrim).
+
+### Recommended layouts
+
+The slot tables above are the reference: every overlay has a place and none collide. A stream does not need them all; the playfield should stay the subject. These lean layouts use at most three overlays per side, alternatives already chosen. Add from the reference tables only what the stream needs.
+
+| Ruleset | Left | Right | Top / under the lane |
+| --- | --- | --- | --- |
+| osu! | leaderboard (L1), key-counter (L3) | now-playing (R1), pp-counter (R5), aim-scatter (R4) for aim-focused streams | — (the ticker only instead of now-playing) |
+| catch | leaderboard (L1), fruit-ledger (L3) | now-playing (R1), pp-counter (R5), catcher-heatmap (R4) | — |
+| taiko | — | pp-counter (B1), profile-card (B2) | now-playing (A1), leaderboard (A3); taiko-drum (F1), taiko-pace (F2) under the lane |
+| mania | now-playing (L1), leaderboard (L2) | pp-counter (R1), judgement-ratio (R2) | kps-graph (SL) beside the stage; strain-graph (SR) optional |
+
+Skipped on purpose: key-overlay where key-counter is on (and the reverse), key-counter's KPS where kps-graph is on, the ticker where now-playing is on, strain-graph's clock duplicates now-playing's progress (pick one for time), catcher-trail where catcher-heatmap is on.
 
 ### Changes from the earlier rules
 
 Kept: osu!/catch a top ticker and side columns; mania horizontal key displays (key-counter) and vertical data; taiko horizontal; the leaderboard where osu!'s board sits; nothing over a playfield, lane or stage.
 
 Changed:
-- **The screen-ellipse rule is replaced by the busy-region rule** (clear of playfield/lane/stage and the object reach). The ellipse only allowed the four corners, which is why nine overlays claimed bottom-right; stacking in columns (the critique's fix) puts column middles inside the ellipse but still 104 px from the playfield. Calm overlays take the column middles (strain-graph, profile-card, leaderboard); per-hit overlays take the corners (pp-counter, key-counter).
+- **The screen-ellipse rule is replaced by the busy-region rule** (clear of playfield/lane/stage and the object reach). The ellipse only allowed the four corners, which is why nine overlays claimed bottom-right; stacking in columns (the critique's fix) puts column middles inside the ellipse but still 144 px from the playfield. Calm overlays take the column middles (strain-graph, profile-card, leaderboard); per-hit overlays take the corners (pp-counter, key-counter).
 - **Mania vertical strips hug the stage** (kps-graph left with its zero on the stage side, strain-graph right): they are read with the stage (critique #16).
 - **Taiko focus data sits directly under the lane** (`lane-bottom+24`), per client, instead of at fixed coordinates fitted to one layout (critique #10, #11).
-- **The ticker uses `hud-gap`**, a named HUD-relative anchor, instead of `left+764`, and is 32 px tall (critique #2). It is not centred because a centred 720 px ticker overlaps the default stable health bar.
+- **The ticker is centred** (`center`, 400 px) instead of `left+764` and, later, the `hud-gap` anchor: a HUD-relative anchor cannot know whether the HUD is shown, and with the HUD off it sat 152–165 px off-centre (critique v2 #12).
+- **osu!/catch columns are 216 px wide from x 1680 / to x 240** (were 256 from 1640 / to 280), checked against approach circles and the catch catcher (critique v2 #4).
 - **Bottom row at `bottom-72`**, clear of lazer's bottom song progress, which all of lazer's default layouts and the owner's skin draw.
 
-Known conflicts left to the user (HUD layouts are skin choices): lazer Argon's combo (bottom-left) meets osu!'s L3 key-counter; Argon's side hit-error bars (16 px wide inside the gutter) meet the side columns between y 330 and 750; osu!stable's own key overlay (the skin's `inputoverlay-key` caps, x ≈ 1862–1916 × y ≈ 466–716; always in replays, in play only when the player turns it on; the stable backdrops show it in osu! and catch) meets the outer ≈ 34 px of R3 profile-card and R4 aim-scatter / catcher-heatmap / catcher-trail; the owner's lazer skin puts the score at top centre, under the ticker. The right column is not narrowed for the stable key overlay because a narrower column would move it into the object reach (x 1618); overlays in R3/R4 keep nothing essential in their outer 40 px between y 466 and 716 when they can. Stable's default mania stage (no skin.ini, ColumnStart 136 → 306) leaves only 306 px left of the stage: kps-graph then meets key-overlay; move one.
+Known conflicts left to the user (HUD layouts are skin choices): lazer Argon's combo (bottom-left) meets osu!'s L3 key-counter; Argon's side hit-error bars (16 px wide inside the gutter) meet the side columns between y 330 and 750; osu!stable's own key overlay (the skin's `inputoverlay-key` caps, x ≈ 1862–1916 × y ≈ 466–716; always in replays, in play only when the player turns it on; the stable backdrops show it in osu! and catch) meets the outer ≈ 34 px of R3 profile-card and R4 aim-scatter / catcher-heatmap / catcher-trail; the owner's lazer skin puts the score at top centre, under the ticker; the catch catcher at CS ≤ 3 reaches up to 10 px into the right column when it stands on the playfield's edge. The right column is not narrowed further because R3/R4 would lose their content width; overlays in R3/R4 keep nothing essential in their outer 40 px between y 466 and 716 when they can. Stable's default mania stage (no skin.ini, ColumnStart 136 → 306) leaves only 306 px left of the stage: kps-graph then meets key-overlay; move one.
 
 ## Proof and tools
 

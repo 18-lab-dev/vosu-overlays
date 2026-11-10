@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   DASH, UNKNOWN, known, isKnown, formatNumber, numberFormatter, NUMBER_FORMATS,
   createKps, KPS_WINDOW_MS, createMapClock, createBeatClock, motionLevel, applyKitSettings,
+  mapChroma, YOU_HUE, keyLabels, ellipsize, splitTitle, fitFields, ELLIPSIS, NAME_KEEP,
 } from './vosu-overlay.js';
 
 test('number conventions: comma grouping, fixed decimals per quantity, real minus, signed deltas', () => {
@@ -220,4 +221,72 @@ test('motion and kit settings normalise to data attributes', () => {
   assert.deepEqual({ ...element.dataset }, { motion: 'off', backing: 'panel', mapTint: 'off' });
   applyKitSettings(element, {});
   assert.deepEqual({ ...element.dataset }, { motion: 'full', backing: 'scrim', mapTint: 'on' });
+});
+
+test('marks: a known value is written to data-marks, anything else leaves the default (neutral)', () => {
+  const element = { dataset: {} };
+  applyKitSettings(element, { marks: 'tl' });
+  assert.equal(element.dataset.marks, 'tl');
+  applyKitSettings(element, { marks: 'none' });
+  assert.equal(element.dataset.marks, 'none');
+  const fresh = { dataset: {} };
+  applyKitSettings(fresh, { marks: 'bogus' });
+  assert.equal(fresh.dataset.marks, undefined);
+});
+
+test('map tint: hues within 30° of amber lose their chroma, others keep it', async () => {
+  assert.equal(mapChroma(YOU_HUE, 36), 8);
+  assert.equal(mapChroma(YOU_HUE + 29, 36), 8);
+  assert.equal(mapChroma(YOU_HUE - 29, 24), 8);
+  assert.equal(mapChroma(YOU_HUE + 31, 36), 36);
+  assert.equal(mapChroma(YOU_HUE + 180, 36), 36);
+  assert.equal(mapChroma(YOU_HUE - 360, 16), 8, 'hue wraps around');
+  const { Hct } = await import('./m3.js');
+  assert.ok(Math.abs(Hct.fromInt(0xffff963f).hue - YOU_HUE) < 0.01, 'YOU_HUE is --you\'s HCT hue');
+});
+
+test('key labels: one scheme per ruleset, cached', () => {
+  assert.deepEqual(keyLabels('osu', 2).short, ['K1', 'K2']);
+  assert.deepEqual(keyLabels('osu', 4).short, ['K1', 'K2', 'M1', 'M2']);
+  assert.deepEqual(keyLabels('taiko', 4).short, ['L·KAT', 'L·DON', 'R·DON', 'R·KAT']);
+  assert.deepEqual(keyLabels('fruits', 3).short, ['LEFT', 'RIGHT', 'DASH']);
+  assert.deepEqual(keyLabels('fruits', 1).short, ['DASH']);
+  assert.deepEqual(keyLabels('mania', 7).short, ['1', '2', '3', '4', '5', '6', '7']);
+  assert.deepEqual(keyLabels('mania', 4).long, ['Key 1', 'Key 2', 'Key 3', 'Key 4']);
+  assert.equal(keyLabels('taiko', 4), keyLabels('taiko', 4));
+  assert.ok(Object.isFrozen(keyLabels('osu', 2).short));
+});
+
+test('ellipsize: a real ellipsis, trailing punctuation and spaces trimmed before it', () => {
+  assert.equal(ellipsize('Nanahira, moimoi', 10), `Nanahira${ELLIPSIS}`);
+  assert.equal(ellipsize('FREEDOM DiVE', 20), 'FREEDOM DiVE');
+  assert.equal(ellipsize('covered by (x', 13), 'covered by (x');
+  assert.equal(ellipsize('covered by (xyz)', 13), `covered by${ELLIPSIS}`);
+  assert.ok(!ellipsize('abc...def', 5).includes('...'));
+});
+
+test('splitTitle: a trailing bracketed suffix is its own part', () => {
+  assert.deepEqual(splitTitle('FLYING OUT TO THE SKY (covered by Nanahira, moimoi)'), { main: 'FLYING OUT TO THE SKY', suffix: '(covered by Nanahira, moimoi)' });
+  assert.deepEqual(splitTitle('Blue Zenith [TV Size]'), { main: 'Blue Zenith', suffix: '[TV Size]' });
+  assert.deepEqual(splitTitle('FREEDOM DiVE'), { main: 'FREEDOM DiVE', suffix: '' });
+});
+
+test('fitFields: the field that gives way first shrinks, names under 16 characters never do', () => {
+  const width = budget => texts => texts.filter(Boolean).join(' ').length <= budget;
+  const fields = [
+    { text: 'FLYING OUT TO THE SKY', order: 2, keep: 8 },
+    { text: '(covered by Nanahira, moimoi)', order: 1, keep: 0 },
+    { text: 'linedcolt', order: 3, keep: NAME_KEEP },
+  ];
+  const [title, suffix, mapper] = fitFields(fields, width(50));
+  assert.equal(mapper, 'linedcolt');
+  assert.equal(title, 'FLYING OUT TO THE SKY');
+  assert.ok(suffix.endsWith(ELLIPSIS) && suffix.length < fields[1].text.length);
+  const tight = fitFields(fields, width(31));
+  assert.equal(tight[1], '', 'the suffix is dropped entirely before the title is cut');
+  assert.equal(tight[0], 'FLYING OUT TO THE SKY');
+  assert.equal(tight[2], 'linedcolt');
+  const tighter = fitFields(fields, width(20));
+  assert.equal(tighter[2], 'linedcolt', 'a short name is never cut');
+  assert.ok(tighter[0].endsWith(ELLIPSIS));
 });

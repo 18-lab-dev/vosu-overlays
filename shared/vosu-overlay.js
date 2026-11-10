@@ -571,6 +571,8 @@ export const MOTION_LEVELS = Object.freeze(['full', 'reduced', 'off']);
 /** Durations matching kit.css (--dur-*) for element.animate(); `off` overlays use 0. */
 export const MOTION_MS = Object.freeze({ fast: 120, base: 240, slow: 400, ambient: 1600 });
 export const BACKINGS = Object.freeze(['scrim', 'panel', 'none']);
+/** The `marks` setting: registration marks in warm white (default), amber, amber top-left only, or none. */
+export const MARKS = Object.freeze(['neutral', 'amber', 'tl', 'none']);
 
 /** The `motion` setting as `full` | `reduced` | `off` (anything else is `full`). */
 export function motionLevel(value) {
@@ -579,17 +581,121 @@ export function motionLevel(value) {
 
 /**
  * Applies the kit's shared settings to the overlay's `.kit` root: `data-motion` (motion),
- * `data-backing` (backing; default scrim) and `data-map-tint` (mapTint). Returns the motion level.
- * Attributes are written only when they change, so calling it from settings() costs nothing extra.
+ * `data-backing` (backing; default scrim), `data-map-tint` (mapTint) and `data-marks` (marks).
+ * Returns the motion level. Attributes are written only when they change, so calling it from
+ * settings() costs nothing extra. `data-marks` is written only for a known `marks` value: without
+ * one the kit draws the default (neutral) marks.
  */
-export function applyKitSettings(element, { motion, backing, mapTint } = {}) {
+export function applyKitSettings(element, { motion, backing, mapTint, marks } = {}) {
   const level = motionLevel(motion);
   const back = backing === 'panel' || backing === 'none' ? backing : 'scrim';
   const tint = mapTint === false ? 'off' : 'on';
   if (element.dataset.motion !== level) element.dataset.motion = level;
   if (element.dataset.backing !== back) element.dataset.backing = back;
   if (element.dataset.mapTint !== tint) element.dataset.mapTint = tint;
+  if (MARKS.includes(marks) && element.dataset.marks !== marks) element.dataset.marks = marks;
   return level;
+}
+
+// ---------------------------------------------------------------- key labels
+
+const KEY_LABELS = new Map();
+
+/**
+ * The set's one name for each key, in vosu's `keys.all` order, as `{ short, long }` arrays (frozen,
+ * cached per ruleset and count). `short` is for caps (set it in `kit-code`), `long` for labels and
+ * accessible names (sentence case).
+ *   osu!   K1 K2, then M1 M2 when the list carries the mouse buttons (4 keys)
+ *   taiko  left rim, left centre, right centre, right rim: L·KAT L·DON R·DON R·KAT
+ *   catch  LEFT RIGHT DASH (stable reports only DASH: a one-key list is DASH)
+ *   mania  1 … N, left to right
+ * Unknown rulesets and extra keys get their 1-based position.
+ */
+export function keyLabels(ruleset, keyCount) {
+  const count = Number.isInteger(keyCount) && keyCount > 0 ? keyCount : 0;
+  const key = `${ruleset}:${count}`;
+  let labels = KEY_LABELS.get(key);
+  if (labels) return labels;
+  const named = ruleset === 'osu' ? [['K1', 'Key 1'], ['K2', 'Key 2'], ['M1', 'Mouse 1'], ['M2', 'Mouse 2']]
+    : ruleset === 'taiko' ? [['L·KAT', 'Left kat'], ['L·DON', 'Left don'], ['R·DON', 'Right don'], ['R·KAT', 'Right kat']]
+    : ruleset === 'fruits' ? (count === 1 ? [['DASH', 'Dash']] : [['LEFT', 'Left'], ['RIGHT', 'Right'], ['DASH', 'Dash']])
+    : [];
+  const short = [];
+  const long = [];
+  for (let i = 0; i < count; i++) {
+    const pair = named[i];
+    short.push(pair ? pair[0] : String(i + 1));
+    long.push(pair ? pair[1] : `Key ${i + 1}`);
+  }
+  labels = Object.freeze({ short: Object.freeze(short), long: Object.freeze(long) });
+  KEY_LABELS.set(key, labels);
+  return labels;
+}
+
+// ---------------------------------------------------------------- truncation
+
+export const ELLIPSIS = '\u2026';
+/** Names (players, mappers) up to this many characters are never truncated. */
+export const NAME_KEEP = 16;
+
+/**
+ * `text` cut to at most `length` characters including a real `…`, with trailing whitespace and
+ * punctuation (`, ; : - – — ( [ / ·` and spaces) removed before the ellipsis. Text that fits is
+ * returned unchanged. Counts UTF-16 code units but never splits a surrogate pair.
+ */
+export function ellipsize(text, length) {
+  const value = String(text ?? '');
+  if (value.length <= length) return value;
+  if (length <= 1) return length === 1 ? ELLIPSIS : '';
+  let end = length - 1;
+  if (end > 0 && value.charCodeAt(end - 1) >= 0xd800 && value.charCodeAt(end - 1) <= 0xdbff) end--;
+  let cut = value.slice(0, end).replace(/[\s,;:\-–—([/·.…]+$/u, '');
+  if (!cut) cut = value.slice(0, end);
+  return cut + ELLIPSIS;
+}
+
+/**
+ * A map title split into its main part and a trailing `(…)` or `[…]` suffix such as
+ * "(covered by …)" or "[TV Size]": `{ main, suffix }` (suffix '' when there is none). The suffix is
+ * the first thing to drop when a line is too long.
+ */
+export function splitTitle(title) {
+  const value = String(title ?? '').trim();
+  const match = /^(.+?)\s*([([][^()[\]]*[)\]])$/u.exec(value);
+  return match ? { main: match[1], suffix: match[2] } : { main: value, suffix: '' };
+}
+
+/**
+ * Fits a single line made of several fields. `fields` is an array of `{ text, order, keep }`:
+ * `order` says which field gives way first (lower first; equal orders shrink the longest first),
+ * `keep` is the length below which the field is never cut (use NAME_KEEP for player and mapper
+ * names, 0 to allow dropping a field entirely, Infinity for fields that must stay whole).
+ * `fits(texts)` reports whether the candidate texts (same order as `fields`) fit the space, e.g. by
+ * measuring them with a canvas context. Returns the texts, shortened with ellipsize(); a field cut
+ * to nothing returns ''. If nothing more can shrink the last attempt is returned.
+ * Runs on text changes (map change, resize), not per frame.
+ */
+export function fitFields(fields, fits) {
+  const full = fields.map(f => String(f.text ?? ''));
+  const texts = full.slice();
+  const lengths = full.map(t => t.length);
+  // A field gives way while it is longer than its keep: a name of NAME_KEEP or fewer characters
+  // never does, a longer one stops at NAME_KEEP, and a keep-0 field shrinks until it is dropped.
+  const shrinkable = i => lengths[i] > (fields[i].keep ?? 0);
+  while (!fits(texts)) {
+    let pick = -1;
+    for (let i = 0; i < fields.length; i++) {
+      if (!shrinkable(i)) continue;
+      if (pick < 0 || (fields[i].order ?? 0) < (fields[pick].order ?? 0)
+        || ((fields[i].order ?? 0) === (fields[pick].order ?? 0) && lengths[i] > lengths[pick])) pick = i;
+    }
+    if (pick < 0) break;
+    // One character at a time; below two (one plus the ellipsis) a field that may go (keep 0) goes.
+    const next = lengths[pick] - 1;
+    lengths[pick] = next < 2 && (fields[pick].keep ?? 0) === 0 ? 0 : next;
+    texts[pick] = lengths[pick] === 0 ? '' : ellipsize(full[pick], lengths[pick]);
+  }
+  return texts;
 }
 
 // ---------------------------------------------------------------- beat clock
@@ -880,10 +986,11 @@ async function derivePalette(checksum) {
     const [source] = Score.score(quantized, { desired: 1, fallbackColorARGB: 0 });
     if (!source) return null;
     const hue = TonalPalette.fromInt(source).hue;
-    // Tonal spot: primary chroma 36, secondary 16, tertiary hue + 60 at 24, neutrals 6 / 8.
-    const primary = TonalPalette.fromHueAndChroma(hue, 36);
-    const secondary = TonalPalette.fromHueAndChroma(hue, 16);
-    const tertiary = TonalPalette.fromHueAndChroma((hue + 60) % 360, 24);
+    // Tonal spot: primary chroma 36, secondary 16, tertiary hue + 60 at 24, neutrals 6 / 8; a hue
+    // too close to 18-LAB amber is desaturated (mapChroma), so the map never paints in "you".
+    const primary = TonalPalette.fromHueAndChroma(hue, mapChroma(hue, 36));
+    const secondary = TonalPalette.fromHueAndChroma(hue, mapChroma(hue, 16));
+    const tertiary = TonalPalette.fromHueAndChroma((hue + 60) % 360, mapChroma((hue + 60) % 360, 24));
     const neutral = TonalPalette.fromHueAndChroma(hue, 6);
     const neutralVariant = TonalPalette.fromHueAndChroma(hue, 8);
     const hex = argb => `#${(argb & 0xffffff).toString(16).padStart(6, '0')}`;
@@ -902,6 +1009,23 @@ async function derivePalette(checksum) {
     palettes.delete(checksum);
     return null;
   }
+}
+
+/** HCT hue of 18-LAB amber (`--you`, #ff963f). */
+export const YOU_HUE = 55.06;
+/** Map hues closer than this to YOU_HUE (degrees) are desaturated. */
+export const YOU_HUE_GUARD = 30;
+/** Chroma map-tone roles get near amber: the hue survives as a warm grey, close to --map-neutral. */
+const NEAR_YOU_CHROMA = 8;
+
+/**
+ * The chroma a map-tone role uses at HCT `hue`: `chroma`, or NEAR_YOU_CHROMA when the hue lies within
+ * YOU_HUE_GUARD of 18-LAB amber, so an orange or tan background never tints map identity in the
+ * colour that means "you" (docs/overlay-system.md "Colour roles").
+ */
+export function mapChroma(hue, chroma) {
+  const distance = Math.abs((((hue - YOU_HUE) % 360) + 540) % 360 - 180);
+  return distance < YOU_HUE_GUARD ? Math.min(chroma, NEAR_YOU_CHROMA) : chroma;
 }
 
 function loadImage(url) {

@@ -571,16 +571,19 @@ function maniaStage(keys) {
 
 // Where each client draws gameplay on a 1920×1080 screen (docs/overlay-system.md "Placement").
 // osu!/catch playfield: stable 512×384 at 2.25 from y 126 (56 of 480 lines); lazer 8 osu! px
-// higher in the 4:3 box (y 108). Objects reach 82 px past the playfield edge (CS 4 circle radius).
+// higher in the 4:3 box (y 108); both span x 384–1536. Objects reach 82 px past the playfield edge
+// (CS 4 circle radius, (54.4 − 4.48·CS) × 2.25). osu! approach circles start at 4× that radius
+// and fade in to 0.9 over min(2 × fade-in, preempt) while shrinking (lazer DrawableHitCircle):
+// at CS 4, AR ≥ 8 they pass 45 % opacity 205 px past the edge. The catch catcher reaches 137 px
+// (CS 4: 106.75 × scale × 2.25 / 2) past the edge along the bottom of the playfield.
 // taiko lane: stable lines 216–416 of 768 (y 304–585); lazer as the replay renderer draws it with
 // the owner's layout (review/*-clean-*.png: y 604–886). Stock lazer puts the lane where stable does,
 // so lane anchors that clear both clear stock lazer too.
 const PLAYFIELD = { stable: { x: 384, y: 126, w: 1152, h: 864 }, lazer: { x: 384, y: 108, w: 1152, h: 864 } };
 const OBJECT_REACH = 82;
+const APPROACH_REACH = 205;
+const CATCHER_REACH = 137;
 const TAIKO_LANE = { stable: { x: 0, y: 304, w: 1920, h: 281 }, lazer: { x: 0, y: 604, w: 1920, h: 282 } };
-// Centre of the top HUD gap: stable default HP bar ends at 735 and the score starts at 1515;
-// lazer's Argon wedge ends at 534 and its accuracy/pp column starts at 1690.
-const HUD_GAP = { stable: 1125, lazer: 1112 };
 
 /** The current ruleset's busy region (playfield, lane or stage) for the scenario's client. */
 function busyRect() {
@@ -593,17 +596,17 @@ function busyRect() {
 /**
  * Resolves a metadata `placement` anchor for one axis to the page's top-left coordinate.
  * Numbers are the page's left/top edge. Strings (docs/overlay-system.md "Anchors"):
- *   x: `left+N`, `right-N`, `center±N` (screen), `hud-gap±N` (page centred in the top HUD gap),
+ *   x: `left+N`, `right-N`, `center±N` (screen),
  *      `stage-left-N` (page's right edge N px left of the mania stage), `stage-right+N` (page's left
  *      edge N px right of it), `stage-center±N`;
  *   y: `top+N`, `bottom-N`, `center±N` (screen), `lane-top-N` (page's bottom edge N px above the
  *      taiko lane / playfield), `lane-bottom+N` (page's top edge N px below it).
- * Stage, lane and HUD anchors resolve per client (scenario `client=stable|lazer`).
+ * Stage and lane anchors resolve per client (scenario `client=stable|lazer`).
  */
 function resolveAnchor(anchor, size, axis) {
   if (typeof anchor === 'number') return anchor;
   const full = axis === 'x' ? 1920 : 1080;
-  const match = /^(stage-left|stage-right|stage-center|lane-top|lane-bottom|hud-gap|left|right|top|bottom|center)([+-]\d+(?:\.\d+)?)?$/.exec(String(anchor ?? 'left'));
+  const match = /^(stage-left|stage-right|stage-center|lane-top|lane-bottom|left|right|top|bottom|center)([+-]\d+(?:\.\d+)?)?$/.exec(String(anchor ?? 'left'));
   if (!match) return 0;
   const offset = Number(match[2] ?? 0);
   const busy = /^(stage|lane)/.test(match[1]) ? busyRect() : null;
@@ -611,7 +614,6 @@ function resolveAnchor(anchor, size, axis) {
     case 'left': case 'top': return offset;
     case 'right': case 'bottom': return full + offset - size;
     case 'center': return (full - size) / 2 + offset;
-    case 'hud-gap': return HUD_GAP[config.client === 'lazer' ? 'lazer' : 'stable'] - size / 2 + offset;
     case 'stage-left': return busy.x + offset - size;
     case 'stage-right': return busy.x + busy.w + offset;
     case 'stage-center': return busy.x + (busy.w - size) / 2 + offset;
@@ -644,6 +646,12 @@ function layoutSvg(objects = true) {
   if (mode === 'osu' || mode === 'fruits') {
     parts.push(box(busy.x, busy.y, busy.w, busy.h, mode === 'osu' ? `playfield (512×384 @ 2.25${lazer ? ', lazer' : ''})` : 'playfield', true));
     parts.push(`<rect x="${busy.x - OBJECT_REACH}" y="${busy.y - OBJECT_REACH}" width="${busy.w + 2 * OBJECT_REACH}" height="${busy.h + 2 * OBJECT_REACH}" fill="none" stroke="rgb(255 255 255 / .16)" stroke-dasharray="2 6"/>`);
+    // Side reach that moves: osu! approach circles at 45 % opacity, the catch catcher along the bottom.
+    const side = mode === 'osu' ? APPROACH_REACH : CATCHER_REACH;
+    const top = mode === 'osu' ? busy.y : busy.y + busy.h - 160;
+    const tag = mode === 'osu' ? 'approach ≥ 45 % (CS 4)' : 'catcher (CS 4)';
+    for (const x of [busy.x - side, busy.x + busy.w + side]) parts.push(`<line x1="${x}" y1="${top}" x2="${x}" y2="${busy.y + busy.h}" stroke="rgb(239 91 79 / .45)" stroke-dasharray="4 6"/>`);
+    parts.push(`<text x="${busy.x + busy.w + side + 6}" y="${top + 16}" fill="rgb(239 91 79 / .7)" font-size="13" font-family="monospace">${tag}</text>`);
     if (mode === 'osu') {
       // CS 4 circle radius: (54.4 − 4.48·4) playfield px × 2.25 ≈ 82 px.
       for (let i = 0; i < 9; i++) art.push(`<circle cx="${560 + ((i * 263) % 800)}" cy="${busy.y + 134 + ((i * 197) % 560)}" r="82" fill="rgb(255 255 255 / .10)" stroke="rgb(255 255 255 / .55)" stroke-width="6"/>`);
@@ -682,8 +690,9 @@ function layoutSvg(objects = true) {
  * 1 = wireframe; 2 = backdrop with the wireframe's regions and default HUD on top (no stand-in
  * objects); 0 = map background only. `boxes=1` outlines
  * and labels each page's box (placement proofs), `content=0` leaves the pages out, `guide=1` draws
- * the focus ellipse, `dim` sets background dim. The resolved boxes are embedded as JSON
- * (#placements, for dev/shoot.mjs) with the ruleset's busy region (#geometry).
+ * the focus ellipse, `floor=1` outlines text below the 14 px floor (listed in #floor, see
+ * FLOOR_CHECK), `dim` sets background dim. The resolved boxes are embedded as JSON
+ * (#placements, for dev/shoot.mjs) with the ruleset's busy region and reaches (#geometry).
  */
 function stagePage(id, params) {
   const dim = Number(params.get('dim') ?? 0.55);
@@ -720,9 +729,16 @@ function stagePage(id, params) {
     return `<rect x="${b.x + 1}" y="${b.y + 1}" width="${b.width - 2}" height="${b.height - 2}" fill="hsl(${hue} 80% 55% / .16)" stroke="hsl(${hue} 85% 62%)" stroke-width="2"/><rect x="${b.x + 2}" y="${b.y + 2}" width="${Math.min(b.width - 4, 9 * (b.id.length + 10))}" height="20" fill="rgb(0 0 0 / .72)"/><text x="${b.x + 6}" y="${b.y + 17}" fill="hsl(${hue} 90% 72%)">${b.id} ${b.width}×${b.height}</text>`;
   }).join('')}</svg>` : '';
   const guide = params.get('guide') === '1' ? `<svg style="position:absolute;inset:0;z-index:2;pointer-events:none" width="${W}" height="${H}"><ellipse cx="${W / 2}" cy="${H / 2}" rx="${W / 2 - 2}" ry="${H / 2 - 2}" fill="none" stroke="rgb(239 91 79 / .9)" stroke-width="3" stroke-dasharray="14 8"/>${boxes.map(b => `<circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="6" fill="${b.centreInFocus ? '#ef5b4f' : '#6fbf8e'}"/>`).join('')}</svg>` : '';
-  const geometry = { client: config.client, mode: config.mode, keys: config.keys, busy: busyRect(), reach: config.mode === 'osu' || config.mode === 'fruits' ? OBJECT_REACH : 0 };
-  return `<!doctype html><meta charset=utf-8><title>${ids.join(',')} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:${W}px;height:${H}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}${outline}${guide}<script type="application/json" id="placements">${JSON.stringify(boxes)}</script><script type="application/json" id="geometry">${JSON.stringify(geometry)}</script>`;
+  const ball = config.mode === 'osu' || config.mode === 'fruits';
+  const geometry = { client: config.client, mode: config.mode, keys: config.keys, busy: busyRect(), reach: ball ? OBJECT_REACH : 0, sideReach: config.mode === 'osu' ? APPROACH_REACH : config.mode === 'fruits' ? CATCHER_REACH : 0 };
+  const floor = params.get('floor') === '1' ? `<script>${FLOOR_CHECK}</script>` : '';
+  return `<!doctype html><meta charset=utf-8><title>${ids.join(',')} · stage</title><style>html,body{margin:0;background:#000;overflow:hidden}body{width:${W}px;height:${H}px;position:relative;background:url(/files/beatmap/background) center/cover}body::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / ${dim})}iframe{position:absolute;border:0;background:transparent;color-scheme:normal}</style>${layout}${frames}${outline}${guide}<script type="application/json" id="placements">${JSON.stringify(boxes)}</script><script type="application/json" id="geometry">${JSON.stringify(geometry)}</script>${floor}`;
 }
+
+// floor=1 on the stage: 1.5 s after load, every text node an overlay page shows below the 14 px floor
+// (computed font size; .kit-tick, aria-hidden and hidden content exempt) gets a red outline and is
+// listed in #floor (JSON: [{ id, text, px }]) for scripted checks. Canvas text is not seen.
+const FLOOR_CHECK = "addEventListener('load',()=>setTimeout(()=>{const out=[];for(const f of document.querySelectorAll('iframe')){const d=f.contentDocument;if(!d||!d.body)continue;const w=d.createTreeWalker(d.body,NodeFilter.SHOW_TEXT);for(let n=w.nextNode();n;n=w.nextNode()){const e=n.parentElement;if(!n.textContent.trim()||!e||e.closest('.kit-tick,[aria-hidden=\"true\"],[hidden]')||!e.getClientRects().length)continue;const cs=f.contentWindow.getComputedStyle(e);if(cs.visibility==='hidden'||cs.display==='none')continue;const px=parseFloat(cs.fontSize);if(px<13.95){e.style.outline='2px solid #ef5b4f';out.push({id:new URL(f.src).pathname.split('/')[1],text:n.textContent.trim().slice(0,24),px:Math.round(px*10)/10});}}}const s=document.createElement('script');s.type='application/json';s.id='floor';s.textContent=JSON.stringify(out);document.body.append(s);},1500))";
 
 /** One replay-renderer cell's playfield, scaled as the renderer scales it (README "playfield.scale"). */
 function cellSvg(W, H) {

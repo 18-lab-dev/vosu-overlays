@@ -328,6 +328,8 @@ const rivalTotalCell = new Cell(rivalTotal);
 const boardPosCell = new Cell(boardPos);
 const boardTotalCell = new Cell(boardTotal);
 const headGapCell = new Cell(boardGap);
+const headTargetCell = new Cell($('board-target'));
+let headHasGap = false;
 const fHeroPos = numberFormatter('count');
 const fRivalPos = numberFormatter('count');
 const fTotal = numberFormatter('count');
@@ -670,16 +672,27 @@ function renderBoard(player, now) {
     boardEl.classList.toggle('unplaced', !pos);
   }
   if (boardTotalCell.n !== n) { boardTotalCell.n = n; boardTotalCell.set(fTotal(n)); }
-  if (player < 0 || n < 2) { headGapCell.set(''); return; }
   const other = player > 0 ? player - 1 : 1;
+  const target = player < 0 || n < 2 ? -2 : player > 0 ? displayPos(order[other], other) : -1;
+  // The strip carries the gap in its header, as "−49,006 to #13" over two lines where the list
+  // has its total; the list carries it in your row.
+  if (horizontal && headHasGap !== target > -2) { headHasGap = target > -2; boardEl.classList.toggle('has-gap', headHasGap); }
+  if (target === -2) return;
   const diff = (Number(order[player].score) || 0) - (Number(order[other].score) || 0);
   const gap = fOwnGap(diff);
-  // The strip carries the gap in its header; the list in your row.
-  if (horizontal) { headGapCell.set(gap); return; }
+  if (horizontal) {
+    headGapCell.set(gap);
+    if (headTargetCell.n !== target) { headTargetCell.n = target; headTargetCell.set(targetLabel(target)); }
+    return;
+  }
   if (!me || (me.flags & TWO) === 0) return;
   if (me.tGap !== gap) { me.tGap = gap; me.gap.textContent = gap; }
-  const target = player > 0 ? displayPos(order[other], other) : -1;
-  if (me.nTarget !== target) { me.nTarget = target; me.target.textContent = target < 0 ? 'lead' : `to #${target}`; }
+  if (me.nTarget !== target) { me.nTarget = target; me.target.textContent = targetLabel(target); }
+}
+
+/** The gap's label: the place you are chasing, or your lead when first. Called on change only. */
+function targetLabel(target) {
+  return target < 0 ? 'lead' : `to #${target}`;
 }
 
 /**

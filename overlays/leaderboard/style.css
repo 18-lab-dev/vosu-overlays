@@ -34,8 +34,12 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .line { display: flex; align-items: baseline; gap: var(--s-2); }
 .delta { color: var(--you); opacity: 0; }
 .delta.down { color: var(--text-2); }
-.hgap { display: none; color: var(--text-1); }
-.no-gap .hgap { display: none !important; }
+/* The strip's gap, in the list's form ("−49,006" over "to #13"); it takes the total's place. */
+.hgap, .htarget { display: none; }
+.hgap { color: var(--text-1); font-weight: 600; }
+.horizontal:not(.no-gap) .has-gap .hgap { display: block; }
+.horizontal:not(.no-gap) .has-gap .htarget { display: inline; }
+.horizontal:not(.no-gap) .has-gap .of { display: none; }
 
 .vertical .head { height: calc(var(--u) * 52px); margin-bottom: var(--s-2); padding: 0 var(--s-2); gap: var(--s-2); }
 
@@ -129,7 +133,6 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .horizontal .head { flex: none; width: calc(var(--u) * 128px); height: 100%; margin-right: var(--s-2); padding-left: var(--s-2); gap: var(--s-2); align-items: center; }
 .horizontal .hero { font-size: calc(var(--u) * 40px); line-height: calc(var(--u) * 40px); }
 .horizontal .side .line, .horizontal .hgap { line-height: calc(var(--u) * 20px); }
-.horizontal .hgap { display: block; }
 .horizontal .rows { flex: none; height: 100%; }
 .horizontal .row {
   width: calc(var(--u) * 94px); height: calc(var(--u) * 40px);

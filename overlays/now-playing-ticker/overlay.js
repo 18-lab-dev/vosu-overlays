@@ -7,7 +7,7 @@
 // ellipsis: no constant motion at the edge of the player's vision.
 import {
   subscribe, settings, activeMode, mapPalette, applyPalette, applyKitSettings, known, isKnown,
-  numberFormatter, createMapClock, MOTION_MS,
+  numberFormatter, createMapClock, splitTitle, fitFields, NAME_KEEP, MOTION_MS,
 } from './vosu-overlay.js';
 
 const PLAYING = 2;
@@ -42,8 +42,6 @@ const TIME = [P.state, P.live, P.rate, P.first, P.last, P.mp3];
 const SPAN = [P.state, P.rate, P.first, P.last, P.mp3];
 const KIAI = [P.state, P.kiai];
 const RATE_MODS = new Set(['DT', 'NC', 'HT', 'DC']);
-// A title's trailing "(covered by …)", "[TV Size]", "【…】": shown at text weight after the title.
-const SUFFIX = /^(.+?)\s*([([（【].*)$/;
 
 const $ = selector => document.querySelector(selector);
 const root = $('#root');
@@ -56,7 +54,7 @@ const el = {
   status: $('#status'), artist: $('.artist'), sep: $('.sep'), title: $('.title'), suffix: $('.suffix'),
   version: $('.ver'), stars: $('.stars'), starsNum: $('.stars .num'),
   mods: $('.mods'), modCodes: $('.mods .codes'), modRate: $('.mods .rate'), modRateNum: $('.mods .rate .num'),
-  mapper: $('.mapper'), mapperName: $('.mapper .name'),
+  mapper: $('.mapper'), mapperName: $('.mapper .name'), meta: $('.meta'),
 };
 const formatStars = numberFormatter('stars');
 const formatRate = numberFormatter('rate');
@@ -66,6 +64,7 @@ const clock = createMapClock();
 const defaults = {
   orientation: 'auto', align: 'auto', motion: 'full', backing: 'scrim', mapTint: true,
   unicode: false, showStars: true, showProgress: true, showMods: true, showMapper: true, overflow: 'once',
+  marks: 'neutral',
 };
 let opts = { ...defaults };
 let motion = 'full';
@@ -124,7 +123,7 @@ function compose() {
   const artist = prefer(P.artistUnicode, P.artist);
   const title = prefer(P.titleUnicode, P.title);
   if (!artist && !title) return { kind: 'empty', key: 'empty' };
-  const split = SUFFIX.exec(title);
+  const split = splitTitle(title);
   const version = str(v[P.version]);
   let codes = '';
   let rate = NaN;
@@ -139,8 +138,8 @@ function compose() {
     kind: 'map',
     key: str(v[P.checksum]) || `${str(v[P.artist])}|${str(v[P.title])}|${version}`,
     artist, version,
-    titleName: split ? split[1] : title,
-    titleSuffix: split ? split[2] : '',
+    titleName: split.main,
+    titleSuffix: split.suffix,
     mapper: str(v[P.mapper]),
     stars: known(v[P.stars], true),
     codes, rate,
@@ -297,16 +296,98 @@ function frame() {
   if (fitDirty) { fitDirty = false; fit(); }
 }
 
-/**
- * The map line is the job: when it would be cut (line) or the column runs out of height, the
- * mapper goes first (data-fit="compact"). The stack has a line of its own for it. One layout read
- * per map or box change, never per message.
- */
+// ------------------------------------------------------------------ fitting the one line
+// The map line is cut with the set's fitFields() (docs/overlay-system.md, Words): the title's
+// bracketed suffix gives way first, then the difficulty, then the title (kept to 8 characters or
+// more), the artist last and never below 16 characters; every cut is a real … with trailing
+// punctuation trimmed. When anything of the map line has to go, the mapper (never cut) leaves the
+// line first (data-fit="compact"). Widths come from a canvas in the line's own fonts. In the stack
+// the map line has its own row; the column wraps and drops the mapper only when it runs out of
+// height. Runs on map, box, settings and font changes, never per message.
+const FIT_SUFFIX = 0, FIT_VERSION = 1, FIT_TITLE = 2, FIT_ARTIST = 3;
+const FIT_NODES = [el.suffix, el.version, el.title, el.artist];
+const fitSpec = [
+  { text: '', order: 0, keep: 0 },
+  { text: '', order: 1, keep: 0 },
+  { text: '', order: 2, keep: 8 },
+  { text: '', order: 3, keep: NAME_KEEP },
+];
+const measure = document.createElement('canvas').getContext('2d');
+const fonts = ['', '', '', ''];
+let sepWidth = 0, suffixGap = 0, versionExtra = 0, fitAvailable = 0;
+let fitted = null;   // texts on screen at rest, in fitSpec order; null = the full texts
+let cut = false;     // whether the resting line is shorter than the full one
+
+function fontOf(node) {
+  const style = getComputedStyle(node);
+  return `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+}
+
+function textWidth(index, value) {
+  if (!value) return 0;
+  measure.font = fonts[index];
+  return measure.measureText(value).width;
+}
+
+/** Width of the map line for candidate texts (fitSpec order). */
+function lineWidth(texts) {
+  const artist = texts[FIT_ARTIST], title = texts[FIT_TITLE], suffix = texts[FIT_SUFFIX], version = texts[FIT_VERSION];
+  return textWidth(FIT_ARTIST, artist) + (artist && title ? sepWidth : 0) + textWidth(FIT_TITLE, title)
+    + (suffix ? suffixGap + textWidth(FIT_SUFFIX, suffix) : 0)
+    + (version ? versionExtra + textWidth(FIT_VERSION, version) : 0);
+}
+
+const fitsLine = texts => lineWidth(texts) <= fitAvailable;
+
+/** Writes the map line's texts and hides the fields that are empty. */
+function writeLine(texts) {
+  for (let i = 0; i < 4; i++) { text(FIT_NODES[i], texts[i]); hide(FIT_NODES[i], !texts[i]); }
+  hide(el.sep, !texts[FIT_ARTIST] || !texts[FIT_TITLE]);
+}
+
+function fullLine() {
+  fitSpec[FIT_SUFFIX].text = shown.titleSuffix;
+  fitSpec[FIT_VERSION].text = shown.version;
+  fitSpec[FIT_TITLE].text = shown.titleName;
+  fitSpec[FIT_ARTIST].text = shown.artist;
+  return [shown.titleSuffix, shown.version, shown.titleName, shown.artist];
+}
+
 function fit() {
   attr(panel, 'data-fit', '');
-  if (layout === 'stack' || !shown || shown.kind !== 'map' || el.mapper.hidden) return;
-  const cut = layout === 'column' ? panel.scrollHeight > panel.clientHeight + 1 : overflowing();
-  if (cut) attr(panel, 'data-fit', 'compact');
+  fitted = null;
+  cut = false;
+  if (!shown || shown.kind !== 'map') return;
+  const full = fullLine();
+  writeLine(full);
+  if (layout === 'column') {
+    if (!el.mapper.hidden && panel.scrollHeight > panel.clientHeight + 1) attr(panel, 'data-fit', 'compact');
+    return;
+  }
+  for (let i = 0; i < 4; i++) fonts[i] = fontOf(FIT_NODES[i]);
+  const sepStyle = getComputedStyle(el.sep);
+  measure.font = fontOf(el.sep);
+  sepWidth = measure.measureText('—').width + parseFloat(sepStyle.marginLeft) + parseFloat(sepStyle.marginRight);
+  suffixGap = parseFloat(getComputedStyle(el.suffix).marginLeft) || 0;
+  measure.font = fonts[FIT_VERSION];
+  versionExtra = (parseFloat(getComputedStyle(el.version).marginLeft) || 0) + measure.measureText('[]').width;
+  const panelStyle = getComputedStyle(panel);
+  // Two px of slack against rounding (the line's numerals are tabular, the canvas's are not).
+  const inner = root.clientWidth - parseFloat(panelStyle.paddingLeft) - parseFloat(panelStyle.paddingRight) - 2;
+  if (layout === 'stack') fitAvailable = inner;
+  else {
+    const mapperWidth = el.mapper.hidden ? 0 : el.mapper.getBoundingClientRect().width + parseFloat(getComputedStyle(el.mapper).marginLeft);
+    fitAvailable = inner - el.meta.getBoundingClientRect().width;
+    if (mapperWidth && !fitsLine(full)) {
+      // Anything of the map line would go: the mapper leaves first, whole.
+      attr(panel, 'data-fit', 'compact');
+      fitAvailable += mapperWidth;
+    }
+  }
+  if (fitsLine(full)) return;
+  fitted = fitFields(fitSpec, fitsLine);
+  cut = true;
+  writeLine(fitted);
 }
 
 function ruleTransform(step, steps) {
@@ -328,15 +409,14 @@ function apply(content) {
     text(el.title, '—');
     hide(el.title, false);
   } else {
-    text(el.artist, content.artist);
-    text(el.title, content.titleName);
-    text(el.suffix, content.titleSuffix);
-    hide(el.suffix, !content.titleSuffix);
-    text(el.version, content.version);
-    hide(el.artist, !content.artist);
-    hide(el.sep, !content.artist || !content.titleName);
-    hide(el.title, !content.titleName);
-    hide(el.version, !content.version);
+    // The map line's texts are written by fit(), cut to the box when they have to be.
+    if (fresh || shown.artist !== content.artist || shown.titleName !== content.titleName
+      || shown.titleSuffix !== content.titleSuffix || shown.version !== content.version) {
+      fitted = null;
+      cut = false;
+      fitDirty = true;
+      schedule();
+    }
     // Unknown stars (an unparsed map reports 0) hide the segment rather than print a dash.
     text(el.starsNum, formatStars(content.stars));
     hide(el.stars, !opts.showStars || !isKnown(content.stars));
@@ -400,6 +480,7 @@ function park() {
   revealOut = revealBack = null;
   flag(vp, 'data-scroll', false);
   attr(vp, 'data-edge', '');
+  if (fitted) writeLine(fitted);
 }
 
 function revealLater() {
@@ -409,14 +490,10 @@ function revealLater() {
   revealTimer = setTimeout(reveal, HOLD_MS);
 }
 
-function overflowing() {
-  return el.title.scrollWidth > el.title.clientWidth + 1 || el.suffix.scrollWidth > el.suffix.clientWidth + 1
-    || el.artist.scrollWidth > el.artist.clientWidth + 1 || el.version.scrollWidth > el.version.clientWidth + 1;
-}
-
 function reveal() {
   revealTimer = 0;
-  if (!visible || !overflowing()) return;
+  if (!visible || !cut) return;
+  writeLine(fullLine());
   flag(vp, 'data-scroll', true);
   const distance = track.offsetWidth - vp.clientWidth;
   if (distance <= 1) { park(); return; }

@@ -41,26 +41,19 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #panel[data-motion="off"] { transition: none; }
 
 .roll { position: relative; display: flex; align-items: baseline; flex: 0 1 auto; min-width: 0; }
-/* Shrink order when the line is too long, as near-sequential steps (shrink is weighted by width,
-   and the factors stay ≥ 1 so the whole overflow is taken): the title's "(…)" suffix, then the
-   difficulty, the title, the artist last (a short name is never the part that vanishes); the meta
-   segments only once the map line is gone. When any of the map line is cut, overlay.js drops the
-   mapper first (data-fit). */
-.meta { display: flex; align-items: baseline; flex: 0 1 auto; min-width: 0; }
+/* The line's texts arrive already cut by overlay.js (the set's fitFields: suffix, then difficulty,
+   then title, artist last; the mapper leaves the line whole first, data-fit="compact"), so nothing
+   here shrinks or ellipsizes; the viewport only clips as a guard. */
+.meta { display: flex; align-items: baseline; flex: none; }
 #panel[data-fit="compact"] .mapper { display: none; }
 
-/* Map line: artist — title (suffix) [difficulty]. At rest every part ellipsizes on its own. While
-   the line scrolls once (data-scroll) it is one run of text, clipped with soft edges. */
-.vp { display: flex; flex: 0 1e8 auto; min-width: 0; overflow: hidden; }
-.track { display: flex; align-items: baseline; min-width: 0; }
-.track > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.track > .sep { flex: none; overflow: visible; }
-.track > .suffix { flex-shrink: 1e12; }
-.track > .ver { flex-shrink: 1e8; }
-.track > .title { flex-shrink: 1e4; }
-.track > .artist { flex-shrink: 1; }
-.vp[data-scroll] .track { display: block; flex: none; width: max-content; will-change: transform; }
-.vp[data-scroll] .track > * { display: inline; overflow: visible; }
+/* Map line: artist — title (suffix) [difficulty]. While the line scrolls once (data-scroll) it is
+   one run of the full text, clipped with soft edges. */
+.vp { display: flex; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.track { display: flex; align-items: baseline; flex: none; }
+.track > * { flex: none; }
+.vp[data-scroll] .track { display: block; width: max-content; will-change: transform; }
+.vp[data-scroll] .track > * { display: inline; }
 .vp[data-edge="r"] { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - var(--s-4)), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - var(--s-4)), transparent); }
 .vp[data-edge="l"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--s-4)); mask-image: linear-gradient(90deg, transparent, #000 var(--s-4)); }
 .vp[data-edge="lr"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--s-4), #000 calc(100% - var(--s-4)), transparent); mask-image: linear-gradient(90deg, transparent, #000 var(--s-4), #000 calc(100% - var(--s-4)), transparent); }
@@ -85,9 +78,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .stars .kit-value { font-size: calc(var(--u, 1) * 24px); }
 .stars .kit-unit { color: var(--map); }
 .mods .rate { margin-left: .5em; }
-.mapper { flex: 0 1 auto; min-width: 0; }
 .mapper .by { margin-right: .35em; }
-.mapper .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Connection chip (vosu offline, connecting). */
 .status { line-height: calc(var(--u, 1) * 24px); }
@@ -138,13 +129,12 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #root[data-layout="column"] .roll { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
 #root[data-layout="column"][data-align="right"] .roll { align-items: flex-end; }
 #root[data-layout="column"] .vp { overflow: visible; max-width: 100%; }
-#root[data-layout="column"] .track { flex-direction: column; align-items: inherit; gap: var(--s-1); }
+#root[data-layout="column"] .track { flex-direction: column; align-items: inherit; gap: var(--s-1); max-width: 100%; }
 #root[data-layout="column"] .track > * { max-width: 100%; }
 #root[data-layout="column"][data-align="right"] .track { align-items: flex-end; }
 #root[data-layout="column"] .sep { display: none; }
-/* Title two lines at most, its "(…)" suffix one, both with a real ellipsis. */
-#root[data-layout="column"] .title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
-#root[data-layout="column"] .suffix { margin-left: 0; white-space: nowrap; }
+/* The column wraps every field in full; when it runs out of height the mapper leaves (data-fit). */
+#root[data-layout="column"] .suffix { margin-left: 0; }
 #root[data-layout="column"] .ver { margin-left: 0; }
 #root[data-layout="column"] .meta { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
 #root[data-layout="column"][data-align="right"] .meta { align-items: flex-end; }

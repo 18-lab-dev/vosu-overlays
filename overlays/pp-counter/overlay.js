@@ -12,7 +12,7 @@ import { subscribe, settings, activeMode, known, numberFormatter, applyKitSettin
 
 // Design boxes at --u = 1 (the metadata placements), the kit's --pad padding included (every
 // backing, none too).
-const VERTICAL = { w: 256, h: 144 };
+const VERTICAL = { w: 216, h: 144 };   // the osu!/catch column; wider boxes (mania 256) keep --u 1
 const HORIZONTAL = { w: 336, h: 80 };
 const EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';   // kit --ease-out
 const FC_GAP = 0.5;       // if-FC shows only while it is at least this far above current pp
@@ -45,7 +45,7 @@ const SELECT_STATES = new Set([5, 6, 13]);
 const $ = id => document.getElementById(id);
 const el = {
   root: $('root'), note: $('note'), fail: $('fail'), heroLabel: $('heroLabel'), heroGap: $('heroGap'),
-  big: $('big'), int: $('int'), frac: $('frac'),
+  big: $('big'), int: $('int'), frac: $('frac'), head: document.querySelector('.head'), tagline: document.querySelector('.tagline'),
   fcRow: $('fcRow'), fcVal: $('fcVal'), fcGap: $('fcGap'), chips: $('chips'),
   rail: $('rail'), ss: $('ss'), ssVal: $('ssVal'), ladder: $('ladder'),
 };
@@ -162,6 +162,12 @@ function layout() {
     : w / h >= 2.4 ? 'horizontal' : 'vertical';
   const base = orient === 'horizontal' ? HORIZONTAL : VERTICAL;
   const u = Math.max(0.35, Math.min(4, Math.min(w / base.w, h / base.h)));
+  ladderWidth = w - 32 * u;   // the box minus the kit's --pad on both sides
+  headGap = 12 * u;           // .head column-gap (--s-3)
+  ladderFit = true;
+  headKey = -1;
+  modelDirty = true;
+  kick();
   const align = ['left', 'center', 'right'].includes(opt.align) ? opt.align : orient === 'vertical' ? 'right' : 'left';
   attr(el.root, 'data-orient', orient);
   attr(el.root, 'data-align', align);
@@ -169,6 +175,40 @@ function layout() {
   el.root.style.setProperty('--u', u.toFixed(4));
 }
 addEventListener('resize', layout);
+
+// Song select: when the ladder is wider than the box (narrow columns, four-digit pp), the lowest
+// accuracies drop out (95 %, then 97 %, 98 %) rather than anything shrinking below the type floor.
+// Measured only when a value or the box changes.
+const ladderItems = [...el.ladder.children];
+let ladderWidth = Infinity;
+let ladderFit = true;
+function fitLadder() {
+  ladderFit = false;
+  for (let i = 0; i < ladderItems.length; i++) show(ladderItems[i], true);
+  for (let i = 0; i < 3 && el.ladder.scrollWidth > ladderWidth; i++) show(ladderItems[i], false);
+}
+document.fonts?.ready.then(() => { ladderFit = true; headKey = -1; modelDirty = true; kick(); });
+
+// Long numbers in narrow boxes: when the hero row (its label FAIL / If FC beside the number) or the
+// if-FC line does not fit, the hero drops its decimals; if the if-FC line still does not fit, its
+// gap caption (+46) drops, then its unit (the hero keeps `pp`). Fields go, sizes stay. Measured
+// only when a label, the number of digits or the box changes.
+let headGap = 12;
+let headKey = -1;
+function overflows() {
+  const second = el.fcRow.parentElement;
+  if (fcOn && el.fcRow.scrollWidth > second.clientWidth + 0.5) return true;
+  if (el.tagline.getBoundingClientRect().width === 0) return false;
+  return el.tagline.getBoundingClientRect().width + headGap + el.big.getBoundingClientRect().width > el.head.clientWidth + 0.5;
+}
+const FIT_LEVELS = ['data-tight', 'data-no-gap', 'data-no-unit'];
+function fitRow() {
+  for (let i = 0; i < FIT_LEVELS.length; i++) attr(el.root, FIT_LEVELS[i], null);
+  for (let i = 0; i < FIT_LEVELS.length && overflows(); i++) {
+    if (i > 0 && !fcOn) return;   // later levels only shorten the if-FC line
+    attr(el.root, FIT_LEVELS[i], '');
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 // State. Per-frame numbers live in typed arrays: module-level `let` doubles would box a fresh heap
@@ -291,9 +331,11 @@ function derive() {
   } else if (next === 'select') {
     for (let i = 0; i < LADDER.length; i++) {
       const v = known(D[LADDER_I[i]], true);
-      text(ladderValues[i], ladderFmt[i](v));
+      const s = ladderFmt[i](v);
+      if (cache.get(ladderValues[i]) !== s) { text(ladderValues[i], s); ladderFit = true; }
       attr(ladderValues[i], 'data-empty', v > 0 ? null : '');
     }
+    if (ladderFit) fitLadder();
   }
   show(el.fail, failed);
   text(el.heroLabel, label);
@@ -306,6 +348,11 @@ function derive() {
     if (wantFc && !changed && next === 'play' && motion !== 'off') { detach.cancel(); detach.play(); }
   }
   writeHero(!changed && motion === 'full');
+  const labelled = failed || label !== '';
+  const fcText = cache.get(el.fcVal), gapShown = cache.get(el.fcGap);
+  const hk = (labelled ? 1 : 0) | (fcOn ? 2 : 0) | (heroText.length << 2)
+    | ((typeof fcText === 'string' ? fcText.length : 0) << 6) | ((typeof gapShown === 'string' ? gapShown.length : 0) << 10);
+  if (hk !== headKey) { headKey = hk; fitRow(); }
   railDirty = true;
 }
 

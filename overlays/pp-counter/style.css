@@ -42,7 +42,7 @@ body[data-align="center"] { justify-content: center; }
 .root[data-align="right"] .head { justify-content: flex-end; }
 .root[data-align="center"] .head { justify-content: center; }
 .root[data-align="left"] .head { flex-direction: row-reverse; justify-content: flex-end; }
-.tagline { display: flex; flex-direction: column; row-gap: calc(var(--u) * 2px); min-width: 0; }
+.tagline { display: flex; flex: none; flex-direction: column; row-gap: calc(var(--u) * 2px); }
 .root[data-align="right"] .tagline { margin-right: auto; text-align: left; }
 .root[data-align="left"] .tagline { margin-left: auto; text-align: right; }
 .fail { color: var(--j-miss); }
@@ -55,6 +55,11 @@ body[data-align="center"] { justify-content: center; }
 .int > i:empty { display: none; }
 .big[data-empty] { color: var(--text-3); }
 .big[data-empty] :is(.kit-unit, .kit-frac) { visibility: hidden; }
+/* Long numbers that do not fit (overlay.js fitRow): the hero's decimals drop, then the if-FC gap,
+   then the if-FC unit. */
+.root[data-tight] .big .kit-frac,
+.root[data-no-gap] #fcGap,
+.root[data-no-unit] .fc-row .kit-unit { display: none; }
 
 /* Secondary line: the breakdown, until the full combo is lost; then the if-FC value takes the line
    (detaching from the hero, overlay.js). Both sit in one grid cell so nothing reflows. */

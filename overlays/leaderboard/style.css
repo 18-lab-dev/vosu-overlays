@@ -26,7 +26,8 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 
 /* ---------------------------------------------------------------- header: your position (the hero) */
 .head { display: flex; align-items: baseline; white-space: nowrap; }
-.hero { display: inline-block; color: var(--you); }
+/* The hero stays neutral: amber marks only your row (rule and position), one amber element at rest. */
+.hero { display: inline-block; color: var(--text-1); }
 .hash { margin-right: .04em; }
 .unplaced .hero { color: var(--text-3); }
 .unplaced .hash { display: none; }
@@ -88,7 +89,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .sub {
   grid-column: 2 / 4; grid-row: 2;
   display: flex; align-items: baseline; gap: var(--s-2); min-width: 0;
-  line-height: calc(var(--u) * 16px); white-space: nowrap;
+  line-height: calc(var(--u) * 20px); white-space: nowrap;
   opacity: 0; transition: opacity var(--dur-fast) var(--ease-in);
 }
 .two .sub { opacity: 1; transition: opacity var(--dur-base) var(--ease-out) var(--dur-fast); }
@@ -121,11 +122,11 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   grid-template-rows: calc(var(--u) * 24px) auto;
   padding-top: calc(var(--u) * 2px);
 }
-.vertical .row.two { height: calc(var(--u) * 44px); }
+.vertical .row.two { height: calc(var(--u) * 46px); }
 /* With hudFields your row takes a third line: accuracy, combo and mods, then the gap. */
-.vertical .row.three { height: calc(var(--u) * 60px); }
-.three .sub { flex-wrap: wrap; }
-.three .gap { flex-basis: 100%; text-align: right; }
+.vertical .row.three { height: calc(var(--u) * 66px); }
+.vertical .row.three .sub { flex-direction: column; align-items: stretch; gap: 0; }
+.three .gap { text-align: right; }
 .vertical .score { justify-self: end; }
 .vertical .skip { width: 100%; height: calc(var(--u) * 20px); }
 .vertical .skip span { left: calc(var(--u) * 6px); top: 0; width: calc(var(--u) * 18px); text-align: right; line-height: calc(var(--u) * 20px); }
@@ -145,7 +146,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 
 /* ---------------------------------------------------------------- horizontal strip */
 .horizontal .board { display: flex; height: calc(var(--u) * 40px); }
-.horizontal .head { flex: none; width: calc(var(--u) * 128px); height: 100%; margin-right: var(--s-2); padding-left: calc(var(--u) * 6px); gap: calc(var(--u) * 6px); align-items: center; }
+.horizontal .head { flex: none; width: calc(var(--u) * 136px); height: 100%; margin-right: var(--s-2); padding-left: calc(var(--u) * 6px); gap: calc(var(--u) * 6px); align-items: center; }
 .horizontal .hero { font-size: calc(var(--u) * 40px); line-height: calc(var(--u) * 40px); }
 .horizontal .side .line, .horizontal .hgap { line-height: calc(var(--u) * 20px); }
 .horizontal .rows { flex: none; height: 100%; }

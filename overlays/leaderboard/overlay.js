@@ -6,7 +6,7 @@
 // Rows sit absolutely positioned and move between slots on a transform transition, so an overtake
 // slides the passed player past you without layout work; one-shot Web Animations (created once
 // per element, then restarted) mark the overtake itself.
-import { subscribe, settings, applyKitSettings, numberFormatter, known, MOTION_MS } from './vosu-overlay.js';
+import { subscribe, settings, applyKitSettings, numberFormatter, known, fitFields, MOTION_MS } from './vosu-overlay.js';
 
 const PLAY = 2;
 const MAX_ROWS = 16;
@@ -15,10 +15,10 @@ const MIN_U = 0.5;
 const MAX_U = 3;
 // Design geometry in px at --u = 1 (the 216×400 osu!/catch column; the 256 px mania column and
 // the 480×72 strip are also --u = 1); style.css carries the same numbers. PAD is the kit's
-// backing padding (none: 0).
+// backing padding, the same on every backing.
 const PAD = 16;
-const V = { width: 216, height: 400, head: 60, one: 28, two: 44, three: 60, skip: 20 };
-const H = { height: 72, head: 136, cell: 94, skip: 22 };
+const V = { width: 216, height: 400, head: 60, one: 28, two: 46, three: 66, skip: 20 };
+const H = { height: 72, head: 144, cell: 94, skip: 22 };
 const RV = { height: 116 };
 const RH = { width: 344, below: 20 };
 const RV_BELOW = 88;
@@ -34,7 +34,7 @@ const FACTS = 8;
 const THREE = 16;
 const DEFAULTS = {
   style: 'board', orientation: 'auto', align: 'left', motion: 'full', backing: 'scrim',
-  rows: 8, showAcc: true, showCombo: true, showMods: true, compact: false, showGap: true, hudFields: false,
+  marks: 'neutral', rows: 8, showAcc: true, showCombo: true, showMods: true, compact: false, showGap: true, hudFields: false,
 };
 
 const $ = id => document.getElementById(id);
@@ -177,6 +177,7 @@ function newRow(key, el) {
     fCombo: numberFormatter('count'), fGap: numberFormatter('delta'),
     modsKind: -1, modsName: undefined, acronyms: [], acronymCount: 0, tMods: null,
     dip: null, flashAnim: null,
+    who: null, shownName: null, fName: null, fBold: false, fLength: -1, fFailed: false, fSerial: -1,
   };
   for (const node of el.querySelectorAll('[data-r]')) row[node.dataset.r] = node;
   return row;
@@ -255,7 +256,7 @@ function fillCommon(row, e, index) {
     if (row.tPos !== text) { row.tPos = text; row.pos.textContent = text; }
   }
   const name = typeof e.name === 'string' && e.name ? e.name : '—';
-  if (row.tName !== name) { row.tName = name; row.name.textContent = name; }
+  if (row.tName !== name) row.tName = name;
   const failed = e.isFailed === true;
   if (row.failed !== failed) { row.failed = failed; row.el.classList.toggle('failed', failed); }
 }
@@ -281,6 +282,7 @@ function fillBoard(row, e, index, flags) {
     const text = row.fScore(known(score));
     if (row.tScore !== text) { row.tScore = text; row.score.textContent = text; }
   }
+  fitName(row, (flags & ME) !== 0, row.tScore === null ? 0 : row.tScore.length);
   // Mods ride every second line; accuracy and combo only where they show (FACTS), so your own
   // per-hit accuracy is not formatted while hudFields hides it.
   if ((flags & TWO) === 0) return;
@@ -309,8 +311,39 @@ function fillRival(row, e, index, mine) {
     const text = row.fGap(diff);
     if (row.tGap !== text) { row.tGap = text; row.gap.textContent = text; }
   }
+  fitName(row, false, row.tGap === null ? 0 : row.tGap.length);
   const ahead = diff >= 0;
   if (row.vAhead !== ahead) { row.vAhead = ahead; row.el.classList.toggle('ahead', ahead); }
+}
+
+// Name fitting (docs/overlay-system.md "Words"): a name that fits its column is shown whole; a
+// longer one is cut by the shared fitFields()/ellipsize() (a real "…", trailing punctuation
+// trimmed) to the column's measured width. Runs when the name, its weight, the width of the score
+// beside it, FAIL or the layout changes; never per frame.
+const measure = document.createElement('canvas').getContext('2d');
+const nameFields = [{ text: '', order: 0, keep: 2 }];
+let nameRoom = 0;
+const nameFits = texts => measure.measureText(texts[0]).width <= nameRoom;
+let layoutSerial = 0;
+
+function fitName(row, bold, scoreLength) {
+  if (row.fName === row.tName && row.fBold === bold && row.fLength === scoreLength && row.fFailed === row.failed && row.fSerial === layoutSerial) return;
+  row.fName = row.tName;
+  row.fBold = bold;
+  row.fLength = scoreLength;
+  row.fFailed = row.failed;
+  row.fSerial = layoutSerial;
+  // The column's width (the 1fr track, independent of the text in it) with the name's own font,
+  // read from layout once per change.
+  let text = row.tName;
+  nameRoom = row.who.clientWidth;
+  if (nameRoom > 0) {
+    const style = getComputedStyle(row.name);
+    measure.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    nameFields[0].text = text;
+    text = fitFields(nameFields, nameFits)[0];
+  }
+  if (row.shownName !== text) { row.shownName = text; row.name.textContent = text; }
 }
 
 const rivals = new SlotList($('rival-rows'), $('rival-template'), fillRival);
@@ -403,6 +436,8 @@ settings(DEFAULTS, next => {
 });
 
 addEventListener('resize', relayout);
+// Names are fitted with canvas measurements, which need the real fonts.
+document.fonts.ready.then(relayout);
 
 subscribe(Object.values(P), next => {
   state = next[P.state];
@@ -449,10 +484,11 @@ function schedule() {
  */
 function layout() {
   laidOut = true;
+  layoutSerial++;
   const w = innerWidth || 1;
   const h = innerHeight || 1;
   horizontal = cfg.orientation === 'horizontal' || (cfg.orientation !== 'vertical' && w > h * 1.6);
-  pad = cfg.backing === 'none' ? 0 : PAD;
+  pad = PAD;
   // Vertical: --u follows the width down to the 216 px column, but a wider box (the 256 px mania
   // column) only widens the name column unless it is also taller than 400 px.
   const fitV = Math.min(w / V.width, Math.max(1, h / V.height));

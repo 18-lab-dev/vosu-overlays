@@ -15,8 +15,8 @@
     <header class="head">
       <span class="hero kit-hero" data-a="hero"><span class="hash">#</span><span id="board-pos">—</span></span>
       <span class="side">
-        <span id="board-gap" class="hgap kit-label"></span>
-        <span class="line"><span id="board-target" class="htarget kit-label"></span><span class="of kit-caption">of <span id="board-total"></span></span><span class="delta kit-label" data-a="delta"></span></span>
+        <span id="board-gap" class="hgap kit-text"></span>
+        <span class="line"><span id="board-target" class="htarget kit-text"></span><span class="of kit-caption">of <span id="board-total"></span></span><span class="delta kit-label" data-a="delta"></span></span>
       </span>
     </header>
     <div id="board-rows" class="rows"><div id="skip" class="skip out" aria-hidden="true"><span class="kit-label">···</span></div></div>
@@ -30,8 +30,8 @@
     </div>
   </section>
 </div>
-<template id="rival-template"><div class="rrow out"><span class="pos kit-label" data-r="pos"></span><span class="who"><span class="name kit-text" data-r="name"></span></span><span class="rgap kit-value" data-r="gap"></span><span class="fail kit-code">Fail</span></div></template>
-<template id="board-template"><div class="row out"><i class="flash" data-r="flash"></i><span class="pos kit-label" data-r="pos"></span><span class="who"><span class="name kit-text" data-r="name"></span></span><span class="score kit-value" data-r="score"></span><span class="fail kit-code">Fail</span><span class="sub kit-label"><span class="facts"><span class="acc"><span data-r="acc"></span><span class="kit-unit tight">%</span></span><span class="combo"><span data-r="combo"></span><span class="kit-unit tight">×</span></span><span class="mods kit-code" data-r="mods"></span></span><span class="gap"><b data-r="gap"></b> <span data-r="target"></span></span></span></div></template>
+<template id="rival-template"><div class="rrow out"><span class="pos kit-label" data-r="pos"></span><span class="who" data-r="who"><span class="name kit-text" data-r="name"></span></span><span class="rgap kit-value" data-r="gap"></span><span class="fail kit-code">Fail</span></div></template>
+<template id="board-template"><div class="row out"><i class="flash" data-r="flash"></i><span class="pos kit-label" data-r="pos"></span><span class="who" data-r="who"><span class="name kit-text" data-r="name"></span></span><span class="score kit-value" data-r="score"></span><span class="fail kit-code">Fail</span><span class="sub kit-text"><span class="facts"><span class="acc"><span data-r="acc"></span><span class="kit-unit tight">%</span></span><span class="combo"><span data-r="combo"></span><span class="kit-unit tight">×</span></span><span class="mods kit-code" data-r="mods"></span></span><span class="gap"><b data-r="gap"></b> <span data-r="target"></span></span></span></div></template>
 <script type="module" src="overlay.js"></script>
 </body>
 </html>

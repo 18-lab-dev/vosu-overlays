@@ -22,7 +22,8 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .status[hidden] { display: none; }
 
 /* ------------------------------------------------------------ the ledger
-   Droplets missed (the hero) and combo breaks: the two misses osu!catch's HUD never counts.
+   Combo breaks (the hero: the rarer, costlier event) and droplets missed: the two misses
+   osu!catch's HUD never counts.
    Placed by overlay.js (left/top/width), so transform stays free for entering and leaving. */
 .ledger {
   position: absolute;
@@ -31,7 +32,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   width: max-content;
   display: grid;
   grid-template-columns: auto auto;
-  grid-template-areas: "dmiss breaks" "hud hud";
+  grid-template-areas: "breaks dmiss" "hud hud";
   justify-content: space-between;
   align-items: end;
   column-gap: var(--s-5);
@@ -46,15 +47,15 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 }
 
 .cell { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-1); }
-.cell-dmiss { grid-area: dmiss; }
-.cell-breaks { grid-area: breaks; align-items: flex-end; }
+.cell-breaks { grid-area: breaks; }
+.cell-dmiss { grid-area: dmiss; align-items: flex-end; }
 
 /* Numbers sit on tight line boxes so the hero and its label fit the 64 px content height of the
    slot at --u 1; Barlow Condensed numerals stay inside the box. Scale origin for the kick. */
 .num { line-height: .78; transform-origin: 0 100%; }
-.cell-breaks .num { transform-origin: 100% 100%; }
+.cell-dmiss .num { transform-origin: 100% 100%; }
 .num.kit-dash { color: var(--text-3); }
-/* A broken combo is a miss: the count keeps the miss colour while it is above zero. */
+/* A broken combo is a miss: the hero takes the miss colour once it is above zero (neutral at 0). */
 .cell-breaks[data-broken] .num { color: var(--j-miss); }
 
 /* Event rule: flashes the miss colour under a cell when its count goes up (overlay.js animates
@@ -93,21 +94,21 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 /* ------------------------------------------------------------ vertical: tall boxes */
 .ledger[data-orient="v"] {
   grid-template-columns: auto;
-  grid-template-areas: "dmiss" "breaks" "hud";
+  grid-template-areas: "breaks" "dmiss" "hud";
   justify-content: start;
   row-gap: var(--s-4);
 }
-.ledger[data-orient="v"] .cell-breaks { align-items: flex-start; }
-.ledger[data-orient="v"] .cell-breaks .num { transform-origin: 0 100%; }
+.ledger[data-orient="v"] .cell-dmiss { align-items: flex-start; }
+.ledger[data-orient="v"] .cell-dmiss .num { transform-origin: 0 100%; }
 .ledger[data-orient="v"] .hud { margin-top: 0; }
 
 /* ------------------------------------------------------------ align right: mirrored for a right edge */
-.ledger[data-align="right"] { grid-template-areas: "breaks dmiss" "hud hud"; }
-.ledger[data-align="right"] .cell-dmiss { align-items: flex-end; }
-.ledger[data-align="right"] .cell-dmiss .num { transform-origin: 100% 100%; }
-.ledger[data-align="right"] .cell-breaks { align-items: flex-start; }
-.ledger[data-align="right"] .cell-breaks .num { transform-origin: 0 100%; }
+.ledger[data-align="right"] { grid-template-areas: "dmiss breaks" "hud hud"; }
+.ledger[data-align="right"] .cell-breaks { align-items: flex-end; }
+.ledger[data-align="right"] .cell-breaks .num { transform-origin: 100% 100%; }
+.ledger[data-align="right"] .cell-dmiss { align-items: flex-start; }
+.ledger[data-align="right"] .cell-dmiss .num { transform-origin: 0 100%; }
 .ledger[data-align="right"] .stat { align-items: flex-end; }
-.ledger[data-orient="v"][data-align="right"] { grid-template-areas: "dmiss" "breaks" "hud"; justify-content: end; }
+.ledger[data-orient="v"][data-align="right"] { grid-template-areas: "breaks" "dmiss" "hud"; justify-content: end; }
 .ledger[data-orient="v"][data-align="right"] .cell { align-items: flex-end; }
 .ledger[data-orient="v"][data-align="right"] .num { transform-origin: 100% 100%; }

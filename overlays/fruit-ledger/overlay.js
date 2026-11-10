@@ -1,8 +1,9 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// Fruit ledger: the two osu!catch misses the game's HUD never counts. Droplets missed (the hero:
-// they cost accuracy but not combo, so a full combo hides them) and combo breaks (fruit and drop
-// misses). With `hudFields` on it also lists what the HUD already shows: fruits, drops and
-// droplets caught, accuracy with the best accuracy still possible, and combo.
+// Fruit ledger: the two osu!catch misses the game's HUD never counts. Combo breaks (the hero:
+// fruit and drop misses, the rarer and costlier event; miss red once above zero) and droplets
+// missed (they cost accuracy but not combo, so a full combo hides them). With `hudFields` on it
+// also lists what the HUD already shows: fruits, drops and droplets caught, accuracy with the
+// best accuracy still possible, and combo.
 // A content-sized page on the 18-LAB kit (docs/overlay-system.md): the host places and sizes it,
 // the ledger fits itself to that box through --u. Gameplay only: song select, results (osu!'s
 // results screen lists every catch judgement) and menus show nothing.

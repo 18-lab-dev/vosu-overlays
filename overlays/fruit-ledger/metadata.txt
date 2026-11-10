@@ -1,6 +1,6 @@
 name = Fruit ledger
 author = 18-LAB
 version = 0.4.0
-description = osu!catch misses the HUD never counts: droplets missed (accuracy lost while the combo stays intact) and combo breaks, flashing as they happen. Optionally also fruits, drops and droplets caught, accuracy with the best still possible, and combo. Gameplay only.
+description = osu!catch misses the HUD never counts: combo breaks (the hero, red once the full combo is gone) and droplets missed (accuracy lost while the combo stays intact), flashing as they happen. Optionally also fruits, drops and droplets caught, accuracy with the best still possible, and combo. Gameplay only.
 resolution = [256,96]
 placement = {"fruits":["left+24","bottom-128",256,96]}

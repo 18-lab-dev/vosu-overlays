@@ -5,7 +5,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 p, dl, dd { margin: 0; }
 [hidden] { display: none !important; }
 
-/* The page is the overlay's box; hosts size it. --u (overlay.js) is 1 at the 256×240 column. */
+/* The page is the overlay's box; hosts size it. --u (overlay.js) is 1 at the 216×240 column. */
 #root {
   position: fixed; inset: 0;
   display: grid; gap: var(--s-3);
@@ -18,10 +18,13 @@ p, dl, dd { margin: 0; }
 }
 [data-view="connecting"]#root { opacity: 1; transition-delay: 600ms; }
 
-/* Header: the attempt's dash share, scoped by its caption. */
-.head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: var(--s-3); row-gap: var(--s-1); min-width: 0; }
-.dash { display: flex; align-items: baseline; gap: var(--s-2); }
-[data-align="right"] .head { flex-direction: row-reverse; }
+/* Header: the attempt's dash share; its caption sits under the label so the row fits 216 px. */
+.head { display: flex; align-items: flex-end; min-width: 0; }
+.dash { display: flex; align-items: flex-end; gap: var(--s-3); }
+.scope { display: flex; flex-direction: column; }
+[data-align="right"] .head { justify-content: flex-end; }
+[data-align="right"] .dash { flex-direction: row-reverse; }
+[data-align="right"] .scope { align-items: flex-end; }
 
 /* Plot: the canvas draws the playfield frame, the trace, misses and the catcher. */
 .plot { position: relative; min-width: 0; min-height: 0; }
@@ -34,23 +37,24 @@ canvas { display: block; width: 100%; height: 100%; }
 [data-orient="horizontal"]#root { grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s-4); }
 [data-orient="horizontal"][data-align="right"]#root { grid-template-columns: minmax(0, 1fr) auto; }
 [data-orient="horizontal"][data-align="right"] .head { order: 2; }
-[data-orient="horizontal"] .head { flex-direction: column; flex-wrap: nowrap; justify-content: center; align-items: flex-start; row-gap: var(--s-2); }
+[data-orient="horizontal"] .head { flex-direction: column; justify-content: center; align-items: flex-start; }
 [data-orient="horizontal"][data-align="right"] .head { align-items: flex-end; }
 [data-orient="horizontal"] .dash { flex-direction: column; align-items: inherit; gap: var(--s-1); }
 /* Dash share off: the trace takes the whole box. */
 #root[data-view="live"]:has(> .head[hidden]) { grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
 
-/* Results: the attempt's readouts along the bottom of the box. */
+/* Results: the attempt's readouts as two rows at the bottom of the box. */
 .final { display: none; }
 [data-view="final"]#root { grid-template-rows: none; grid-template-columns: none; align-content: end; }
 [data-view="final"] :is(.head, .plot) { display: none; }
-[data-view="final"] .final { display: flex; justify-content: space-between; gap: var(--s-4); }
-.final dd { margin-top: var(--s-1); }
-[data-align="right"] .final { flex-direction: row-reverse; text-align: right; }
+[data-view="final"] .final { display: grid; row-gap: var(--s-2); }
+.final div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-3); }
+/* Row values at the kit's table size (≥ 20 px) so a four-digit count fits the 216 px column. */
+.final .kit-value { font-size: calc(var(--u, 1) * 24px); }
 
 /* Results and the one-line states fill only the bottom of the box: the backing and the signature
    marks frame that block (--block), not the empty slot above it. */
-[data-view="final"]#root { --block: calc(var(--pad) * 2 + var(--u, 1) * 52px); }
+[data-view="final"]#root { --block: calc(var(--pad) * 2 + var(--u, 1) * 56px); }
 #root:is([data-view="missing"], [data-view="connecting"], [data-view="offline"], [data-view="nodata"]) {
   --block: calc(var(--pad) * 2 + var(--u, 1) * 20px);
 }

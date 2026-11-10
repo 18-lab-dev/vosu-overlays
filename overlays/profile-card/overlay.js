@@ -6,6 +6,7 @@
 // (docs/overlay-system.md): kit.css roles, numberFormatter(), known(), applyKitSettings().
 import {
   subscribe, settings, MODES, known, isKnown, numberFormatter, DASH, applyKitSettings, MOTION_MS,
+  fitFields, NAME_KEEP,
 } from './vosu-overlay.js';
 
 const PLAYING = 2;
@@ -89,7 +90,7 @@ function data(node, key, value) {
 }
 
 const DEFAULTS = {
-  orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', showAvatar: true, showDeltas: true,
+  orientation: 'auto', align: 'right', motion: 'full', backing: 'scrim', marks: 'neutral', showAvatar: true, showDeltas: true,
   customName: '', customAvatar: '', customRank: '', customPp: '', customCountry: '',
 };
 const opts = { ...DEFAULTS };
@@ -262,20 +263,48 @@ function ownAttempt() {
   return player === '' || player.toLowerCase() === textOf(values[P.name]).toLowerCase();
 }
 
-/** Narrow boxes give way in order: pp change, country, avatar. Reads layout; runs only on change. */
-const FIT = ['0', '1', '2', '3'];
+/**
+ * Narrow boxes give way in order: the pp change, the country, then the name past 16 characters
+ * (the shared fitFields/ellipsize: a name of 16 or fewer is never cut), the avatar, and last the
+ * pp line. Reads layout; runs only when something that changes the width changed, never per frame.
+ */
+const FIT = ['0', '1', '2', '3', '4'];
+const CUT_NAME_FROM = 2;
+const nameField = [{ text: '', keep: NAME_KEEP }];
+let fullName = '';
+let room = 0;
+function setName(value) {
+  shown.set(ui.name, value);
+  if (ui.name.textContent !== value) ui.name.textContent = value;
+}
+/** The tag's natural (max-content) width fits the page. */
+function fitsRoom() {
+  stage.setAttribute('data-measure', '');
+  const need = ui.tag.getBoundingClientRect().width;
+  stage.removeAttribute('data-measure');
+  return need <= room + 0.5;
+}
+const nameFits = texts => { setName(texts[0]); return fitsRoom(); };
 function fit() {
   fitDirty = false;
-  const room = stage.clientWidth;
-  for (let step = 0; ; step++) {
+  room = stage.clientWidth;
+  let name = fullName;
+  for (let step = 0; step < FIT.length; step++) {
     data(ui.tag, 'fit', FIT[step]);
-    if (step === FIT.length - 1) return;
-    stage.setAttribute('data-measure', '');
-    const need = ui.tag.getBoundingClientRect().width;
-    stage.removeAttribute('data-measure');
-    if (need <= room + 0.5) return;
+    // From the country step on, a name past 16 characters is cut (as far as it must, never below
+    // 16); later steps keep that cut, since those characters give way before the avatar and pp.
+    if (step === CUT_NAME_FROM) {
+      nameField[0].text = fullName;
+      name = fitFields(nameField, nameFits)[0];
+    }
+    setName(name);
+    if (fitsRoom()) return;
   }
+  // Nothing left to give: a name of 16 or fewer characters still too wide for the box is clipped
+  // by CSS (text-overflow) rather than shrunk.
 }
+// Widths measured with a fallback font are wrong once the kit's fonts arrive.
+document.fonts.addEventListener('loadingdone', () => { fitDirty = true; invalidate(); });
 
 /* ---------- render ---------- */
 
@@ -324,7 +353,9 @@ function render() {
   const entering = !wasShown;
   wasShown = true;
 
-  if (text(ui.name, name)) {
+  if (name !== fullName) {
+    fullName = name;
+    setName(name);
     fitDirty = true;
     text(ui.monogram, (name.match(/[\p{L}\p{N}]/u)?.[0] ?? name[0]).toUpperCase());
   }

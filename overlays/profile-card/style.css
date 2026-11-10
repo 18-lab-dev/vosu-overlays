@@ -122,7 +122,7 @@ p, figure { margin: 0; }
   grid-template-areas: "info av" "rank av";
   justify-items: end;
 }
-.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"]) { grid-template-columns: minmax(0, max-content); grid-template-areas: "info" "rank"; }
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"]) { grid-template-columns: minmax(0, max-content); grid-template-areas: "info" "rank"; }
 .stage[data-rows="2"] .avatar { grid-area: av; align-self: center; }
 .stage[data-rows="2"] .info { grid-area: info; flex-direction: row; align-items: baseline; align-self: center; gap: var(--s-3); max-width: 100%; }
 .stage[data-rows="2"] .who { flex: 0 1 auto; }
@@ -131,7 +131,7 @@ p, figure { margin: 0; }
 .stage[data-rows="2"] .tag[data-nums="off"] { grid-template-rows: auto; grid-template-areas: "info av"; }
 .stage[data-rows="2"][data-align="left"] .tag[data-nums="off"],
 .stage[data-rows="2"][data-align="center"] .tag[data-nums="off"] { grid-template-areas: "av info"; }
-.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"])[data-nums="off"] { grid-template-areas: "info"; }
+.stage[data-rows="2"] .tag:is([data-avatar="off"], [data-fit="3"], [data-fit="4"])[data-nums="off"] { grid-template-areas: "info"; }
 .stage[data-rows="2"] .tag[data-view="status"] { display: flex; }
 
 /* ---------- card (vertical) ---------- */
@@ -158,12 +158,12 @@ p, figure { margin: 0; }
 .tag[data-nums="off"] :is(.pp-line, .rank-line) { display: none; }
 .tag[data-deltas="off"] .delta { display: none; }
 .pp-line[data-raw] .kit-unit, .rank-line[data-raw] .hash { display: none; }
-/* A narrow box gives way in this order: the pp change, the country, the avatar (overlay.js
-   measures after the text changes; never per frame). */
-.tag:is([data-fit="1"], [data-fit="2"], [data-fit="3"]) #d-pp,
-.tag:is([data-fit="2"], [data-fit="3"]) .country,
-.tag[data-fit="3"] .avatar { display: none; }
-/* Measuring pass: the tag at its natural (max-content) width, read once and removed. A long name
-   counts as 96 px (about ten characters): past that it truncates instead of pushing out the rest. */
+/* A narrow box gives way in this order: the pp change, the country, a name's characters past 16
+   (shared fitFields; ≤ 16 is never cut), the avatar, the pp (overlay.js measures after the text
+   changes; never per frame). */
+.tag:is([data-fit="1"], [data-fit="2"], [data-fit="3"], [data-fit="4"]) #d-pp,
+.tag:is([data-fit="2"], [data-fit="3"], [data-fit="4"]) .country,
+.tag:is([data-fit="3"], [data-fit="4"]) .avatar,
+.tag[data-fit="4"] .pp-line { display: none; }
+/* Measuring pass: the tag at its natural (max-content) width, read and removed at once. */
 .stage[data-measure] .tag { position: absolute; width: max-content; max-width: none; }
-.stage[data-measure] .name { max-width: calc(var(--u, 1) * 96px); }

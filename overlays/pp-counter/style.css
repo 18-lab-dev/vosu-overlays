@@ -20,6 +20,9 @@ body { display: flex; align-items: center; }
 .root[data-align="center"] { align-items: center; text-align: center; }
 /* Status and song-select content is narrower than the box: the backing hugs it, on the aligned edge. */
 .root:is([data-view="offline"], [data-view="idle"], [data-view="select"]) { width: auto; }
+/* pp alone (no rail without the map's SS value, nothing on the secondary line): the card hugs the
+   number instead of leaving an empty half beside it. */
+.root:is([data-view="play"], [data-view="results"])[data-slot="off"][data-rail="off"] { width: auto; }
 body[data-align="right"] { justify-content: flex-end; }
 body[data-align="center"] { justify-content: center; }
 
@@ -31,7 +34,8 @@ body[data-align="center"] { justify-content: center; }
 .root[data-orient="horizontal"][data-view="select"] .note { display: none; }
 .root:is([data-view="offline"], [data-view="idle"], [data-view="select"]) :is(.head, .second, .meter),
 .root[data-view="results"] .meter,
-.root[data-slot="off"] .second { display: none; }
+.root[data-slot="off"] .second,
+.root[data-rail="off"] .meter { display: none; }
 
 /* Hero row: the readout on the aligned edge, its label (FAIL, If FC) on the other. */
 .head { display: flex; align-items: center; column-gap: var(--s-3); width: 100%; min-width: 0; }
@@ -81,8 +85,8 @@ body[data-align="center"] { justify-content: center; }
 .chips li { display: inline-flex; align-items: baseline; column-gap: var(--s-1); height: calc(var(--u) * 24px); }
 .chips .kit-value { font-size: calc(var(--u) * 20px); color: var(--text-2); }
 
-/* Rail: 0 → the map's SS value, current pp filled amber (you), hatched up to max achievable, a tick
-   at if-FC. The SS value labels the right end. */
+/* Rail: 0 → the map's SS value, current pp filled amber (you), a flat --hair-strong band up to max
+   achievable, a tick at if-FC. The SS value labels the right end. Hidden when SS is unknown. */
 .meter { display: flex; align-items: center; column-gap: var(--s-2); width: 100%; height: calc(var(--u) * 14px); }
 #rail { display: block; flex: 1 1 0; min-width: 0; height: calc(var(--u) * 12px); }
 .ss { display: inline-flex; align-items: baseline; column-gap: var(--s-1); line-height: 1; }
@@ -110,9 +114,11 @@ body[data-align="center"] { justify-content: center; }
 .root[data-orient="horizontal"] .head { grid-column: 1; grid-row: 1 / span 2; width: auto; }
 .root[data-orient="horizontal"] .second { grid-column: 2; grid-row: 1; height: calc(var(--u) * 30px); }
 .root[data-orient="horizontal"] .meter { grid-column: 2; grid-row: 2; }
-.root[data-orient="horizontal"][data-view="results"] .second { grid-row: 1 / span 2; }
+.root[data-orient="horizontal"]:is([data-view="results"], [data-rail="off"]) .second { grid-row: 1 / span 2; }
 .root[data-orient="horizontal"] .big { height: calc(var(--u) * 48px); line-height: calc(var(--u) * 48px); }
 .root[data-orient="horizontal"] .fc-row .kit-value { line-height: calc(var(--u) * 30px); }
+.root[data-orient="horizontal"][data-slot="off"][data-rail="off"] { grid-template-columns: auto; }
+.root[data-orient="horizontal"][data-slot="off"][data-rail="off"] .head { grid-column: 1; }
 .root[data-orient="horizontal"][data-align="right"] { grid-template-columns: minmax(0, 1fr) auto; }
 .root[data-orient="horizontal"][data-align="right"] .head { grid-column: 2; }
 .root[data-orient="horizontal"][data-align="right"] :is(.second, .meter) { grid-column: 1; }

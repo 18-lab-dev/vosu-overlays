@@ -1,7 +1,7 @@
 // Copyright (c) 2026 18-LAB. MIT.
 // Performance counter on the 18-LAB overlay kit (docs/overlay-system.md). During play: current pp
 // as the hero, the pp breakdown on the secondary line and a rail from 0 to the map's SS value
-// (current filled in amber, hatched up to max achievable, a tick at if-FC). Once the full combo is
+// (current filled in amber, a flat band up to max achievable, a tick at if-FC). Once the full combo is
 // lost, the if-FC value detaches from the hero and takes the secondary line. Song select: the
 // accuracy → pp ladder (osu! never shows pp there). Results: what the results screen lacks.
 // Unknown values (the replay renderer leaves if-FC and max at 0) are hidden, never shown as 0.
@@ -234,6 +234,7 @@ function derive() {
   let wantFc = false;
   let slot = false;
   let failed = false;
+  let rail = false;
   let label = '';
   let gapText = '';
   if (next === 'play') {
@@ -260,15 +261,15 @@ function derive() {
     retarget(FILL);
     retarget(FC);
     retarget(MAX);
-    // Rail scale: the map's SS value; without it (tosu, the renderer) the largest known projection.
-    // Never current pp alone: that would draw a full rail, an affirmative claim.
-    let s = ss > 0 ? ss : NaN;
-    if (fc > 0 && !(fc <= s)) s = fc;
-    if (max > 0 && !(max <= s)) s = max;
-    if (s > 0 && cur > s) s = cur;
+    // Rail: 0 → the map's SS value, only when SS is known. Without it (tosu, the replay renderer)
+    // a rail would measure nothing, so pp stands alone.
+    rail = ss > 0;
+    let s = rail ? ss : NaN;
+    if (fc > s) s = fc;
+    if (max > s) s = max;
+    if (cur > s) s = cur;
     F[SCALE] = s;
-    show(el.ss, ss > 0);
-    if (ss > 0) text(el.ssVal, ssFmt(ss));
+    if (rail) text(el.ssVal, ssFmt(ss));
 
     const chipCount = renderChips(activeMode(state, D[I.playMode], D[I.setMode]));
     slot = (opt.showIfFc && fc > 0) || chipCount > 0;
@@ -298,6 +299,7 @@ function derive() {
   text(el.heroLabel, label);
   text(el.heroGap, label ? gapText : '');
   attr(el.root, 'data-slot', slot ? null : 'off');
+  attr(el.root, 'data-rail', rail ? null : 'off');
   if (wantFc !== fcOn) {
     fcOn = wantFc;
     attr(el.root, 'data-fc', wantFc ? '' : null);
@@ -373,9 +375,12 @@ const ctx = el.rail.getContext('2d', { alpha: true });
 let k = 1;              // device px per design unit
 let cw = 0, ch = 0;
 let railDirty = true;
-let hatch = null;
-// kit.css roles: --you (current), --text-1 (if-FC tick), --text-2 (max end), --hair (track).
-const C = { you: '#ff963f', tick: '#efece5', end: '#d3cfc6', track: 'rgb(11 12 13 / 0.45)', hair: 'rgb(239 236 229 / 0.22)' };
+// kit.css roles: --you (current), --hair-strong (band to max), --text-1 (if-FC tick), --text-2 (max
+// end), --hair (track).
+const C = {
+  you: '#ff963f', band: 'rgb(239 236 229 / 0.4)', tick: '#efece5', end: '#d3cfc6',
+  track: 'rgb(11 12 13 / 0.45)', hair: 'rgb(239 236 229 / 0.22)',
+};
 let px = 1, barY = 0, barH = 0, tickW = 2;
 
 function resizeRail() {
@@ -383,16 +388,6 @@ function resizeRail() {
   barY = Math.round(3 * k);
   barH = Math.round(6 * k);
   tickW = Math.max(2, Math.round(2 * k));
-  const size = Math.max(4, Math.round(5 * k));
-  const tile = document.createElement('canvas');
-  tile.width = tile.height = size;
-  const t = tile.getContext('2d');
-  t.strokeStyle = 'rgb(239 236 229 / 0.6)';
-  t.lineWidth = px;
-  t.beginPath();
-  for (const o of [-size, 0, size]) { t.moveTo(o, size); t.lineTo(o + size, 0); }
-  t.stroke();
-  hatch = ctx.createPattern(tile, 'repeat');
   railDirty = true;
   kick();
 }
@@ -411,7 +406,7 @@ function drawRail() {
   ctx.fillStyle = C.hair;
   ctx.fillRect(0, barY, w, barH);
   const s = F[SCALE];
-  if (!(s > 0)) return;   // unknown scale: an empty track, no claim
+  if (!(s > 0)) return;
   const fill = T[FILL];
   const fc = T[FC];
   const potential = T[MAX];
@@ -419,7 +414,7 @@ function drawRail() {
   const fx = fill > 0 ? Math.max(0, Math.min(w, Math.round((fill / s) * w))) | 0 : 0;
   if (potential > fill) {
     const mx = Math.max(0, Math.min(w, Math.round((potential / s) * w))) | 0;
-    ctx.fillStyle = hatch;
+    ctx.fillStyle = C.band;
     ctx.fillRect(fx, barY, mx - fx, barH);
     ctx.fillStyle = C.end;
     ctx.fillRect(Math.max(0, mx - px), barY, px, barH);

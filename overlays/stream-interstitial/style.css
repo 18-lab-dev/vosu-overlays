@@ -3,7 +3,7 @@
    countdown, and a title block (map + session) along the bottom edge.
 
    Built on the overlay kit (kit.css): the sheet is the .kit root, inset by the page gutter, so the
-   amber registration marks sit on the sheet's corners. The scene is the kit at scene scale: each
+   registration marks (the `marks` setting) sit on the sheet's corners. The scene is the kit at scene scale: each
    text group sets its own --u (the kit's sizes are for a peripheral overlay at --u 1). The backdrop
    (map art under a dim, graphite, or nothing) is the scene's own background; the kit backing only
    applies with the transparent backdrop (overlay.js). */

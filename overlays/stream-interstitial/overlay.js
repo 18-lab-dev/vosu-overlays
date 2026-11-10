@@ -11,7 +11,7 @@
 import {
   subscribe, settings, fit, activeMode, formatDuration, backgroundUrl, MODE_LABELS,
   known, isKnown, DASH, numberFormatter, createMapClock, createBeatClock,
-  applyKitSettings, MOTION_MS, mapPalette, applyPalette,
+  applyKitSettings, MOTION_MS, mapPalette, applyPalette, splitTitle, fitFields, NAME_KEEP,
 } from './vosu-overlay.js';
 
 const W = 1920;
@@ -95,7 +95,7 @@ const entering = () => stage.hasAttribute('data-enter');
 // ---------------------------------------------------------------- settings
 const DEFAULTS = {
   scene: 'starting-soon', headline: '', subline: '', minutes: 5, showMap: true, showSession: true, backdrop: 'map',
-  motion: 'full', backing: 'scrim', mapTint: true,
+  motion: 'full', backing: 'scrim', marks: 'neutral', mapTint: true,
 };
 let config = { ...DEFAULTS };
 let motion = 'full'; // the applied level: full | reduced | off
@@ -112,7 +112,7 @@ function onSettings(next) {
   // The map and graphite backdrops are the scene's backing (a dark field under all text); the
   // kit backing only applies over the streamer's own background (transparent). `none` adds the
   // kit's contrast shadow, which is invisible on the dark backdrops.
-  motion = applyKitSettings(sheet, { motion: wanted, backing: config.backdrop === 'transparent' ? config.backing : 'none', mapTint: config.mapTint });
+  motion = applyKitSettings(sheet, { motion: wanted, backing: config.backdrop === 'transparent' ? config.backing : 'none', mapTint: config.mapTint, marks: config.marks });
   const minutes = Math.max(0, Math.min(600, config.minutes));
   // The countdown starts on load. vosu's first settings reply only corrects its length; a later
   // edit of the scene or the minutes restarts it from that moment.
@@ -441,11 +441,7 @@ function renderMap() {
   } else if (animate && written.has(el.mapLabel) && written.get(el.mapLabel) !== label) restart(headIn);
   text(el.mapLabel, label);
   flag(el.mapCell, 'data-nomap', !view.hasMap);
-  text(el.mapTitle, view.title);
-  flag(el.mapTitle, 'data-long', view.title.length > LONG_TITLE);
-  text(el.mapArtist, view.artist);
-  text(el.mapVersion, view.version);
-  text(el.mapMapper, view.mapper ? `${view.version ? '  ·  ' : ''}mapped by ${view.mapper}` : '');
+  fitMapLines();
   const mode = view.hasMap ? view.mode : '';
   const state = view.hasMap ? view.status : '';
   text(el.mapMeta, mode && state ? `${mode} · ${state}` : mode || state);
@@ -467,6 +463,47 @@ function renderSession() {
   text(el.timeB, view.timeB);
   text(el.timeUb, view.timeUb);
   flag(el.rTime, 'data-unknown', view.timeA === DASH);
+}
+
+// Map lines (docs/overlay-system.md "Words"): each is one line cut with the shared fitFields().
+// The title's bracketed suffix gives way first, then the title (never below 8 characters); on the
+// difficulty line the difficulty gives way before a mapper name of 16 characters or fewer. Runs
+// when a text or the cell width changed (map change, settings, fonts), never per frame.
+const measure = new OffscreenCanvas(1, 1).getContext('2d');
+const SEP = ' · ';
+let fitKey = '';
+
+function fitMapLines() {
+  flag(el.mapTitle, 'data-long', view.title.length > LONG_TITLE);
+  const width = el.mapTitle.clientWidth;
+  const key = `${width}|${view.title}|${view.artist}|${view.version}|${view.mapper}`;
+  if (key === fitKey) return;
+  fitKey = key;
+  const parts = splitTitle(view.title);
+  const fits = font => texts => {
+    measure.font = font;
+    return width <= 0 || measure.measureText(texts.join('')).width <= width;
+  };
+  const [main, suffix] = fitFields([
+    { text: parts.main, order: 1, keep: 8 },
+    { text: parts.suffix ? ` ${parts.suffix}` : '', order: 0, keep: 0 },
+  ], fits(getComputedStyle(el.mapTitle).font));
+  text(el.mapTitle, main + suffix);
+  text(el.mapArtist, fitFields([{ text: view.artist, order: 0, keep: 8 }], fits(getComputedStyle(el.mapArtist).font))[0]);
+  const versionFont = getComputedStyle(el.mapVersion).font;
+  const mapperFont = getComputedStyle(el.mapMapper).font;
+  const [version, mapper] = fitFields([
+    { text: view.version, order: 0, keep: 0 },
+    { text: view.mapper, order: 1, keep: NAME_KEEP },
+  ], texts => {
+    measure.font = versionFont;
+    let used = measure.measureText(texts[0]).width;
+    measure.font = mapperFont;
+    if (texts[1]) used += measure.measureText(`${texts[0] ? SEP : ''}mapped by ${texts[1]}`).width;
+    return width <= 0 || used <= width;
+  });
+  text(el.mapVersion, version);
+  text(el.mapMapper, mapper ? `${version ? SEP : ''}mapped by ${mapper}` : '');
 }
 
 // Map tint: the title block's top rule and the star follow the map (--map); neutral when off.
@@ -599,6 +636,9 @@ function checkAmbient() {
 
 // ---------------------------------------------------------------- entrance, once
 const enter = () => requestAnimationFrame(() => requestAnimationFrame(() => stage.removeAttribute('data-enter')));
+// Map lines were fitted with fallback metrics if the fonts were still loading: fit them again.
+const fontsReady = () => { fitKey = ''; schedule(renderMap); };
+document.fonts.ready.then(fontsReady);
 Promise.race([document.fonts.ready, new Promise(done => setTimeout(done, 800))]).then(enter);
 
 // ---------------------------------------------------------------- start

@@ -2,5 +2,5 @@ Name: Judgement ratio
 Author: 18-LAB
 Version: 0.4.0
 Resolution: 256x352
-Description: osu!mania MAX : 300 ratio with the judgement mix as one proportional bar; a 50 or a miss marks its place on the bar. Optionally the MAX…Miss counts, accuracy and combo (off by default: osu!'s HUD shows them) and live and peak keys per second. On results it keeps the ratio, the bar and the attempt's peak.
+Description: osu!mania judgement ratio: MAX : 300 : 200 : 100 : 50 : Miss as one chained ratio (each count over the smallest non-zero count), every term under its judgement name, and the judgement mix as one proportional bar; a 50 or a miss marks its place on the bar. Optionally the MAX…Miss counts, accuracy and combo (off by default: osu!'s HUD shows them) and live and peak keys per second. On results it keeps the ratio, the bar and the attempt's peak.
 Placement: {"mania":["right-24","top+312",256,352]}

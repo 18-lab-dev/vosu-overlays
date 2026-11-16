@@ -25,17 +25,35 @@ b { font-weight: inherit; }
   transition: opacity var(--dur-base) var(--ease-in), transform var(--dur-base) var(--ease-in), visibility 0s linear var(--dur-base);
 }
 
-.j-max { color: var(--j-max); }
-.j-great { color: var(--j-great); }
-.cell[data-j="max"] { --j: var(--j-max); }
-.cell[data-j="great"] { --j: var(--j-great); }
-.cell[data-j="good"] { --j: var(--j-good); }
-.cell[data-j="ok"] { --j: var(--j-ok); }
-.cell[data-j="meh"] { --j: var(--j-meh); }
-.cell[data-j="miss"] { --j: var(--j-miss); }
+[data-j="max"] { --j: var(--j-max); }
+[data-j="great"] { --j: var(--j-great); }
+[data-j="good"] { --j: var(--j-good); }
+[data-j="ok"] { --j: var(--j-ok); }
+[data-j="meh"] { --j: var(--j-meh); }
+[data-j="miss"] { --j: var(--j-miss); }
 
-.hero { display: grid; gap: var(--s-1); justify-items: start; }
-.ratio[data-known="false"] .kit-unit { visibility: hidden; }
+/* The hero: the chained ratio MAX : 300 : 200 : 100 : 50 : Miss. Each term is a column, its
+   judgement name (in the bar's colour) above its number; the quiet colons sit between columns on the
+   numbers' baseline. Six numbers cannot take the 52 px hero size in 224 px, so the hero role runs at
+   --term (≥ 20 px, the row floor). When the terms do not fit, overlay.js drops whole columns (50,
+   then 100, then 200) rather than shrink them. */
+.hero { --term: calc(var(--px) * 24); position: relative; display: grid; gap: var(--s-1); justify-items: start; }
+.chain { display: flex; align-items: last baseline; justify-self: stretch; }
+.term { display: grid; justify-items: center; gap: var(--s-1); }
+.term > .name { color: var(--j); }
+.chain .value, .probe { font-size: var(--term); }
+.colon {
+  flex: none;
+  width: calc(var(--px) * 12);
+  text-align: center;
+  font: 500 calc(var(--px) * 16)/1 var(--font-body);
+  color: var(--text-3);
+}
+.chain > [hidden] { display: none; }
+.chain[data-known="false"] .value { color: var(--text-3); }
+.chain[data-known="false"] .colon { visibility: hidden; }
+/* Glyph widths for the fit are measured on this hidden copy of the term style (layout time only). */
+.probe { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
 /* The canvas carries the bar (6 px, at its bottom) and, above it, the headroom where a 50 or a
    miss marks its place. width 0 + min-width 100 % keeps its backing-store width out of the grid's
    intrinsic sizing (it spans the row's columns) while it still fills them. */
@@ -50,6 +68,8 @@ b { font-weight: inherit; }
 
 .stats { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s-5); row-gap: var(--s-3); }
 .stat { display: grid; gap: var(--s-1); align-content: start; justify-items: start; }
+/* The one essential caption (why keys per second is missing) takes the 16 px caption size. */
+.note { font-size: calc(var(--px) * 16); }
 .note .kit-code { font-size: inherit; }
 
 /* What is shown: counts, accuracy and combo only with hudFields; keys per second only with showKps. */
@@ -59,10 +79,14 @@ b { font-weight: inherit; }
 .jr[data-hud="false"][data-kps="false"] .stats { display: none; }
 
 /* ------------------------------------------------------------------ vertical: the column */
+/* --w: the column's width in base px: 256 at the placement box, the box's own width when a host
+   gives a narrower one (overlay.js keeps --u at 1 there and drops ratio columns instead). */
 .jr[data-orient="vertical"] {
-  width: calc(var(--px) * 256);
+  width: calc(var(--px) * var(--w, 256));
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "hero" "bar" "counts" "stats" "note";
 }
+[data-orient="vertical"] .chain { justify-content: space-between; }
 [data-orient="vertical"] .hero { grid-area: hero; }
 [data-orient="vertical"] .bar { grid-area: bar; margin-top: var(--s-2); }
 [data-orient="vertical"] .counts {
@@ -78,14 +102,15 @@ b { font-weight: inherit; }
 [data-orient="vertical"] .stats { grid-area: stats; margin-top: var(--s-3); }
 [data-orient="vertical"] .note { grid-area: note; margin-top: var(--s-2); }
 
-/* Right alignment mirrors the column (the bar fills from the right, drawn so by overlay.js) so it
-   can sit left of a stage or against the right edge reading inward. */
+/* Right alignment right-aligns the column's text so it can sit left of a stage or against the right
+   edge reading inward. The ratio and the bar keep the game's order, MAX on the left. */
 [data-orient="vertical"][data-align="right"] { text-align: right; }
 [data-orient="vertical"][data-align="right"] :is(.hero, .stat) { justify-items: end; }
 [data-orient="vertical"][data-align="right"] :is(.counts, .stats) { direction: rtl; }
 [data-orient="vertical"][data-align="right"] :is(.cell, .stat) > * { direction: ltr; }
 [data-orient="vertical"][data-align="right"] .cell { flex-direction: row-reverse; }
 [data-orient="vertical"][data-align="right"] .count > b { justify-self: start; }
+[data-orient="vertical"][data-align="right"] .term { text-align: center; }
 
 /* ------------------------------------------------------------------ horizontal: one row */
 .jr[data-orient="horizontal"] {
@@ -95,8 +120,8 @@ b { font-weight: inherit; }
   align-items: end;
 }
 [data-orient="horizontal"] .hero { grid-area: hero; }
-/* Fixed numeral slots so the row keeps its width as numbers grow; numbers sit against their unit. */
-[data-orient="horizontal"] #ratio { display: inline-block; min-width: 3ch; text-align: end; }
+/* Fixed numeral slots so the row keeps its width as numbers grow. */
+[data-orient="horizontal"] .chain .value { min-width: 3ch; text-align: center; }
 [data-orient="horizontal"] .counts { grid-area: counts; display: flex; gap: var(--s-4); }
 [data-orient="horizontal"] .cell { display: grid; gap: var(--s-1); justify-items: start; }
 [data-orient="horizontal"] .count > b { justify-self: start; min-width: 3ch; }
@@ -111,9 +136,8 @@ b { font-weight: inherit; }
 .jr[data-phase="results"] :is(.counts, .acc, .combo, .kps, .note) { display: none; }
 .jr[data-phase="results"][data-kps="false"] .stats { display: none; }
 .jr[data-phase="results"][data-kps="true"] .stats { display: grid; }
-/* The bar grows in once on results; it fills from the side the column reads from. */
+/* The bar grows in once on results, from MAX's end. */
 .bar { transform-origin: 0 50%; }
-[data-align="right"] .bar { transform-origin: 100% 50%; }
 
 /* ------------------------------------------------------------------ status line */
 .chip {

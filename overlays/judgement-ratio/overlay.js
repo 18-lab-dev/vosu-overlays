@@ -1,21 +1,24 @@
 // Copyright (c) 2026 18-LAB. MIT.
-// osu!mania judgement ratio: the MAX : 300 ratio as the hero and the judgement mix as one
-// proportional bar, on the 18-LAB kit (docs/overlay-system.md). The MAX…Miss counts, accuracy and
-// combo are osu!'s HUD's and appear only with `hudFields`; keys per second (the shared createKps()
-// number) only with `showKps`, from a second subscription that exists only while it is on. Results
-// keep what osu!'s ranking screen lacks: the ratio, the bar and the attempt's peak.
+// osu!mania judgement ratio: the chained ratio MAX : 300 : 200 : 100 : 50 : Miss as the hero (every
+// count divided by the smallest non-zero count, so that term reads 1), each term under its judgement
+// name, and the judgement mix as one proportional bar, on the 18-LAB kit (docs/overlay-system.md).
+// The MAX…Miss counts, accuracy and combo are osu!'s HUD's and appear only with `hudFields`; keys per
+// second (the shared createKps() number) only with `showKps`, from a second subscription that exists
+// only while it is on. Results keep what osu!'s ranking screen lacks: the ratio, the bar and the
+// attempt's peak.
 //
 // Motion (setting `motion`): the panel enters and leaves with the kit's fade; a 50 or a miss marks
 // its place on the bar (and flashes its count when counts are shown); on results the bar grows in
-// once. Counts and the ratio snap. Idle is free: a frame is requested only for new data or while a
-// mark is fading.
+// once. Counts and the ratio terms snap. Idle is free: a frame is requested only for new data or
+// while a mark is fading.
 //
-// Render path: every buffer and formatter is created at load or on resize. A frame formats text
-// only for a displayed number that changed (numberFormatter returns one string per shown value),
-// writes the DOM only when that string differs, and redraws the bar only when a count changed or
-// a mark is fading.
+// Render path: every buffer and formatter is created at load or on resize. The ratio terms are
+// reformatted only when a count changed (numberFormatter returns one string per shown value), the DOM
+// is written only when a string differs, and whether the terms fit is arithmetic on glyph widths
+// measured at layout time (no layout reads per frame). The bar is redrawn only when a count changed
+// or a mark is fading.
 import {
-  subscribe, settings, activeMode, MODES, UNKNOWN, isKnown, known,
+  subscribe, settings, activeMode, MODES, UNKNOWN, DASH, isKnown, known,
   numberFormatter, createKps, applyKitSettings, MOTION_MS,
 } from './vosu-overlay.js';
 
@@ -47,9 +50,16 @@ const hud = $('hud');
 const chip = $('chip');
 const canvas = $('bar');
 const ctx = canvas.getContext('2d', { alpha: true });
-const ratioBox = hud.querySelector('.ratio');
+const chain = $('chain');
+const probe = $('probe');
 const note = $('note');
-const text = { ratio: $('ratio'), acc: $('acc'), combo: $('combo'), kps: $('kps'), peak: $('peak') };
+const text = { acc: $('acc'), combo: $('combo'), kps: $('kps'), peak: $('peak') };
+const terms = [...chain.querySelectorAll('.term')].map(term => ({
+  term,
+  name: term.querySelector('.name'),
+  value: term.querySelector('.value'),
+  colon: term.nextElementSibling, // the colon after the term (null after Miss)
+}));
 const cells = [...hud.querySelectorAll('.cell')].map(cell => ({
   count: cell.querySelector('.count > b'),
   flash: cell.querySelector('.flash'),
@@ -68,7 +78,6 @@ let pending = 0;
 let shown = false;
 let phase = ''; // 'live' | 'results' | '' (hidden)
 let orientation = 'vertical';
-let mirrored = false; // the column aligned right: the bar fills from the right
 
 const kps = createKps();
 // Last attempt, held so the results screen can show its ratio, bar and peak.
@@ -79,13 +88,113 @@ let barDirty = true;
 
 // One formatter per displayed field (docs/overlay-system.md "Numbers").
 const fmt = {
-  ratio: numberFormatter('ratio'),
   acc: numberFormatter('accuracy'),
   combo: numberFormatter('count'),
   kps: numberFormatter('kps'),
   peak: numberFormatter('kps'),
   counts: KEYS.map(() => numberFormatter('count')),
+  // Ratio terms: ≥ 10 whole (comma groups), below 10 one decimal with a trailing ".0" dropped.
+  whole: KEYS.map(() => numberFormatter('count')),
+  frac: KEYS.map(() => numberFormatter('stat')),
 };
+
+// ------------------------------------------------------------------ the chained ratio
+// MAX : 300 : 200 : 100 : 50 : Miss, each count over the smallest non-zero one. Recomputed only when a
+// count changed. In the column the terms share its width; when they do not fit at the term size,
+// whole columns go (50, then 100, then 200; never MAX, 300 or Miss) instead of the text shrinking.
+const chainFor = new Int32Array(6).fill(-1); // counts the terms were computed from
+let chainKnown = false;
+const termText = new Array(6).fill(DASH);
+const DROP_ORDER = [4, 3, 2];
+let dropped = 0; // how many of DROP_ORDER are hidden
+// Fit geometry in 1/64 CSS px at the current --u (integers, so the arithmetic never boxes a double),
+// measured in layout() only.
+const SUB = 64;
+const NO_LIMIT = 0x3fffffff;
+let fitWidth = NO_LIMIT; // the column's content width; no limit in the row form (no dropping)
+let digitW = 0;
+let commaW = 0;
+let dotW = 0;
+let dashW = 0;
+let colonW = 0;
+const nameW = new Int32Array(6);
+const termW = new Int32Array(6); // each term's number width, set when its text changes
+
+function textWidth(s) {
+  let w = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    w += c >= 48 && c <= 57 ? digitW : c === 44 ? commaW : c === 46 ? dotW : dashW;
+  }
+  return w;
+}
+
+/** Width the chain needs with the first `n` columns of DROP_ORDER dropped. */
+function chainWidth(n) {
+  let w = 0;
+  let columns = 0;
+  for (let i = 0; i < 6; i++) {
+    let gone = false;
+    for (let k = 0; k < n; k++) if (DROP_ORDER[k] === i) gone = true;
+    if (gone) continue;
+    w += termW[i] > nameW[i] ? termW[i] : nameW[i];
+    columns++;
+  }
+  return w + (columns - 1) * colonW;
+}
+
+/** Hides the fewest columns that let the rest fit; a column comes back only with a digit to spare. */
+function fitChain() {
+  let n = 0;
+  while (n < DROP_ORDER.length && chainWidth(n) > fitWidth - (n < dropped ? digitW : 0)) n++;
+  if (n === dropped) return;
+  dropped = n;
+  for (let k = 0; k < DROP_ORDER.length; k++) {
+    const term = terms[DROP_ORDER[k]];
+    term.term.hidden = k < n;
+    term.colon.hidden = k < n;
+  }
+}
+
+function updateChain(known6) {
+  chainFor.set(counts);
+  chainKnown = known6;
+  let min = 0;
+  for (let i = 0; i < 6; i++) if (counts[i] > 0 && (min === 0 || counts[i] < min)) min = counts[i];
+  const has = known6 && min > 0; // a dash before the first judgement, never 0
+  setAttr(chain, 'known', has ? 'true' : 'false');
+  for (let i = 0; i < 6; i++) {
+    const t = counts[i] / min;
+    const s = !has ? DASH : t >= 10 ? fmt.whole[i](t) : fmt.frac[i](t);
+    termText[i] = s;
+    termW[i] = textWidth(s);
+    setText(terms[i].value, s);
+  }
+  fitChain();
+}
+
+/** Measures the glyphs and the column for fitChain(); layout time only (it reads layout). */
+function measureChain() {
+  for (const term of terms) { term.term.hidden = false; if (term.colon) term.colon.hidden = false; }
+  dropped = 0;
+  const width = () => Math.round(probe.getBoundingClientRect().width * SUB);
+  probe.textContent = '0000000000';
+  digitW = Math.round(width() / 10);
+  probe.textContent = ',,,,,,,,,,';
+  commaW = Math.round(width() / 10);
+  probe.textContent = '..........';
+  dotW = Math.round(width() / 10);
+  probe.textContent = DASH;
+  dashW = width();
+  probe.textContent = '';
+  for (let i = 0; i < 6; i++) {
+    nameW[i] = Math.round(terms[i].name.getBoundingClientRect().width * SUB);
+    termW[i] = textWidth(termText[i]);
+  }
+  colonW = Math.round(terms[0].colon.getBoundingClientRect().width * SUB);
+  fitWidth = orientation === 'vertical' ? Math.floor(chain.getBoundingClientRect().width * SUB) : NO_LIMIT;
+  fitChain();
+}
 
 // ------------------------------------------------------------------ data
 function onFrame(next) {
@@ -134,7 +243,9 @@ function setKpsFeed(on) {
 // ------------------------------------------------------------------ box layout
 /**
  * Orientation from the box's aspect (or the setting), then the scale: the live layout is measured
- * at --u = 1 and fitted into the box. Runs on resize, settings and font load only (it reads layout).
+ * at --u = 1 and fitted into the box. A column box narrower than the 256 px placement keeps --u at 1
+ * (the type floor) and takes the box's width, and the ratio drops columns to fit. Runs on resize,
+ * settings and font load only (it reads layout).
  */
 function layout() {
   if (!options) return;
@@ -147,18 +258,21 @@ function layout() {
     ? options.align
     : orient === 'horizontal' ? 'center' : 'left';
   orientation = orient;
-  mirrored = orient === 'vertical' && align === 'right';
   setAttr(hud, 'orient', orient);
   setAttr(hud, 'align', align);
   setAttr(document.body, 'align', align);
+  const narrow = orient === 'vertical' && width < BASE_WIDTH;
+  hud.style.setProperty('--w', String(narrow ? width : BASE_WIDTH));
   const shownPhase = hud.dataset.phase;
   hud.dataset.phase = 'live';
   hud.style.setProperty('--u', '1');
   const naturalWidth = hud.offsetWidth || BASE_WIDTH;
   const naturalHeight = hud.offsetHeight || BASE_WIDTH;
   hud.dataset.phase = shownPhase;
-  const unit = Math.max(0.25, Math.min(width / naturalWidth, height / naturalHeight));
+  const byHeight = height / naturalHeight;
+  const unit = Math.max(0.25, narrow ? Math.min(1, byHeight) : Math.min(width / naturalWidth, byHeight));
   hud.style.setProperty('--u', String(unit));
+  measureChain();
   barDirty = true;
   schedule();
 }
@@ -275,12 +389,10 @@ function render(now) {
   setAttr(hud, 'phase', next);
   setShown(true);
 
-  // MAX : 300; ∞ before the first 300, a dash before the first judgement.
-  const max = counts[0];
-  const great = counts[1];
-  const ratio = !known6 || (!max && !great) ? UNKNOWN : great ? max / great : Infinity;
-  setText(text.ratio, fmt.ratio(ratio));
-  setAttr(ratioBox, 'known', isKnown(ratio) || ratio === Infinity ? 'true' : 'false');
+  // The chained ratio, reformatted only when a count (or whether any is known) changed.
+  let stale = known6 !== chainKnown;
+  for (let i = 0; i < 6 && !stale; i++) stale = counts[i] !== chainFor[i];
+  if (stale) updateChain(known6);
 
   const events = next === 'live' && !entering && motion === 'full';
   for (let i = 0; i < 6; i++) {
@@ -348,10 +460,6 @@ let gap = 1; // between segments
 let markWidth = 4;
 let markGap = 2;
 
-function fill(x, y, width, height) {
-  ctx.fillRect(mirrored ? canvas.width - x - width : x, y, width, height);
-}
-
 /** Draws the bar for `counts`; returns whether a mark is still fading at rAF time `now`. */
 function drawBar(now) {
   barDirty = false;
@@ -381,7 +489,7 @@ function drawBar(now) {
       segStart[i] = x;
       segEnd[i] = end;
       ctx.fillStyle = COLORS[i];
-      fill(x, top, end - x - (i < last && end - x > gap + 1 ? gap : 0), barHeight);
+      ctx.fillRect(x, top, end - x - (i < last && end - x > gap + 1 ? gap : 0), barHeight);
       x = end;
     }
   }
@@ -397,7 +505,7 @@ function drawBar(now) {
     if (x > w - width) x = w - width;
     ctx.globalAlpha = (1 - fade) * (1 - fade);
     ctx.fillStyle = COLORS[i];
-    fill(x, 0, width, top - markGap);
+    ctx.fillRect(x, 0, width, top - markGap);
   }
   ctx.globalAlpha = 1;
   return active;

@@ -319,7 +319,7 @@ Positions are `x,y` of the box's top-left, stable · lazer.
 
 **osu!catch**: the osu! grid with catch overlays: T ticker, L1 leaderboard, **L2 fruit-ledger** (`left+24`, `top+568`, 216×96 → 24,568), **L3 key-counter or key-overlay** (one slot, `left+24`, `top+688`: 216×96 or 216×160 → 24,688), R1 now-playing, **R2 catcher-heatmap or catcher-trail** (`right-24`, `top+360`, 216×240 → 1680,360), R3 strain-graph, R4 profile-card, R5 pp-counter, X results-card.
 
-The stacks are ordered so the recommended layouts below run contiguously down from the column top (and pp-counter from the bottom); the overlays only the full layout adds sit after them.
+The stacks are ordered so the recommended layouts below run contiguously down from the column top; pp-counter is anchored to the bottom corner, so the osu!/catch right column keeps a gap between the upper overlays and pp-counter. The overlays only the full layout adds sit after them.
 
 **osu!taiko**
 
@@ -356,7 +356,7 @@ Checked on the stage (`?id=*&boxes=1&layout=2`, boxes from `#placements`, busy r
 
 ### Recommended layouts
 
-The slot tables above are the reference: every overlay has a place and none collide. A stream does not need them all; the playfield should stay the subject. These lean layouts use at most three overlays per side, alternatives already chosen, and use the same placements: the column stacks put them first, so each column fills from its top (pp-counter from the bottom corner) with no hole. Add from the reference tables only what the stream needs.
+The slot tables above are the reference: every overlay has a place and none collide. A stream does not need them all; the playfield should stay the subject. These lean layouts use at most three overlays per side, alternatives already chosen, and use the same placements: the column stacks put them first, so each column fills from its top, with pp-counter anchored in the bottom corner (in osu!/catch the right column has a gap above it). Add from the reference tables only what the stream needs.
 
 | Ruleset | Left (from the top) | Right (from the top; pp-counter in the bottom corner) | Top / under the lane |
 | --- | --- | --- | --- |

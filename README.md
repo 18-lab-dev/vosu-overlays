@@ -145,7 +145,7 @@ The perf run reports script, layout and style time per second, and the allocatio
 
 Perf runs load the overlay page alone at its box size, as OBS, vosulay and the replay renderer do, and also report CPU per Chromium process (`cpuPct`: renderer = script, style, layout and paint; gpu = compositing and rasterisation) over a 5 s window before the frame counter starts. `--gpu 1` renders on the hardware GPU (ANGLE over Vulkan) and adds `gpuSm`, the GPU process's peak SM load from `nvidia-smi pmon` (below 1 % reads 0); without it Chromium uses SwiftShader, so GPU work shows as CPU, the case of a host without hardware acceleration. The mock serves vosu's `/json/sc` timing points (404 with `compat=tosu`) for beat-synced motion.
 
-## Internal packaging / future releases
+## Packaging and releases
 
 Packaging is retained for local development and possible future publication, not as a currently available install source. Only self-contained folders under `overlays/` are packaged. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the generated catalog; continue serving them with `./run.sh`.
 

@@ -147,7 +147,7 @@ Perf runs load the overlay page alone at its box size, as OBS, vosulay and the r
 
 ## Packaging and releases
 
-Packaging is retained for local development and possible future publication, not as a currently available install source. Only self-contained folders under `overlays/` are packaged. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the generated catalog; continue serving them with `./run.sh`.
+Only self-contained folders under `overlays/` are packaged. The root `/lyrics`, `/map`, and `/keys` overlays depend on the Python sidecar and are deliberately excluded from the generated catalog; continue serving them with `./run.sh`.
 
 ```sh
 python scripts/package.py --base-url https://example.invalid/releases/test

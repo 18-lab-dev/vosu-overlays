@@ -55,7 +55,6 @@ const probe = $('probe');
 const note = $('note');
 const text = { acc: $('acc'), combo: $('combo'), kps: $('kps'), peak: $('peak') };
 const terms = [...chain.querySelectorAll('.term')].map(term => ({
-  term,
   name: term.querySelector('.name'),
   value: term.querySelector('.value'),
   colon: term.nextElementSibling, // the colon after the term (null after Miss)
@@ -100,18 +99,21 @@ const fmt = {
 
 // ------------------------------------------------------------------ the chained ratio
 // MAX : 300 : 200 : 100 : 50 : Miss, each count over the smallest non-zero one. Recomputed only when a
-// count changed. In the column the terms share its width; when they do not fit at the term size,
-// whole columns go (50, then 100, then 200; never MAX, 300 or Miss) instead of the text shrinking.
+// count changed. All six terms always show: in the column they take the fewest rows that fit its
+// width at the term size (one row of six, two of three, or three of two for very narrow boxes), and
+// the text never shrinks. The chain is one grid over the term/colon siblings, so the columns align
+// across rows and a row ends with its colon when the chain reads on.
 const chainFor = new Int32Array(6).fill(-1); // counts the terms were computed from
 let chainKnown = false;
 const termText = new Array(6).fill(DASH);
-const DROP_ORDER = [4, 3, 2];
-let dropped = 0; // how many of DROP_ORDER are hidden
-// Fit geometry in 1/64 CSS px at the current --u (integers, so the arithmetic never boxes a double),
-// measured in layout() only.
+const PER_ROW = [0, 6, 3, 2]; // terms per row for 1, 2 and 3 rows
+const ROW_TEXT = ['', '1', '2', '3'];
+let rows = 1;
+// Fit geometry in 1/64 base px (measured at --u = 1, so it holds at any scale; integers, so the
+// arithmetic never boxes a double), measured in measureChain() only.
 const SUB = 64;
 const NO_LIMIT = 0x3fffffff;
-let fitWidth = NO_LIMIT; // the column's content width; no limit in the row form (no dropping)
+let fitWidth = NO_LIMIT; // the column's content width; no limit in the row form (always one row)
 let digitW = 0;
 let commaW = 0;
 let dotW = 0;
@@ -119,6 +121,14 @@ let dashW = 0;
 let colonW = 0;
 const nameW = new Int32Array(6);
 const termW = new Int32Array(6); // each term's number width, set when its text changes
+// The page's natural height at --u = 1 (CSS px) for 1, 2 and 3 chain rows at each give-way level
+// (index (rows − 1) · 4 + level), its natural width, and the box it scales into.
+const GIVE_TEXT = ['0', '1', '2', '3'];
+const naturalH = new Float64Array(12);
+let naturalW = BASE_WIDTH;
+let boxW = BASE_WIDTH;
+let boxH = BASE_WIDTH;
+let narrow = false;
 
 function textWidth(s) {
   let w = 0;
@@ -129,31 +139,48 @@ function textWidth(s) {
   return w;
 }
 
-/** Width the chain needs with the first `n` columns of DROP_ORDER dropped. */
-function chainWidth(n) {
+/** Width the chain needs with `k` terms per row: each column takes the widest term in it. */
+function chainWidth(k) {
   let w = 0;
-  let columns = 0;
-  for (let i = 0; i < 6; i++) {
-    let gone = false;
-    for (let k = 0; k < n; k++) if (DROP_ORDER[k] === i) gone = true;
-    if (gone) continue;
-    w += termW[i] > nameW[i] ? termW[i] : nameW[i];
-    columns++;
+  for (let j = 0; j < k; j++) {
+    let column = 0;
+    for (let i = j; i < 6; i += k) {
+      const cell = termW[i] > nameW[i] ? termW[i] : nameW[i];
+      if (cell > column) column = cell;
+    }
+    w += column;
   }
-  return w + (columns - 1) * colonW;
+  return w + (k === 6 ? 5 : k) * colonW; // a wrapped row ends with its colon
 }
 
-/** Hides the fewest columns that let the rest fit; a column comes back only with a digit to spare. */
+/** The fewest rows that fit; going back to fewer rows takes a digit's width to spare. */
 function fitChain() {
-  let n = 0;
-  while (n < DROP_ORDER.length && chainWidth(n) > fitWidth - (n < dropped ? digitW : 0)) n++;
-  if (n === dropped) return;
-  dropped = n;
-  for (let k = 0; k < DROP_ORDER.length; k++) {
-    const term = terms[DROP_ORDER[k]];
-    term.term.hidden = k < n;
-    term.colon.hidden = k < n;
+  let next = 1;
+  while (next < 3 && chainWidth(PER_ROW[next]) > fitWidth - (next < rows ? digitW : 0)) next++;
+  if (next === rows) return false;
+  rows = next;
+  setAttr(chain, 'rows', ROW_TEXT[next]);
+  return true;
+}
+
+/**
+ * --u for the box from the natural sizes measured in measureChain(); no layout reads. In the column,
+ * when the page would have to scale below --u = 1 to fit the box's height (every field on and the
+ * ratio wrapped, or a short replay cell), fields give way before any text shrinks, least useful
+ * first: 1 accuracy and combo (osu!'s HUD shows them biggest), 2 the judgement count table (osu!'s
+ * HUD data too), 3 keys per second. Only a box too small even then scales the text down.
+ */
+function applyScale() {
+  const byWidth = narrow ? 1 : boxW / naturalW;
+  let level = 0;
+  let unit = Math.min(byWidth, boxH / naturalH[(rows - 1) * 4]);
+  while (orientation === 'vertical' && unit < 0.999 && level < 3) {
+    level++;
+    unit = Math.min(byWidth, boxH / naturalH[(rows - 1) * 4 + level]);
   }
+  setAttr(hud, 'give', GIVE_TEXT[level]);
+  hud.style.setProperty('--u', String(Math.max(0.25, unit)));
+  barDirty = true;
 }
 
 function updateChain(known6) {
@@ -170,13 +197,14 @@ function updateChain(known6) {
     termW[i] = textWidth(s);
     setText(terms[i].value, s);
   }
-  fitChain();
+  if (fitChain()) applyScale(); // a new row count changes the page's height
 }
 
-/** Measures the glyphs and the column for fitChain(); layout time only (it reads layout). */
+/**
+ * Layout time only (resize, settings, font load): with --u = 1 and the live layout, measures the
+ * glyphs, the column's width and the page's natural size for each row count, then fits and scales.
+ */
 function measureChain() {
-  for (const term of terms) { term.term.hidden = false; if (term.colon) term.colon.hidden = false; }
-  dropped = 0;
   const width = () => Math.round(probe.getBoundingClientRect().width * SUB);
   probe.textContent = '0000000000';
   digitW = Math.round(width() / 10);
@@ -193,6 +221,17 @@ function measureChain() {
   }
   colonW = Math.round(terms[0].colon.getBoundingClientRect().width * SUB);
   fitWidth = orientation === 'vertical' ? Math.floor(chain.getBoundingClientRect().width * SUB) : NO_LIMIT;
+  for (let r = 3; r >= 1; r--) {
+    chain.dataset.rows = ROW_TEXT[r];
+    for (let level = 3; level >= 0; level--) {
+      hud.dataset.give = GIVE_TEXT[level];
+      naturalH[(r - 1) * 4 + level] = hud.offsetHeight || BASE_WIDTH;
+    }
+  }
+  if (hud._data) hud._data.give = '0';
+  naturalW = hud.offsetWidth || BASE_WIDTH;
+  rows = 1;
+  setAttr(chain, 'rows', '1');
   fitChain();
 }
 
@@ -244,16 +283,16 @@ function setKpsFeed(on) {
 /**
  * Orientation from the box's aspect (or the setting), then the scale: the live layout is measured
  * at --u = 1 and fitted into the box. A column box narrower than the 256 px placement keeps --u at 1
- * (the type floor) and takes the box's width, and the ratio drops columns to fit. Runs on resize,
- * settings and font load only (it reads layout).
+ * (the type floor) and takes the box's width; the ratio wraps onto more rows to fit it. Runs on
+ * resize, settings and font load only (it reads layout).
  */
 function layout() {
   if (!options) return;
-  const width = innerWidth || BASE_WIDTH;
-  const height = innerHeight || BASE_WIDTH;
+  boxW = innerWidth || BASE_WIDTH;
+  boxH = innerHeight || BASE_WIDTH;
   const orient = options.orientation === 'horizontal' || options.orientation === 'vertical'
     ? options.orientation
-    : width >= height * HORIZONTAL_ASPECT ? 'horizontal' : 'vertical';
+    : boxW >= boxH * HORIZONTAL_ASPECT ? 'horizontal' : 'vertical';
   const align = options.align === 'left' || options.align === 'right' || options.align === 'center'
     ? options.align
     : orient === 'horizontal' ? 'center' : 'left';
@@ -261,19 +300,14 @@ function layout() {
   setAttr(hud, 'orient', orient);
   setAttr(hud, 'align', align);
   setAttr(document.body, 'align', align);
-  const narrow = orient === 'vertical' && width < BASE_WIDTH;
-  hud.style.setProperty('--w', String(narrow ? width : BASE_WIDTH));
+  narrow = orient === 'vertical' && boxW < BASE_WIDTH;
+  hud.style.setProperty('--w', String(narrow ? boxW : BASE_WIDTH));
   const shownPhase = hud.dataset.phase;
   hud.dataset.phase = 'live';
   hud.style.setProperty('--u', '1');
-  const naturalWidth = hud.offsetWidth || BASE_WIDTH;
-  const naturalHeight = hud.offsetHeight || BASE_WIDTH;
-  hud.dataset.phase = shownPhase;
-  const byHeight = height / naturalHeight;
-  const unit = Math.max(0.25, narrow ? Math.min(1, byHeight) : Math.min(width / naturalWidth, byHeight));
-  hud.style.setProperty('--u', String(unit));
   measureChain();
-  barDirty = true;
+  hud.dataset.phase = shownPhase;
+  applyScale();
   schedule();
 }
 

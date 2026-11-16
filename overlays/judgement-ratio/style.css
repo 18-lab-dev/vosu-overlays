@@ -35,21 +35,23 @@ b { font-weight: inherit; }
 /* The hero: the chained ratio MAX : 300 : 200 : 100 : 50 : Miss. Each term is a column, its
    judgement name (in the bar's colour) above its number; the quiet colons sit between columns on the
    numbers' baseline. Six numbers cannot take the 52 px hero size in 224 px, so the hero role runs at
-   --term (≥ 20 px, the row floor). When the terms do not fit, overlay.js drops whole columns (50,
-   then 100, then 200) rather than shrink them. */
+   --term (24 px, never smaller). The chain is one grid over the term/colon siblings; overlay.js picks
+   the fewest rows that fit (data-rows): one row of six, two of three, three of two. Columns align
+   across rows, and a wrapped row ends with its colon so the chain reads on. */
 .hero { --term: calc(var(--px) * 24); position: relative; display: grid; gap: var(--s-1); justify-items: start; }
-.chain { display: flex; align-items: last baseline; justify-self: stretch; }
+.chain { display: grid; align-items: last baseline; row-gap: var(--s-2); justify-self: stretch; }
+.chain[data-rows="1"] { grid-template-columns: repeat(5, auto auto) auto; }
+.chain[data-rows="2"] { grid-template-columns: repeat(3, auto auto); }
+.chain[data-rows="3"] { grid-template-columns: repeat(2, auto auto); }
 .term { display: grid; justify-items: center; gap: var(--s-1); }
 .term > .name { color: var(--j); }
 .chain .value, .probe { font-size: var(--term); }
 .colon {
-  flex: none;
   width: calc(var(--px) * 12);
   text-align: center;
   font: 500 calc(var(--px) * 16)/1 var(--font-body);
   color: var(--text-3);
 }
-.chain > [hidden] { display: none; }
 .chain[data-known="false"] .value { color: var(--text-3); }
 .chain[data-known="false"] .colon { visibility: hidden; }
 /* Glyph widths for the fit are measured on this hidden copy of the term style (layout time only). */
@@ -72,22 +74,28 @@ b { font-weight: inherit; }
 .note { font-size: calc(var(--px) * 16); }
 .note .kit-code { font-size: inherit; }
 
-/* What is shown: counts, accuracy and combo only with hudFields; keys per second only with showKps. */
+/* What is shown: counts, accuracy and combo only with hudFields; keys per second only with showKps.
+   data-give (overlay.js): when the column is too tall for its box at full size, fields give way
+   instead of the text shrinking: 1 accuracy and combo, 2 also the count table, 3 also keys per second. */
 .jr[data-hud="false"] :is(.counts, .acc, .combo),
+.jr:is([data-give="1"], [data-give="2"], [data-give="3"]) :is(.acc, .combo),
+.jr:is([data-give="2"], [data-give="3"]) .counts,
 .jr[data-kps="false"] :is(.kps, .peak, .note),
 .jr[data-keys="missing"] :is(.kps, .peak),
+.jr[data-give="3"] :is(.stats, .note),
+.jr:is([data-give="1"], [data-give="2"])[data-kps="false"] .stats,
 .jr[data-hud="false"][data-kps="false"] .stats { display: none; }
 
 /* ------------------------------------------------------------------ vertical: the column */
 /* --w: the column's width in base px: 256 at the placement box, the box's own width when a host
-   gives a narrower one (overlay.js keeps --u at 1 there and drops ratio columns instead). */
+   gives a narrower one (overlay.js keeps --u at 1 there and wraps the ratio onto more rows). */
 .jr[data-orient="vertical"] {
   width: calc(var(--px) * var(--w, 256));
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "hero" "bar" "counts" "stats" "note";
 }
 [data-orient="vertical"] .chain { justify-content: space-between; }
-[data-orient="vertical"] .hero { grid-area: hero; }
+[data-orient="vertical"] .hero { grid-area: hero; grid-template-columns: minmax(0, 1fr); }
 [data-orient="vertical"] .bar { grid-area: bar; margin-top: var(--s-2); }
 [data-orient="vertical"] .counts {
   grid-area: counts;

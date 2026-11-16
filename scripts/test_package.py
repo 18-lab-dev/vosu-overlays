@@ -23,7 +23,7 @@ class OverlayPackageTests(unittest.TestCase):
         (self.overlay / 'index.html').write_text('<h1>timeline</h1>')
         (self.overlay / 'overlay.js').write_text('console.log("timeline")')
         (self.overlay / 'settings.json').write_text('[]')
-        (self.overlay / 'metadata.txt').write_text('name = Timeline\nauthor = 18-LAB\nversion = 0.1.0\ndescription = Test overlay\nrequires_tools = [{"id":"map-analysis","version":">=0.1.0"}]\nresolution = [1920,1080]\n')
+        (self.overlay / 'metadata.txt').write_text('Name: Timeline\nAuthor: 18-LAB\nVersion: 0.1.0\nDescription: Test overlay: a timeline\nRequiresTools: [{"id":"map-analysis","version":">=0.1.0"}]\nResolution: 1920x1080 ## pixels\n')
         (self.root / 'LICENSE').write_text('MIT test license text')
         for sidecar in ['lyrics', 'map', 'keys']:
             directory = self.root / sidecar
@@ -39,7 +39,17 @@ class OverlayPackageTests(unittest.TestCase):
         self.assertEqual([entry['id'] for entry in catalog['overlays']], ['timeline'])
         self.assertEqual(catalog['overlays'][0]['requires_tools'], [{'id': 'map-analysis', 'version': '>=0.1.0'}])
         self.assertEqual(catalog['overlays'][0]['resolution'], [1920, 1080])
+        self.assertEqual(catalog['overlays'][0]['description'], 'Test overlay: a timeline')
         self.assertEqual(json.loads((self.root / 'dist/catalog.json').read_text()), catalog)
+
+    def test_rejects_metadata_vosu_would_not_read(self):
+        # vosu lists only `Key: value` metadata and silently skips other lines.
+        path = self.overlay / 'metadata.txt'
+        original = path.read_text()
+        for text in [original.replace('Name: Timeline', 'name = Timeline'), original.replace('1920x1080', '[1920,1080]')]:
+            path.write_text(text)
+            with self.subTest(text=text.splitlines()[0]), self.assertRaises(ValueError):
+                self.build()
 
     def test_zip_is_deterministic_with_size_digest_modes_and_license(self):
         first = self.build()
@@ -92,7 +102,7 @@ class OverlayPackageTests(unittest.TestCase):
         (self.overlay / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"/>')
         (self.overlay / 'wide.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"/>')
         with (self.overlay / 'metadata.txt').open('a') as output:
-            output.write('banner = wide.svg\n')
+            output.write('Banner: wide.svg\n')
         entry = self.build()['overlays'][0]
         self.assertEqual(entry['icon_url'], 'https://example.com/releases/v1/vosu-overlay-timeline-icon.svg')
         self.assertEqual(entry['banner_url'], 'https://example.com/releases/v1/vosu-overlay-timeline-banner.svg')
@@ -102,7 +112,7 @@ class OverlayPackageTests(unittest.TestCase):
 
     def test_invalid_declared_art_is_not_silently_omitted(self):
         with (self.overlay / 'metadata.txt').open('a') as output:
-            output.write('banner = missing.svg\n')
+            output.write('Banner: missing.svg\n')
         with self.assertRaises(ValueError):
             self.build()
 
@@ -128,8 +138,8 @@ class OverlayPackageTests(unittest.TestCase):
             package.release_url('http://example.com', 'catalog.json')
         path = self.overlay / 'metadata.txt'
         original = path.read_text()
-        for replacement in ['requires_tools = [{"id":"../bad","version":">=0.1.0"}]', 'requires_tools = [{"id":"map-analysis","version":"bad"}]', 'requires_tools = "map-analysis"']:
-            path.write_text('\n'.join(line for line in original.splitlines() if not line.startswith('requires_tools')) + '\n' + replacement + '\n')
+        for replacement in ['RequiresTools: [{"id":"../bad","version":">=0.1.0"}]', 'RequiresTools: [{"id":"map-analysis","version":"bad"}]', 'RequiresTools: "map-analysis"']:
+            path.write_text('\n'.join(line for line in original.splitlines() if not line.startswith('RequiresTools')) + '\n' + replacement + '\n')
             with self.subTest(replacement=replacement), self.assertRaises(ValueError):
                 self.build()
 

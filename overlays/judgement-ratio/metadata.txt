@@ -1,6 +1,6 @@
-name = Judgement ratio
-author = 18-LAB
-version = 0.4.0
-description = osu!mania MAX : 300 ratio with the judgement mix as one proportional bar; a 50 or a miss marks its place on the bar. Optionally the MAX…Miss counts, accuracy and combo (off by default: osu!'s HUD shows them) and live and peak keys per second. On results it keeps the ratio, the bar and the attempt's peak.
-resolution = [256,352]
-placement = {"mania":["right-24","top+312",256,352]}
+Name: Judgement ratio
+Author: 18-LAB
+Version: 0.4.0
+Resolution: 256x352
+Description: osu!mania MAX : 300 ratio with the judgement mix as one proportional bar; a 50 or a miss marks its place on the bar. Optionally the MAX…Miss counts, accuracy and combo (off by default: osu!'s HUD shows them) and live and peak keys per second. On results it keeps the ratio, the bar and the attempt's peak.
+Placement: {"mania":["right-24","top+312",256,352]}

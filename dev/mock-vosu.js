@@ -529,13 +529,16 @@ function overlayMeta(id) {
   const meta = { id, name: id, description: '', resolution: [1920, 1080], placement: {} };
   const file = join(OVERLAYS, id, 'metadata.txt');
   if (!existsSync(file)) return meta;
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
-    const [key, ...rest] = line.split('=');
-    const value = rest.join('=').trim();
+  // vosu's counter format: `Key: value`, keys case-insensitive, `##` starts a comment.
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim().toLowerCase();
+    const value = line.slice(colon + 1).split('##')[0].trim();
     if (!value) continue;
-    if (key.trim() === 'resolution') meta.resolution = JSON.parse(value);
-    else if (key.trim() === 'placement') meta.placement = JSON.parse(value);
-    else if (['name', 'description'].includes(key.trim())) meta[key.trim()] = value;
+    if (key === 'resolution') meta.resolution = value.split(/x/i).map(Number);
+    else if (key === 'placement') meta.placement = JSON.parse(value);
+    else if (key === 'name' || key === 'description') meta[key] = value;
   }
   return meta;
 }

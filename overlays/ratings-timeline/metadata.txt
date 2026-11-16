@@ -1,6 +1,6 @@
-name = Map analysis timeline
-author = 18-LAB
-version = 0.1.0
-description = Compact native mania difficulty timeline for Map analysis, with rate-aware values and a live position marker.
-resolution = [1920,1080]
-requires_tools = [{"id":"map-analysis","version":">=0.1.0"}]
+Name: Map analysis timeline
+Author: 18-LAB
+Version: 0.1.0
+Resolution: 1920x1080
+Description: Compact native mania difficulty timeline for Map analysis, with rate-aware values and a live position marker.
+RequiresTools: [{"id":"map-analysis","version":">=0.1.0"}]

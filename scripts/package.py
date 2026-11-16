@@ -29,17 +29,24 @@ def release_url(base, name):
     return value
 
 
+# vosu's counter metadata (counters/service.rs parse_metadata): `Key: value` lines, keys
+# case-insensitive, `##` starts a comment, `Resolution: WxH`. vosu ignores lines without a colon;
+# the packager rejects them, so a stray `key = value` line fails here instead of hiding the overlay.
+JSON_KEYS = {'placement', 'requires_tools'}
+KEY_NAMES = {'requirestools': 'requires_tools'}
+
+
 def metadata(directory):
     result = {}
     for line in (directory / 'metadata.txt').read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
+        if not line.strip():
             continue
-        key, separator, value = line.partition('=')
-        if not separator or not key.strip() or key.strip() in result:
+        key, separator, value = line.partition(':')
+        key = KEY_NAMES.get(key.strip().lower(), key.strip().lower())
+        if not separator or not key or key in result:
             raise ValueError(f'invalid or duplicate metadata line: {line}')
-        value = value.strip()
-        result[key.strip()] = json.loads(value) if value[:1] in ('[', '{', '"') else value
+        value = value.split('##', 1)[0].strip()
+        result[key] = json.loads(value) if key in JSON_KEYS else value
     for key in ('name', 'version', 'author', 'description'):
         if not isinstance(result.get(key), str) or not result[key]:
             raise ValueError(f'missing overlay metadata {key}: {directory}')
@@ -55,8 +62,11 @@ def metadata(directory):
             raise ValueError('invalid/duplicate requires_tools entry')
         seen.add(requirement['id'])
     resolution = result.get('resolution')
-    if resolution is not None and (not isinstance(resolution, list) or len(resolution) != 2 or any(type(v) is not int or v < 1 for v in resolution)):
-        raise ValueError('resolution must be a JSON [width,height] of positive integers')
+    if resolution is not None:
+        size = re.fullmatch(r'(\d+)\s*[xX]\s*(\d+)', resolution)
+        if not size or min(int(size[1]), int(size[2])) < 1:
+            raise ValueError('Resolution must be WIDTHxHEIGHT in positive integers')
+        result['resolution'] = [int(size[1]), int(size[2])]
     return result
 
 

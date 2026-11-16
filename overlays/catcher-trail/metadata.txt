@@ -1,6 +1,6 @@
-name = Catcher trail
-author = 18-LAB
-version = 0.4.0
-description = osu!catch only. The path the catcher took over the last seconds, rising from a true-width catcher: a neutral walk with its dashes in amber and every miss pinned in red where the catcher was, with the attempt's dash share. The movement record osu! does not keep; catcher-heatmap is its alternative for the same slot (where the catcher spends its time). Wide boxes run the trail left to right. Holds dash share and direction changes on results. Needs vosu's catcher state.
-resolution = [216,240]
-placement = {"fruits":["right-24","top+360",216,240]}
+Name: Catcher trail
+Author: 18-LAB
+Version: 0.4.0
+Resolution: 216x240
+Description: osu!catch only. The path the catcher took over the last seconds, rising from a true-width catcher: a neutral walk with its dashes in amber and every miss pinned in red where the catcher was, with the attempt's dash share. The movement record osu! does not keep; catcher-heatmap is its alternative for the same slot (where the catcher spends its time). Wide boxes run the trail left to right. Holds dash share and direction changes on results. Needs vosu's catcher state.
+Placement: {"fruits":["right-24","top+360",216,240]}

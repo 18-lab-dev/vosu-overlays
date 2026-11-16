@@ -1,6 +1,6 @@
-name = Taiko drum
-author = 18-LAB
-version = 0.4.0
-description = osu!taiko drum input under the lane: four zones that light on press, per-zone counts, the left/right hand split and the alternation rate; live and peak keys per second optional. In taiko it is the input display: key-overlay and key-counter are its alternatives, not companions.
-resolution = [560,96]
-placement = {"taiko":["left+320","lane-bottom+24",560,96]}
+Name: Taiko drum
+Author: 18-LAB
+Version: 0.4.0
+Resolution: 560x96
+Description: osu!taiko drum input under the lane: four zones that light on press, per-zone counts, the left/right hand split and the alternation rate; live and peak keys per second optional. In taiko it is the input display: key-overlay and key-counter are its alternatives, not companions.
+Placement: {"taiko":["left+320","lane-bottom+24",560,96]}

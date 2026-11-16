@@ -242,7 +242,7 @@ Never the player's keybind letters (`Z`, `X`, `LSHFT`) or arrows: the same key m
 
 ## Placement
 
-`placement = {"<mode>":[x, y, w, h]}` in `metadata.txt`; every entry carries its box. A box is laid out for that size; the overlay re-flows to other boxes.
+`Placement: {"<mode>":[x, y, w, h]}` in `metadata.txt` (vosu's `Key: value` format); every entry carries its box. A box is laid out for that size; the overlay re-flows to other boxes.
 
 ### Anchors
 

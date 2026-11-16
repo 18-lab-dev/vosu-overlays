@@ -1,6 +1,6 @@
-name = Aim scatter
-author = 18-LAB
-version = 0.4.0
-description = osu! aim target: every circle hit plotted at the cursor's offset from centre, with the attempt's spread ellipse and its aim bias as an arrow and a distance. Column or strip, re-flowing to its box. Shown in play and on results. Needs vosu ENABLE_HIT_OFFSETS.
-resolution = [216,240]
-placement = {"osu":["right-24","top+360",216,240]}
+Name: Aim scatter
+Author: 18-LAB
+Version: 0.4.0
+Resolution: 216x240
+Description: osu! aim target: every circle hit plotted at the cursor's offset from centre, with the attempt's spread ellipse and its aim bias as an arrow and a distance. Column or strip, re-flowing to its box. Shown in play and on results. Needs vosu ENABLE_HIT_OFFSETS.
+Placement: {"osu":["right-24","top+360",216,240]}
